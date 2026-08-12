@@ -4,13 +4,13 @@ A single-file, fully configurable **spiking neural network (SNN)** classifier fo
 [DVS128 Gesture](https://research.ibm.com/interactive/dvsgesture/) dataset, targeting the
 **HiAER-Spike** neuromorphic hardware platform.
 
-The architecture, the neuron parameters and the optimisation recipe are all expressed as
+The architecture, the neuron parameters and the optimization recipe are all expressed as
 configuration, so the same code serves hand-designed experiments and an automated search over the
 configuration space.
 
-The search optimises accuracy measured on the converted network rather than on the floating-point
+The search optimizes accuracy measured on the converted network rather than on the floating-point
 one. A configuration must fit HiAER-Spike's axon and fan-in/fan-out limits, and its accuracy is
-recorded after batch normalisation is folded away, weights are quantised to INT16, and the chip's
+recorded after batch normalization is folded away, weights are quantized to INT16, and the chip's
 neuron dynamics are applied.
 
 ## Documentation site
@@ -25,9 +25,9 @@ Seven pages in reading order. The interactive demonstrations use arithmetic port
 | Page | Covers |
 |---|---|
 | [01 · The problem](docs/index.html) | HiAER-Spike and its constraints, conventional networks, spiking networks, why their costs differ, and what the project sets out to do |
-| [02 · The neuron](docs/neurons.html) | The neuron the chip implements: update order, integer leak, quantised threshold, surrogate gradients |
+| [02 · The neuron](docs/neurons.html) | The neuron the chip implements: update order, integer leak, quantized threshold, surrogate gradients |
 | [03 · The architecture](docs/architecture.html) | The network as configuration, shape planning computed once, the cost model, and an interactive builder |
-| [04 · Fitting the chip](docs/hardware.html) | Routing limits as arithmetic, the INT16 grid, batch-norm folding, quantisation-aware training |
+| [04 · Fitting the chip](docs/hardware.html) | Routing limits as arithmetic, the INT16 grid, batch-norm folding, quantization-aware training |
 | [05 · Training](docs/training.html) | Event data within the axon budget, rate coding, pipeline flush, the training schedule |
 | [06 · The search](docs/search.html) | Evaluation tiers, early stopping, the conditional search space, results recording |
 | [07 · Reference](docs/reference.html) | Every class and function, grouped by section, searchable |
@@ -45,7 +45,7 @@ python Practice2.py summary --input resize_to=64 T=16 \
 # train one configuration
 python Practice2.py single --data-dir <DVS128_root> --encoder ... --ckpt best.pth
 
-# fold, quantise, verify, and write the conversion tables
+# fold, quantize, verify, and write the conversion tables
 python Practice2.py fold --ckpt best.pth --data-dir <DVS128_root>
 
 # search the configuration space

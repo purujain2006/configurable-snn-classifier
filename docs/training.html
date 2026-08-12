@@ -38,7 +38,7 @@
   <dl class="kv">
     <dt>frames_number</dt><dd>Set to <code>T</code>, so every clip yields the same number of frames regardless of its duration.</dd>
     <dt>split_by</dt><dd>Set to <code>"number"</code>, so each frame covers an equal count of events rather than an equal span of time. Fast motion produces short frames and slow motion produces long ones.</dd>
-    <dt>rasterisation</dt><dd>Events within a frame are accumulated per pixel and per polarity channel.</dd>
+    <dt>rasterization</dt><dd>Events within a frame are accumulated per pixel and per polarity channel.</dd>
     <dt>result</dt><dd>One tensor of shape (T, 2, 128, 128) per clip.</dd>
   </dl>
   <p>Three settings in <code>build_dataloaders</code> affect how comparable the reported numbers are.</p>
@@ -68,7 +68,7 @@
       <p>
         A 128&#215;128 sensor with two polarity channels needs 32,768 input axons. The chip provides
         16,383. The native resolution cannot be presented at all. Separately, the network's input
-        layer expects spikes, and a rasterised frame holds event counts.
+        layer expects spikes, and a rasterized frame holds event counts.
       </p>
     </div>
     <div class="m-row">
@@ -174,7 +174,7 @@ return (out > 0).float()   # any nonzero contribution becomes a full spike</code
     <div class="demo-head">
       <span class="demo-tag">INTERACTIVE</span>
       <span class="demo-title">Evidence moving through the layers</span>
-      <span class="demo-sub">Columns are timesteps and rows are stages. A filled cell means the stage is carrying evidence from a given input frame, coloured by frame. The bottom row is what the output has received.</span>
+      <span class="demo-sub">Columns are timesteps and rows are stages. A filled cell means the stage is carrying evidence from a given input frame, colored by frame. The bottom row is what the output has received.</span>
     </div>
     <div class="demo-body">
       <div class="controls">
@@ -205,21 +205,21 @@ return (out > 0).float()   # any nonzero contribution becomes a full spike</code
   <ol class="steps">
     <li><span class="s-title">Forward</span> A batch of clips of shape (N, T, 2, H, W) passes through <code>forward_over_time</code>, producing 11 firing rates per clip. Neuron state is reset afterwards so clips do not influence each other.</li>
     <li><span class="s-title">Loss</span> Cross-entropy between the rates and the true gesture.</li>
-    <li><span class="s-title">Backward</span> Gradients propagate across all T timesteps, through every spike using the surrogate from section 2.5 and through every quantiser using the estimator from section 4.4.</li>
-    <li><span class="s-title">Update</span> Optional gradient clipping, then the optimiser step and any per-batch scheduler step.</li>
+    <li><span class="s-title">Backward</span> Gradients propagate across all T timesteps, through every spike using the surrogate from section 2.5 and through every quantizer using the estimator from section 4.4.</li>
+    <li><span class="s-title">Update</span> Optional gradient clipping, then the optimizer step and any per-batch scheduler step.</li>
   </ol>
   <p>
     Validation accuracy is measured after each epoch and the best weights are retained, so the
     reported model is the best epoch rather than the last.
   </p>
 
-  <h3>Optimiser and schedule</h3>
+  <h3>Optimizer and schedule</h3>
   <p>
     <code>build_optimizer</code> offers Adam, AdamW and SGD. The distinction between the first two
     matters more here than usual: Adam adds weight decay to the gradient, where it interacts with
     the adaptive step size, while AdamW applies it separately. Since section 4.3 showed that weight
     decay controls whether folded weights stay inside the representable range, the search samples
-    different decay ranges for the two optimisers.
+    different decay ranges for the two optimizers.
   </p>
 
   <div class="demo">
@@ -269,12 +269,12 @@ return (out > 0).float()   # any nonzero contribution becomes a full spike</code
       <tbody>
         <tr>
           <td class="layer-name">warm-up</td>
-          <td>About a quarter of the epoch budget in floating point with batch normalisation active, so its running statistics become meaningful.</td>
+          <td>About a quarter of the epoch budget in floating point with batch normalization active, so its running statistics become meaningful.</td>
           <td>Validation accuracy per epoch.</td>
         </tr>
         <tr>
           <td class="layer-name">on-grid</td>
-          <td>The best warm-up weights are reloaded, each convolution and batch normalisation pair is fused, and the remaining epochs train on folded and quantised weights at half the learning rate.</td>
+          <td>The best warm-up weights are reloaded, each convolution and batch normalization pair is fused, and the remaining epochs train on folded and quantized weights at half the learning rate.</td>
           <td>Validation accuracy per epoch, continuing the same curve.</td>
         </tr>
         <tr>

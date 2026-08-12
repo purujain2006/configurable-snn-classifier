@@ -80,7 +80,7 @@
   <ol class="steps">
     <li><span class="s-title">Feasibility, microseconds</span> The check from section 4.1. Earlier versions raised an exception when a feature map collapsed; the planner now returns that as data, so the trial records a score instead of crashing.</li>
     <li><span class="s-title">Training, minutes to hours</span> The schedule from section 5.6, reporting validation accuracy every epoch. These reports exist to support early stopping and are not the objective.</li>
-    <li><span class="s-title">Conversion, one measurement</span> Fold, quantise, export and evaluate. A configuration that <code>deployment_report</code> marks undeployable scores zero regardless of its training accuracy.</li>
+    <li><span class="s-title">Conversion, one measurement</span> Fold, quantize, export and evaluate. A configuration that <code>deployment_report</code> marks undeployable scores zero regardless of its training accuracy.</li>
   </ol>
 </section>
 
@@ -146,7 +146,7 @@
     <div class="demo-head">
       <span class="demo-tag">INTERACTIVE</span>
       <span class="demo-title">Early stopping on a cohort of 24 trials</span>
-      <span class="demo-sub">Simulated learning curves, including some that improve late. At each dashed checkpoint the lower-ranked trials stop and their curves grey out.</span>
+      <span class="demo-sub">Simulated learning curves, including some that improve late. At each dashed checkpoint the lower-ranked trials stop and their curves gray out.</span>
     </div>
     <div class="demo-body">
       <div class="controls">
@@ -164,7 +164,7 @@
     </div>
     <div class="demo-note">
       Setting the grace period to 1 stops the late-improving trials before their schedule has taken
-      effect, which is the behaviour the default guards against.
+      effect, which is the behavior the default guards against.
     </div>
   </div>
 </section>
@@ -212,8 +212,8 @@
         <div class="ctl"><label>space</label><div class="seg" id="db-space"><button class="on" data-v="per_layer">per layer</button><button data-v="uniform">uniform</button></div></div>
         <div class="ctl"><label>depth <output id="db-d-out">3</output></label><input type="range" id="db-d" min="2" max="4" value="3"></div>
         <div class="ctl"><label>hidden layers <output id="db-fc-out">0</output></label><input type="range" id="db-fc" min="0" max="1" value="0"></div>
-        <div class="ctl"><label>normalisation</label><div class="seg" id="db-norm"><button class="on" data-v="bn">bn</button><button data-v="tdbn">tdbn</button></div></div>
-        <div class="ctl"><label>optimiser</label><div class="seg" id="db-opt"><button class="on" data-v="adam">adam</button><button data-v="adamw">adamw</button></div></div>
+        <div class="ctl"><label>normalization</label><div class="seg" id="db-norm"><button class="on" data-v="bn">bn</button><button data-v="tdbn">tdbn</button></div></div>
+        <div class="ctl"><label>optimizer</label><div class="seg" id="db-opt"><button class="on" data-v="adam">adam</button><button data-v="adamw">adamw</button></div></div>
         <div class="ctl"><label>scheduler</label><div class="seg" id="db-sch"><button class="on" data-v="cosine">cosine</button><button data-v="onecycle">onecycle</button><button data-v="step">step</button><button data-v="none">none</button></div></div>
       </div>
       <div class="pill-row" id="db-params"></div>
@@ -238,7 +238,7 @@
         <tr><td class="layer-name">kernel</td><td class="num">5, 7</td><td>Every configuration in the top ten used one of these.</td></tr>
         <tr><td class="layer-name">depth</td><td class="num">2 to 4</td><td>Shallow networks were favoured (Kruskal-Wallis q=0.08). Depth 5 never exceeded 0.77.</td></tr>
         <tr><td class="layer-name">hidden layers</td><td class="num">0 or 1</td><td>Every configuration in the top ten used none (q=0.04).</td></tr>
-        <tr><td class="layer-name">normalisation</td><td class="num">bn, tdbn</td><td>Removing normalisation produced every network that failed to learn (p=0.0015).</td></tr>
+        <tr><td class="layer-name">normalization</td><td class="num">bn, tdbn</td><td>Removing normalization produced every network that failed to learn (p=0.0015).</td></tr>
         <tr><td class="layer-name">resize_to</td><td class="num">32, 64</td><td>Native resolution needs 32,768 axons against a limit of 16,383, so it can never pass.</td></tr>
         <tr><td class="layer-name">learning rate</td><td class="num">5e-4 to 5e-3</td><td>Positive correlation with accuracy (Spearman q=0.04); the lower end under-converged.</td></tr>
         <tr><td class="layer-name">&#964;</td><td class="num">reopened</td><td>The previous result described continuous values that all deploy as the same integer, so it does not transfer.</td></tr>
@@ -287,7 +287,7 @@
       <thead><tr><th>File</th><th>Written</th><th>Contents</th></tr></thead>
       <tbody>
         <tr><td class="layer-name">trial_progress.jsonl</td><td>every epoch</td><td>Epoch, training and validation accuracy, loss, learning rate.</td></tr>
-        <tr><td class="layer-name">best.json</td><td>on improvement</td><td>The best configuration by converted accuracy, with its quantisation gap and clip fraction.</td></tr>
+        <tr><td class="layer-name">best.json</td><td>on improvement</td><td>The best configuration by converted accuracy, with its quantization gap and clip fraction.</td></tr>
         <tr><td class="layer-name">leaderboard.csv</td><td>per trial</td><td>One row per trial. A pruned trial is recorded as pruned rather than as zero, which would be indistinguishable from a configuration that converted badly.</td></tr>
         <tr><td class="layer-name">infeasible.jsonl</td><td>on rejection</td><td>Configurations that failed the routing check, with the violated limits.</td></tr>
         <tr><td class="layer-name">undeployable.jsonl</td><td>on rejection</td><td>Configurations that trained but could not be represented on chip.</td></tr>

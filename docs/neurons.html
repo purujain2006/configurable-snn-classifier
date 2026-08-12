@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>The Neuron — Configurable SNN Classifier</title>
-<meta name="description" content="Building the neuron HiAER-Spike implements: update order, integer leak, quantised threshold, and training through a binary spike.">
+<meta name="description" content="Building the neuron HiAER-Spike implements: update order, integer leak, quantized threshold, and training through a binary spike.">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' fill='%23000'/><path d='M3 22h5l3-13 4 19 3-11h4l2 5h5' fill='none' stroke='%23e0a94f' stroke-width='2.4' stroke-linejoin='round'/></svg>">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -32,7 +32,7 @@
 <section id="update" class="reveal">
   <h2><span class="sec-num">2.1</span>The update rule</h2>
   <p>
-    A LIF neuron stores one value, the membrane potential <code>v</code>. Its behaviour is set by
+    A LIF neuron stores one value, the membrane potential <code>v</code>. Its behavior is set by
     three parameters:
   </p>
   <dl class="kv">
@@ -277,7 +277,7 @@
     <div class="demo-head">
       <span class="demo-tag">INTERACTIVE</span>
       <span class="demo-title">From unconstrained parameter to stored integer</span>
-      <span class="demo-sub">Drag the raw parameter the optimiser updates. The curve is the sigmoid that maps it into the legal range, and the readouts show the value the chip would store.</span>
+      <span class="demo-sub">Drag the raw parameter the optimizer updates. The curve is the sigmoid that maps it into the legal range, and the readouts show the value the chip would store.</span>
     </div>
     <div class="demo-body">
       <div class="controls">
@@ -367,7 +367,7 @@
     v_reset = 0.0 if self.v_reset is None else float(self.v_reset)
     v_th = self.v_threshold                     # already on the chip's grid
 
-    fb = getattr(self, "_fold_bias", None)      # set during quantisation-aware training
+    fb = getattr(self, "_fold_bias", None)      # set during quantization-aware training
     if fb is not None:
         shape = [1, fb.shape[0]] + [1] * (x.dim() - 2)
         x = x + fb.reshape(*shape)

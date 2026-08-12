@@ -45,7 +45,7 @@
       <p>
         Every property the search may vary has to live in a data structure that can be constructed and compared. Properties that affect the shape of the network should be
         separated from properties that affect only training, so the feasibility check can run
-        without knowing the optimiser.
+        without knowing the optimizer.
       </p>
     </div>
     <div class="m-row code">
@@ -217,7 +217,7 @@ pipeline flush steps    : 3
 ==============================================================================</pre>
   </div>
   <p class="footnote">
-    The batch normalisation rows carry parameters but no neurons and no connections. Section 4.3
+    The batch normalization rows carry parameters but no neurons and no connections. Section 4.3
     removes them before deployment. The flush step count is the number of spiking layers, for the
     reason given in section 2.1.
   </p>
@@ -268,7 +268,7 @@ pipeline flush steps    : 3
           <select id="nb-ds"><option value="stride" selected>stride</option><option value="pool">pool</option></select>
         </div>
         <div class="ctl">
-          <label>normalisation</label>
+          <label>normalization</label>
           <select id="nb-norm"><option value="bn" selected>bn</option><option value="tdbn">tdbn</option><option value="none">none</option></select>
         </div>
       </div>

@@ -19,7 +19,7 @@
     <p class="kicker">Project showcase</p>
     <h1>A gesture classifier built<br>around its hardware</h1>
     <p class="lede">
-      This project trains spiking neural networks to recognise hand gestures from an event camera,
+      This project trains spiking neural networks to recognize hand gestures from an event camera,
       and targets a neuromorphic chip called HiAER-Spike. The chip constrains how a network may be
       wired and what precision its numbers may carry. Those constraints drive every decision in the
       code, so this walkthrough starts with the hardware and works outward from it.
@@ -78,7 +78,7 @@
         </tr>
         <tr>
           <td class="layer-name">available layers</td><td class="num">conv, linear, pool</td>
-          <td>No batch normalisation, and no bias term on convolutions or linear maps.</td>
+          <td>No batch normalization, and no bias term on convolutions or linear maps.</td>
         </tr>
         <tr>
           <td class="layer-name">neuron update order</td><td class="num">fixed</td>
@@ -238,7 +238,7 @@
   </p>
   <p>
     The code converts each recording into <code>T</code> frames by dividing the event stream into
-    <code>T</code> groups of equal event count and rasterising each group.
+    <code>T</code> groups of equal event count and rasterizing each group.
   </p>
 </section>
 
@@ -263,7 +263,7 @@
       <p>
         A network trained in floating point differs from the network the chip runs in weight
         precision, threshold precision, leak resolution, neuron update order, and the presence of
-        batch normalisation. Each difference changes the output, and none of them appear in a
+        batch normalization. Each difference changes the output, and none of them appear in a
         training accuracy figure.
       </p>
     </div>
@@ -271,7 +271,7 @@
       <span class="m-label">Consequence</span>
       <p>
         Accuracy measured during ordinary training overstates what the deployed network achieves,
-        so it is the wrong quantity to optimise. Any search guided by it will prefer configurations
+        so it is the wrong quantity to optimize. Any search guided by it will prefer configurations
         that happen to degrade badly on conversion.
       </p>
     </div>
@@ -279,7 +279,7 @@
       <span class="m-label">In code</span>
       <p>
         Each trial ends by converting its network into the deployable form and evaluating that
-        instead. The resulting <code>hw_val_accuracy</code> is the value the search optimises. A
+        instead. The resulting <code>hw_val_accuracy</code> is the value the search optimizes. A
         configuration that cannot be represented on the chip scores zero, whatever it reached
         during training.
       </p>
@@ -295,7 +295,7 @@
     <div>
       <div class="r-k">Search space</div>
       <div class="r-v">21 dimensions</div>
-      <div class="r-s">Architecture, neuron parameters and optimiser settings, sampled conditionally per trial.</div>
+      <div class="r-s">Architecture, neuron parameters and optimizer settings, sampled conditionally per trial.</div>
     </div>
     <div>
       <div class="r-k">Rejected before training</div>
@@ -427,7 +427,7 @@ python Practice2.py search  --compute local --trials 50 --data-dir &lt;DVS128 ro
   <ul>
     <li><code>summary</code> prints the architecture table, the neuron and synapse counts, and the feasibility verdict. It needs no GPU.</li>
     <li><code>single</code> trains one configuration and reports both its float accuracy and its converted accuracy.</li>
-    <li><code>fold</code> loads a checkpoint, folds batch normalisation into the convolutions, quantizes, verifies the result, and writes the per-layer tables the converter reads.</li>
+    <li><code>fold</code> loads a checkpoint, folds batch normalization into the convolutions, quantizes, verifies the result, and writes the per-layer tables the converter reads.</li>
     <li><code>search</code> runs the automated search.</li>
   </ul>
 </section>
@@ -450,8 +450,8 @@ python Practice2.py search  --compute local --trials 50 --data-dir &lt;DVS128 ro
     <a class="card" href="hardware.html">
       <div class="c-num">PAGE 04</div>
       <div class="c-title">Fitting the chip</div>
-      <div class="c-desc">The routing limits become an arithmetic check. Batch normalisation is removed without changing what the network computes, and training moves onto the INT16 grid rather than meeting it afterwards.</div>
-      <div class="c-tags"><span>feasibility</span><span>folding</span><span>quantisation</span></div>
+      <div class="c-desc">The routing limits become an arithmetic check. Batch normalization is removed without changing what the network computes, and training moves onto the INT16 grid rather than meeting it afterwards.</div>
+      <div class="c-tags"><span>feasibility</span><span>folding</span><span>quantization</span></div>
     </a>
     <a class="card" href="training.html">
       <div class="c-num">PAGE 05</div>

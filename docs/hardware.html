@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Fitting the Chip — Configurable SNN Classifier</title>
-<meta name="description" content="Checking routing limits, removing batch normalisation, and training on the INT16 grid the chip provides.">
+<meta name="description" content="Checking routing limits, removing batch normalization, and training on the INT16 grid the chip provides.">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' fill='%23000'/><path d='M3 22h5l3-13 4 19 3-11h4l2 5h5' fill='none' stroke='%23e0a94f' stroke-width='2.4' stroke-linejoin='round'/></svg>">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -20,7 +20,7 @@
     <p class="lede">
       Section 1.1 listed the routing limits and the numeric formats HiAER-Spike imposes. This page
       turns them into code: an arithmetic check that rejects unbuildable configurations, and a
-      training procedure that keeps the network inside the INT16 grid instead of quantising it once
+      training procedure that keeps the network inside the INT16 grid instead of quantizing it once
       training is over.
     </p>
   </div>
@@ -155,15 +155,15 @@ NEURON_LIMITS = {
 </section>
 
 <section id="folding" class="reveal">
-  <h2><span class="sec-num">4.3</span>Removing batch normalisation</h2>
+  <h2><span class="sec-num">4.3</span>Removing batch normalization</h2>
   <p>
-    Batch normalisation rescales each channel using running statistics and two learned parameters.
-    Networks here depend on it: the search found that configurations without normalisation produced
+    Batch normalization rescales each channel using running statistics and two learned parameters.
+    Networks here depend on it: the search found that configurations without normalization produced
     every network that failed to learn at all. The chip has no such layer, so it has to be removed
     before deployment.
   </p>
   <p>
-    Removal is exact. A convolution followed by batch normalisation is one linear map followed by
+    Removal is exact. A convolution followed by batch normalization is one linear map followed by
     another, and the pair composes into a single convolution:
   </p>
   <div class="formula">
@@ -294,7 +294,7 @@ NEURON_LIMITS = {
     <div class="m-row">
       <span class="m-label">Observation</span>
       <p>
-        Sections 4.2 and 4.3 together mean that quantisation applied after training is destructive
+        Sections 4.2 and 4.3 together mean that quantization applied after training is destructive
         in a way training cannot anticipate. Rounding also has a zero derivative, so it cannot
         simply be inserted into the forward pass and trained through.
       </p>
@@ -302,9 +302,9 @@ NEURON_LIMITS = {
     <div class="m-row">
       <span class="m-label">Consequence</span>
       <p>
-        The network should compute with quantised weights during training while gradients continue
+        The network should compute with quantized weights during training while gradients continue
         to reach the underlying floating-point parameters. A weight that folds out of range then
-        raises the training loss immediately, and the optimiser has an incentive to avoid it.
+        raises the training loss immediately, and the optimizer has an incentive to avoid it.
       </p>
     </div>
     <div class="m-row code">
@@ -347,17 +347,17 @@ def fake_quantize_weight(w):
     <table class="tbl">
       <thead><tr><th>Mode</th><th>Schedule</th><th>Purpose</th></tr></thead>
       <tbody>
-        <tr><td class="layer-name">ptq</td><td>Train in floating point, then fold and quantise once.</td><td>A baseline that measures how much the conversion costs a network that never saw it.</td></tr>
-        <tr><td class="layer-name">tail</td><td>Train in floating point, fold, quantise, then fine-tune for a few epochs.</td><td>Treats quantisation as a repair applied at the end.</td></tr>
-        <tr><td class="layer-name">inline</td><td>Warm up in floating point for about a quarter of the budget, fold in place, and train the remainder on the folded and quantised network.</td><td>The default. Most of training happens on the network that will deploy.</td></tr>
+        <tr><td class="layer-name">ptq</td><td>Train in floating point, then fold and quantize once.</td><td>A baseline that measures how much the conversion costs a network that never saw it.</td></tr>
+        <tr><td class="layer-name">tail</td><td>Train in floating point, fold, quantize, then fine-tune for a few epochs.</td><td>Treats quantization as a repair applied at the end.</td></tr>
+        <tr><td class="layer-name">inline</td><td>Warm up in floating point for about a quarter of the budget, fold in place, and train the remainder on the folded and quantized network.</td><td>The default. Most of training happens on the network that will deploy.</td></tr>
       </tbody>
     </table>
   </div>
   <p>
-    The warm-up exists because folding reads batch normalisation's running statistics, which need a
+    The warm-up exists because folding reads batch normalization's running statistics, which need a
     few epochs of data before they are meaningful. After the fold, each convolution and batch
-    normalisation pair is replaced by a single <code>ConvBNFoldQuant</code> module. Its forward pass
-    recomputes the fold from the current running statistics, quantises the result, and passes the
+    normalization pair is replaced by a single <code>ConvBNFoldQuant</code> module. Its forward pass
+    recomputes the fold from the current running statistics, quantizes the result, and passes the
     per-channel bias to the neuron through the <code>_fold_bias</code> attribute seen in section
     2.6. The statistics themselves keep updating from a separate pass over the raw convolution
     output, so the fold tracks the data as training continues.
@@ -376,8 +376,8 @@ def fake_quantize_weight(w):
       </div>
       <div id="qt-bar" style="display:flex;height:52px;border:1px solid var(--line);overflow:hidden;font-family:var(--mono);font-size:13px;"></div>
       <div class="legend" style="margin-top:12px;">
-        <span><i style="background:#ece7de;"></i> floating point, batch normalisation active</span>
-        <span><i style="background:#e0a94f;"></i> folded and quantised, learning rate halved</span>
+        <span><i style="background:#ece7de;"></i> floating point, batch normalization active</span>
+        <span><i style="background:#e0a94f;"></i> folded and quantized, learning rate halved</span>
       </div>
     </div>
   </div>
@@ -385,12 +385,12 @@ def fake_quantize_weight(w):
   <h3>Freezing the result</h3>
   <p>
     <code>export_deployed()</code> converts each <code>ConvBNFoldQuant</code> into a plain
-    bias-free convolution holding the final quantised weights and writes the folded bias into
+    bias-free convolution holding the final quantized weights and writes the folded bias into
     per-channel thresholds. What remains is the network the converter consumes. Two functions then
     inspect it:
   </p>
   <ul>
-    <li><code>deployment_report()</code> checks legality. A folded threshold at or below zero blocks deployment and scores the configuration zero. More than 2% of weights outside the range produces a warning rather than a rejection, since quantisation-aware training has already been given the chance to work around the clamp.</li>
+    <li><code>deployment_report()</code> checks legality. A folded threshold at or below zero blocks deployment and scores the configuration zero. More than 2% of weights outside the range produces a warning rather than a rejection, since quantization-aware training has already been given the chance to work around the clamp.</li>
     <li><code>hardware_export()</code> writes the integer threshold and integer leak for each spiking layer as JSON. The conversion script previously carried a single hard-coded threshold and leak, which prevented per-layer neuron parameters from being used at all.</li>
   </ul>
   <div class="code-block">
@@ -417,7 +417,7 @@ def fake_quantize_weight(w):
     <li><span class="s-title">Accuracy of both networks</span> Reported last, once the first two have established that the transformation itself is sound.</li>
   </ol>
   <p>
-    <code>fold_bn</code> also refuses to run on a network in training mode. Batch normalisation
+    <code>fold_bn</code> also refuses to run on a network in training mode. Batch normalization
     would then supply batch statistics rather than running statistics, which is the most common
     cause of a fold that appears to lose accuracy.
   </p>
