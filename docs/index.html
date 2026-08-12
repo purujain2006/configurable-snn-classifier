@@ -90,7 +90,7 @@
 
   <p>
     Two of these have consequences that reach far into the code. Because thresholds and weights are
-    quantised, a network measured in floating point is not the network that runs. Because the
+    quantized, a network measured in floating point is not the network that runs. Because the
     update order is fixed, a network trained with a different order produces different spike times
     once converted.
   </p>
@@ -249,7 +249,7 @@
     kernel size, how the resolution is reduced, how many timesteps, what leak and threshold the
     neurons use, and how the network is trained. Some combinations exceed the routing limits in
     section 1.1 and cannot be built. Others fit but lose accuracy when their weights are
-    quantised.
+    quantized.
   </p>
   <p>
     The project searches that space automatically. The requirement is a configuration that
@@ -361,7 +361,7 @@
         </a>
         <a href="architecture.html">
           <rect class="tree-leaf-box" x="456" y="79" width="438" height="38" fill="rgba(255,255,255,.022)" stroke="#3a3733"/>
-          <text class="tree-node-title" x="472" y="103" font-size="15.5" font-weight="500">Shape planning, computed once</text>
+          <text class="tree-node-title" x="472" y="103" font-size="15.5" font-weight="500">Shape planning</text>
           <text class="tree-tag" x="878" y="103" font-size="12.5" text-anchor="end">&#167;2</text>
         </a>
         <a href="hardware.html">
@@ -381,7 +381,7 @@
         </a>
         <a href="neurons.html">
           <rect class="tree-leaf-box" x="456" y="287" width="438" height="38" fill="rgba(255,255,255,.022)" stroke="#3a3733"/>
-          <text class="tree-node-title" x="472" y="311" font-size="15.5" font-weight="500">HardwareLIFNode, the chip's neuron</text>
+          <text class="tree-node-title" x="472" y="311" font-size="15.5" font-weight="500">HardwareLIFNode: the on-chip neuron</text>
           <text class="tree-tag" x="878" y="311" font-size="12.5" text-anchor="end">&#167;5</text>
         </a>
         <a href="training.html">
@@ -427,7 +427,7 @@ python Practice2.py search  --compute local --trials 50 --data-dir &lt;DVS128 ro
   <ul>
     <li><code>summary</code> prints the architecture table, the neuron and synapse counts, and the feasibility verdict. It needs no GPU.</li>
     <li><code>single</code> trains one configuration and reports both its float accuracy and its converted accuracy.</li>
-    <li><code>fold</code> loads a checkpoint, folds batch normalisation into the convolutions, quantises, verifies the result, and writes the per-layer tables the converter reads.</li>
+    <li><code>fold</code> loads a checkpoint, folds batch normalisation into the convolutions, quantizes, verifies the result, and writes the per-layer tables the converter reads.</li>
     <li><code>search</code> runs the automated search.</li>
   </ul>
 </section>
@@ -438,7 +438,7 @@ python Practice2.py search  --compute local --trials 50 --data-dir &lt;DVS128 ro
     <a class="card" href="neurons.html">
       <div class="c-num">PAGE 02</div>
       <div class="c-title">The neuron</div>
-      <div class="c-desc">The neuron HiAER-Spike implements, built in PyTorch so that training and deployment use the same update rule. Covers the integer leak, the quantised threshold, and how a binary spike is trained through.</div>
+      <div class="c-desc">The neuron HiAER-Spike implements, built in PyTorch so that training and deployment use the same update rule. Covers the integer leak, the quantized threshold, and how a binary spike is trained through.</div>
       <div class="c-tags"><span>simulator</span><span>update order</span><span>surrogate gradient</span></div>
     </a>
     <a class="card" href="architecture.html">

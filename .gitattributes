@@ -1,0 +1,4 @@
+# Edits made on github.com use LF and edits made on Windows use CRLF.
+# Without this, the two disagree on every line and any pull turns into a
+# whole-file conflict. Normalise to LF in the repository and on checkout.
+* text=auto eol=lf
