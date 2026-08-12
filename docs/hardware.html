@@ -88,16 +88,17 @@ NEURON_LIMITS = {
     <div class="demo-head">
       <span class="demo-tag">INTERACTIVE</span>
       <span class="demo-title">Fan budget calculator</span>
-      <span class="demo-sub">The same formulas <code>check_feasibility</code> applies per layer, shown against their limits.</span>
+      <span class="demo-sub">One convolution layer, assumed to be the last one before the head. The three limits are computed from its shape, so the head's fan-in follows from the output volume rather than being chosen separately.</span>
     </div>
     <div class="demo-body">
       <div class="controls">
-        <div class="ctl"><label>kernel k</label><select id="fb-k"><option>3</option><option selected>5</option><option>7</option></select></div>
+        <div class="ctl"><label>input map</label><select id="fb-hw"><option value="64">64 &#215; 64</option><option value="32">32 &#215; 32</option><option value="29" selected>29 &#215; 29</option><option value="16">16 &#215; 16</option><option value="12">12 &#215; 12</option></select></div>
+        <div class="ctl"><label>kernel k</label><select id="fb-k"><option>3</option><option>5</option><option selected>7</option></select></div>
         <div class="ctl"><label>input channels</label><select id="fb-cin"><option>2</option><option selected>32</option><option>64</option><option>128</option><option>256</option></select></div>
         <div class="ctl"><label>output channels</label><select id="fb-cout"><option>2</option><option selected>32</option><option>64</option><option>128</option><option>256</option></select></div>
         <div class="ctl"><label>stride s</label><select id="fb-s"><option>1</option><option selected>2</option></select></div>
-        <div class="ctl"><label>flatten width into the head</label><select id="fb-fc"><option value="352">352</option><option value="4608" selected>4608 = 32&#215;12&#215;12</option><option value="6400">6400 = 64&#215;10&#215;10</option><option value="9216">9216 = 64&#215;12&#215;12</option><option value="18432">18432 = 128&#215;12&#215;12</option></select></div>
       </div>
+      <p id="fb-derived" style="font-family:var(--mono);font-size:14px;color:var(--text-dim);margin:4px 0 20px;line-height:1.7;"></p>
       <div id="fb-bars"></div>
       <div class="demo-note" id="fb-note"></div>
     </div>

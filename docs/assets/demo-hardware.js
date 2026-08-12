@@ -6,29 +6,45 @@
   (function fanCalc() {
     if (!$("fb-bars")) return;
     function update() {
-      const k = +$("fb-k").value, cin = +$("fb-cin").value, cout = +$("fb-cout").value, s = +$("fb-s").value;
-      const fcIn = +$("fb-fc").value;
+      const k = +$("fb-k").value, cin = +$("fb-cin").value, cout = +$("fb-cout").value,
+            s = +$("fb-s").value, inHW = +$("fb-hw").value;
+
+      // the head's fan-in is not a free choice: it is this layer's output volume
+      const oh = SNN.convOutSize(inHW, k, s, 0, 1);
+      const ow = oh;
+      const collapsed = oh < 1 || ow < 1;
+      const fcIn = collapsed ? 0 : cout * oh * ow;   // flatten head
+      const gapIn = cout;                            // GAP head
+
       const fanIn = k * k * cin;
       const fanOut = Math.pow(Math.ceil(k / s), 2) * cout;
       const L = SNN.NEURON_LIMITS;
+
+      $("fb-derived").innerHTML = collapsed
+        ? `<span style="color:var(--bad);">the ${inHW}×${inHW} map is smaller than a ${k}×${k} kernel, so this layer cannot be built</span>`
+        : `this layer: <b>${cin}×${inHW}×${inHW}</b> &nbsp;&#8594;&nbsp; <b>${cout}×${oh}×${ow}</b>
+           &nbsp;·&nbsp; flatten head reads <b>${cout}×${oh}×${ow} = ${SNN.fmt(fcIn)}</b> features
+           &nbsp;·&nbsp; GAP head would read <b>${SNN.fmt(gapIn)}</b>`;
+
       const items = [
-        { label: `conv fan-in k²·Cin = ${SNN.fmt(fanIn)}`, value: fanIn, max: L.fan_in * 1.6,
+        { label: `conv fan-in  k²·Cin = ${SNN.fmt(fanIn)}`, value: fanIn, max: L.fan_in * 1.6,
           display: `limit ${SNN.fmt(L.fan_in)}`, color: fanIn > L.fan_in ? "var(--bad)" : "var(--good)" },
-        { label: `conv fan-out ⌈k/s⌉²·Cout = ${SNN.fmt(fanOut)}`, value: fanOut, max: L.fan_in * 1.6,
+        { label: `conv fan-out  ⌈k/s⌉²·Cout = ${SNN.fmt(fanOut)}`, value: fanOut, max: L.fan_in * 1.6,
           display: `limit ${SNN.fmt(L.fan_out)}`, color: fanOut > L.fan_out ? "var(--bad)" : "var(--good)" },
-        { label: `FC fan-in (flatten) = ${SNN.fmt(fcIn)}`, value: fcIn, max: L.fan_in * 1.6,
+        { label: `head fan-in  Cout·H·W = ${SNN.fmt(fcIn)}`, value: fcIn, max: L.fan_in * 1.6,
           display: `limit ${SNN.fmt(L.fan_in)}`, color: fcIn > L.fan_in ? "var(--bad)" : "var(--good)" }
       ];
       window.Site.barChart($("fb-bars"), items, { max: L.fan_in * 1.6, labelW: 250, valueW: 95 });
+
       const bust = [];
-      if (fanIn > L.fan_in) bust.push(`fan-in busts the limit (${SNN.fmt(fanIn)} > ${SNN.fmt(L.fan_in)}) — exactly the “neuron_fan_in” violation string the checker emits`);
-      if (fanOut > L.fan_out) bust.push(`fan-out busts the limit`);
-      if (fcIn > L.fan_in) bust.push(`the flatten alone busts FC fan-in — this is why GAP rescues feasibility (ch. 3)`);
+      if (fanIn > L.fan_in) bust.push(`conv fan-in is ${SNN.fmt(fanIn)} against a limit of ${SNN.fmt(L.fan_in)}`);
+      if (fanOut > L.fan_out) bust.push(`conv fan-out is ${SNN.fmt(fanOut)} against a limit of ${SNN.fmt(L.fan_out)}`);
+      if (fcIn > L.fan_in) bust.push(`the flatten produces ${SNN.fmt(fcIn)} features, so every neuron in the first head layer would need that many inputs against a limit of ${SNN.fmt(L.fan_in)}. A GAP head reads ${SNN.fmt(gapIn)} instead, at the cost described in section 3.5`);
       $("fb-note").innerHTML = bust.length
-        ? `OVER BUDGET &nbsp;·&nbsp; ${bust.join("; ")}.`
-        : `WITHIN BUDGET &nbsp;·&nbsp; Try k=7 with Cin=128: fan-in = 49·128 = 6,272 still fits — but k=3, Cin=128 into an FC via a big flatten is where 128-channel configs died.`;
+        ? `OVER BUDGET &nbsp;·&nbsp; ${bust.join(". ")}.`
+        : `WITHIN BUDGET &nbsp;·&nbsp; Every quantity fits. Raising output channels multiplies the head fan-in directly, since it is Cout·H·W, which is how most wide configurations failed.`;
     }
-    ["fb-k", "fb-cin", "fb-cout", "fb-s", "fb-fc"].forEach(id => $(id).addEventListener("change", update));
+    ["fb-k", "fb-cin", "fb-cout", "fb-s", "fb-hw"].forEach(id => $(id).addEventListener("change", update));
     update();
   })();
 
