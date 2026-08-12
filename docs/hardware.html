@@ -115,7 +115,7 @@ NEURON_LIMITS = {
 <section id="int16" class="reveal">
   <h2><span class="sec-num">4.2</span>The INT16 grid</h2>
   <p>
-    The conversion library quantises with fixed settings, which the file mirrors as constants so
+    The conversion library quantizes with fixed settings, which the file mirrors as constants so
     that training and conversion agree.
   </p>
   <div class="formula">
@@ -123,8 +123,8 @@ NEURON_LIMITS = {
     <span class="note">Every weight becomes a multiple of w_delta within [&#8722;1, 1]. Every threshold becomes the integer round(&#952; / w_delta).</span>
   </div>
   <p>
-    With w_alpha fixed at 1 there is no rescaling step, so a weight of 1.3 is truncated to 1.0
-    rather than mapped proportionally. Within the range the grid is fine enough that rounding error
+    With w_alpha fixed at 1, there is no rescaling step, so a weight of 1.3 is truncated to 1.0
+    rather than mapped proportionally. Within the range, the grid is fine enough that rounding error
     is around 10<sup>&#8722;5</sup>. The loss comes from truncation at the boundary, which makes the
     question of what pushes weights past 1.0 the important one. Section 4.3 answers it.
   </p>
