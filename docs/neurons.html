@@ -268,7 +268,7 @@
         The learned value is stored as <code>raw_threshold</code> and read as
         <code>sigmoid(raw_threshold)</code>, which lies in (0, 1) by construction.
         <code>fake_quantize_threshold</code> then snaps it to the integer grid, and
-        <code>raw_v_threshold()</code> exposes the unclamped value for the deployment report.
+        <code>raw_v_threshold()</code> exposes the unclamped value for the deployment report. Snapping is the process of rounding the continous value into the discrete intervals allowed by the chip (1/32767 = ~0.0000305).
       </p>
     </div>
   </div>
