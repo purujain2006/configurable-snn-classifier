@@ -18,12 +18,10 @@
     <p class="kicker">Chapter 6 · The Search</p>
     <h1>Hundreds of experiments,<br>run by machines, judged fairly</h1>
     <p class="lede">
-      Depth, kernels, channels, pooling, τ, thresholds, dropout, norm, optimizer, learning rate,
-      schedules… multiplied out, the design space has millions of corners. This chapter explains
-      the machinery that explores it — <strong>Optuna</strong> proposes, <strong>Ray Tune</strong>
-      orchestrates, <strong>ASHA</strong> executes the stragglers — and the quietly radical
-      decision at its center: the score being optimized is the accuracy of the network
-      <em>after</em> folding, quantization, and hardware neuron dynamics. Nothing else counts.
+      The design space has millions of corners. <strong>Optuna</strong> proposes,
+      <strong>Ray Tune</strong> orchestrates, <strong>ASHA</strong> executes the stragglers — and
+      the score being optimized is the accuracy <em>after</em> folding, quantization, and hardware
+      neuron dynamics. Nothing else counts.
     </p>
   </div>
 </header>
@@ -53,14 +51,12 @@
     <div class="ico">🎭</div>
     <div>
       <span class="callout-title">The subtle trick: one name, two meanings — on purpose</span>
-      <p>Each trial's reports carry <em>two</em> metrics. <code>float_val_accuracy</code>: the
-      per-epoch float curve, which <strong>ASHA</strong> prunes on. <code>val_accuracy</code>: holds the
-      float number during training but the <em>hardware</em> number in the final report — and
-      <strong>Optuna selects with scope="last"</strong>, so it only ever learns the hardware number.
-      A scheduler watching <code>val_accuracy</code> would compare float epochs against hardware
-      finals — two different quantities — which is exactly why ASHA is pointed at the float curve
-      and selection at the last report. The comments defend this wiring line-by-line against
-      future "simplification."</p>
+      <ul>
+        <li><code>float_val_accuracy</code> — the per-epoch float curve. <strong>ASHA prunes on this.</strong></li>
+        <li><code>val_accuracy</code> — float during training, but the <em>hardware</em> number in the final report. <strong>Optuna selects on this with scope="last"</strong>, so it only ever learns the hardware number.</li>
+        <li>Why the split: a scheduler watching <code>val_accuracy</code> would compare float epochs against hardware finals — two different quantities.</li>
+        <li>The comments defend this wiring line-by-line against future "simplification."</li>
+      </ul>
     </div>
   </div>
   <div class="callout warn">
@@ -79,15 +75,17 @@
 
 <section id="asha" class="reveal">
   <h2><span class="sec-num">6.3</span>ASHA, hands-on</h2>
-  <p>
-    The rules: every trial is guaranteed <code>grace_period</code> epochs (default 8). Then, at
-    rungs placed at grace × rf<sup>k</sup> epochs (rf = <code>reduction_factor</code>, default 3),
-    a trial survives only if it's in the <strong>top 1/rf</strong> of trials that reached that
-    rung. Two design notes from the comments: grace must stay &gt; 1 partly because cosine/onecycle
-    schedules "do their work late — early judging favours flat-LR configs," and partly so
-    instantly-rejected infeasible trials (one report at epoch 0) never form a rung and can't drag
-    the cutoff down.
-  </p>
+  <p class="lead">The rules:</p>
+  <ul>
+    <li>Every trial is guaranteed <code>grace_period</code> epochs (default 8).</li>
+    <li>Rungs sit at grace × rf<sup>k</sup> epochs (rf = <code>reduction_factor</code>, default 3).</li>
+    <li>At each rung, a trial survives only if it's in the <strong>top 1/rf</strong> of trials that reached it.</li>
+  </ul>
+  <p>Why grace must stay &gt; 1 (two design notes from the comments):</p>
+  <ul>
+    <li>Cosine/onecycle schedules "do their work late — early judging favours flat-LR configs."</li>
+    <li>Instantly-rejected infeasible trials (one report at epoch 0) must never form a rung, or they'd drag the promotion cutoff down.</li>
+  </ul>
   <div class="demo">
     <div class="demo-head">
       <span class="demo-tag">INTERACTIVE</span>
@@ -114,15 +112,12 @@
 
 <section id="dbr" class="reveal">
   <h2><span class="sec-num">6.4</span>Define-by-run: a search space with an if-statement in it</h2>
-  <p>
-    Most tools take a flat dictionary of ranges. But this space is <em>conditional</em>: a
-    4-layer network has a kernel size for layer 3; a 2-layer one doesn't. If the space were flat,
-    Optuna's model would see a <code>k_3</code> value on every trial — including trials where it
-    had no effect — and learn nonsense correlations from it. Optuna's
-    <strong>define-by-run</strong> API fixes this: the space is a <em>function</em> that runs per
-    trial, calling <code>trial.suggest_*</code> only for parameters that exist on this trial's
-    path, "so Optuna's surrogate never sees a dimension that had no effect on that trial's score."
-  </p>
+  <p class="lead">Most tools take a flat dictionary of ranges. This space is <em>conditional</em>:</p>
+  <ul>
+    <li>A 4-layer network has a kernel size for layer 3. A 2-layer one doesn't.</li>
+    <li>Flat-space failure mode: Optuna's model sees a <code>k_3</code> value on <em>every</em> trial — including ones where it had no effect — and learns nonsense correlations.</li>
+    <li>The fix — <strong>define-by-run</strong>: the space is a <em>function</em> executed per trial, calling <code>trial.suggest_*</code> only for parameters on this trial's path, "so Optuna's surrogate never sees a dimension that had no effect on that trial's score."</li>
+  </ul>
   <div class="demo">
     <div class="demo-head">
       <span class="demo-tag">INTERACTIVE</span>
@@ -170,25 +165,27 @@
       </tbody>
     </table>
   </div>
-  <p>
-    Notice the two kinds of decision: knobs narrowed because the evidence transfers to the new
-    objective (geometry), and knobs deliberately <em>re-opened</em> because their evidence was an
-    artifact of measuring the wrong thing (τ, weight decay). Distinguishing those two is the
-    difference between learning from data and overfitting to a broken metric.
-  </p>
+  <div class="callout key">
+    <div class="ico">⚖️</div>
+    <div>
+      <span class="callout-title">Two kinds of decision — spot the difference</span>
+      <ul>
+        <li><strong>Narrowed:</strong> knobs whose evidence transfers to the new objective (geometry: depth, kernels, channels).</li>
+        <li><strong>Re-opened:</strong> knobs whose evidence was an artifact of measuring the wrong thing (τ, weight decay).</li>
+        <li>Distinguishing them = learning from data vs. overfitting to a broken metric.</li>
+      </ul>
+    </div>
+  </div>
 </section>
 
 <section id="results" class="reveal">
   <h2><span class="sec-num">6.6</span>Crash-proof bookkeeping: the results directory</h2>
-  <p>
-    Ray's own final export only materializes <em>after</em> the whole search returns — so "a crash
-    or Ctrl-C 30 hours into a search leaves you nothing." <code>ResultsWriter</code> fixes that by
-    streaming every result to disk the moment it happens: append-a-line, flush,
-    <code>fsync</code> — the files are complete between writes and watchable live with
-    <code>tail</code>. Bigger multi-line files are written to a temp name and atomically renamed,
-    so there is never a half-written <code>best.json</code>. And because Ray trials are separate
-    processes, all writing happens in a single driver-side callback — no interleaved garbage.
-  </p>
+  <p class="lead">Ray's own export only materializes <em>after</em> the search returns — "a crash or Ctrl-C 30 hours in leaves you nothing." <code>ResultsWriter</code> fixes that:</p>
+  <ul>
+    <li><strong>Streamed:</strong> every result hits disk the moment it happens — append a line, flush, <code>fsync</code>. Files are complete between writes; watchable live with <code>tail</code>.</li>
+    <li><strong>Atomic:</strong> multi-line files write to a temp name, then rename — never a half-written <code>best.json</code>.</li>
+    <li><strong>Single writer:</strong> Ray trials are separate processes, so all writing happens in one driver-side callback. No interleaved garbage.</li>
+  </ul>
   <div class="tbl-wrap">
     <table class="tbl">
       <thead><tr><th>File</th><th>Updated</th><th>Contains</th></tr></thead>
@@ -202,12 +199,11 @@
       </tbody>
     </table>
   </div>
-  <p>
-    One more piece: <code>TargetAccuracyStopper</code>. Ray's built-in stop condition only stops
-    the trial that hit the target; stopping the <em>whole study</em> needs <code>stop_all()</code>.
-    And it only triggers on a <strong>deploy-phase, deployable</strong> report ≥ target — "a float
-    epoch that crosses the target says nothing about what runs on chip."
-  </p>
+  <p>One more piece — <code>TargetAccuracyStopper</code>:</p>
+  <ul>
+    <li>Ray's built-in stop condition only stops <em>the trial that hit the target</em>; ending the whole study needs <code>stop_all()</code>.</li>
+    <li>It only triggers on a <strong>deploy-phase, deployable</strong> report ≥ target — "a float epoch that crosses the target says nothing about what runs on chip."</li>
+  </ul>
   <div class="callout key">
     <div class="ico">🏁</div>
     <div>

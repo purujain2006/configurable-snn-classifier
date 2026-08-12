@@ -18,11 +18,9 @@
     <p class="kicker">Chapter 3 · Architecture & Configuration</p>
     <h1>A network you describe,<br>not hard-code</h1>
     <p class="lede">
-      Most research code hard-wires its network: three conv layers, 128 channels, take it or
-      leave it. This file instead treats the <em>entire architecture as data</em> — seven small
-      config objects that a human can set from the command line and a hyperparameter search can
-      mutate freely. This chapter shows how a config becomes a plan, a plan becomes a network,
-      and a network becomes an exact bill of materials — then hands you the builder.
+      Most research code hard-wires its network. This file treats the <em>entire architecture as
+      data</em>: config → plan → network → exact bill of materials. This chapter walks that chain,
+      then hands you the builder.
     </p>
   </div>
 </header>
@@ -32,10 +30,9 @@
 
 <section id="configs" class="reveal">
   <h2><span class="sec-num">3.1</span>Seven dataclasses describe everything</h2>
-  <p>
-    A <span class="term">dataclass</span> is Python's way of saying "a named bundle of typed,
-    defaulted fields". The file defines seven, one per concern — together they are the complete
-    genome of an experiment:
+  <p class="lead">
+    A <span class="term">dataclass</span> = a named bundle of typed, defaulted fields. Seven of
+    them — one per concern — are the complete genome of an experiment:
   </p>
   <div class="tbl-wrap">
     <table class="tbl">
@@ -51,20 +48,16 @@
       </tbody>
     </table>
   </div>
-  <p>
-    An eighth, <code>TrainSpec</code>, holds the optimization recipe — "everything that affects
-    training but not shape" (optimizer, learning rate, scheduler, epochs, and the
-    quantization-aware-training knobs from <a href="hardware.html#qat">chapter 4</a>). Keeping
-    shape-things and training-things separate is what lets the feasibility checker run without
-    caring how you'll train.
-  </p>
+  <ul>
+    <li>An eighth, <code>TrainSpec</code>, holds the optimization recipe — <em>"everything that affects training but not shape"</em> (optimizer, lr, scheduler, epochs, the QAT knobs from <a href="hardware.html#qat">chapter 4</a>).</li>
+    <li>Shape-things vs. training-things stay separate — so the feasibility checker never needs to care how you'll train.</li>
+  </ul>
   <h3>Setting fields from the command line</h3>
-  <p>
-    Each group gets a CLI flag taking <code>key=value</code> pairs. A tiny generic function,
-    <code>fill_from_kv</code>, reads a dataclass's own field list to know which keys are legal
-    and what type to cast each value to — so adding a config field automatically adds its CLI
-    support, with no argparse surgery:
-  </p>
+  <ul>
+    <li>Each group gets a CLI flag taking <code>key=value</code> pairs.</li>
+    <li>One generic function, <code>fill_from_kv</code>, reads the dataclass's own field list for legal keys and type casts.</li>
+    <li>Net effect: <strong>adding a config field automatically adds its CLI support</strong> — no argparse surgery.</li>
+  </ul>
   <div class="code-block">
     <div class="code-head"><span class="dot"></span><span class="dot"></span><span class="file">terminal</span><span class="loc">a fully-specified run</span></div>
     <pre><code class="language-bash">python Practice.py summary \
@@ -90,18 +83,17 @@
         setattr(obj, key, _cast(raw_value, field_types[key]))
     return obj</code></pre>
   </div>
-  <p>
-    Note the error messages: a typo'd key doesn't crash cryptically — it tells you the valid
-    field names. This file consistently spends effort on <em>failing legibly</em>.
+  <p class="footnote">
+    Note the error messages: a typo'd key doesn't crash cryptically — it lists the valid field
+    names. This file consistently spends effort on <em>failing legibly</em>.
   </p>
 </section>
 
 <section id="planning" class="reveal">
   <h2><span class="sec-num">3.2</span>Shape planning: the network on paper, one source of truth</h2>
-  <p>
+  <p class="lead">
     Before any real network is built, <code>plan_network()</code> walks the whole architecture
-    <em>arithmetically</em>: given the input size, what does each layer receive and emit? The
-    core is the standard convolution output-size formula:
+    <em>arithmetically</em>: what does each layer receive and emit? The core formula:
   </p>
   <div class="formula">
     out = ⌊( in + 2·<span class="v">padding</span> − <span class="v">dilation</span>·(<span class="v">kernel</span> − 1) − 1 ) / <span class="v">stride</span>⌋ + 1
@@ -117,25 +109,26 @@
     <div class="ico">📐</div>
     <div>
       <span class="callout-title">Why "one source of truth" is a headline feature</span>
-      <p>The model builder, the hardware feasibility checker, and the cost model <strong>all read this
-      same plan object</strong>. The file's comment explains the scar tissue: previously the model and
-      the checker each re-derived shapes with duplicated loops, "which is exactly how the head came
-      to be unchecked" — the checker validated the conv layers and silently ignored the
-      fully-connected head, letting infeasible networks through. Duplicate a computation and the
-      copies <em>will</em> drift; compute it once and disagreement is impossible.</p>
+      <ul>
+        <li>The model builder, the feasibility checker, and the cost model <strong>all read this same plan object</strong>.</li>
+        <li>The scar tissue behind the rule: previously the model and checker each re-derived shapes with duplicated loops — "which is exactly how the head came to be unchecked." Infeasible networks sailed through.</li>
+        <li>Duplicate a computation and the copies <em>will</em> drift. Compute it once and disagreement is impossible.</li>
+      </ul>
     </div>
   </div>
 </section>
 
 <section id="builder" class="reveal">
   <h2><span class="sec-num">3.3</span>Build your own network</h2>
-  <p>
-    Everything below runs the <em>actual planning, costing, and feasibility math</em> from the
-    file, ported line-for-line to JavaScript and verified to produce identical numbers. Start
-    from a preset, then break things: set channels to 128 and watch feasibility die; switch the
-    head to GAP and watch the parameter count collapse; add layers until the spatial guard kicks
-    in.
+  <p class="lead">
+    Everything below runs the file's <em>actual</em> planning / costing / feasibility math, ported
+    line-for-line and verified to produce identical numbers. Ways to break things:
   </p>
+  <ul>
+    <li>Set channels to <strong>128</strong> → watch feasibility die (chapter 4 explains why).</li>
+    <li>Switch the head to <strong>GAP</strong> → watch the parameter count collapse.</li>
+    <li>Keep adding layers → the spatial guard kicks in, then the plan collapses entirely.</li>
+  </ul>
   <div class="demo">
     <div class="demo-head">
       <span class="demo-tag">INTERACTIVE</span>
@@ -231,29 +224,36 @@
   <div class="two-up">
     <div class="panel">
       <div class="p-title"><span class="chip blue">flatten</span> keep every pixel</div>
-      <p>Unroll the whole block into one long vector. A 32×12×12 output flattens to 4,608 features. The first linear layer then needs <strong>4,608 × width</strong> weights — and, critically for chapter 4, every output neuron of that layer has a <strong>fan-in of 4,608</strong>. Preserves spatial detail ("<em>where</em> did activity happen"), which this gesture task rewards: the file notes every top model used flatten.</p>
+      <ul>
+        <li>Unroll the whole block into one vector: 32×12×12 → <strong>4,608 features</strong>.</li>
+        <li>First linear layer then needs 4,608 × width weights — and every neuron in it has <strong>fan-in 4,608</strong> (chapter 4 cares a lot).</li>
+        <li>Preserves <em>where</em> activity happened. This gesture task rewards that: <strong>every top model used flatten</strong>.</li>
+      </ul>
     </div>
     <div class="panel">
       <div class="p-title"><span class="chip violet">gap</span> average each channel</div>
-      <p>Global Average Pooling collapses each channel's H×W map to its single mean — 32×12×12 becomes just 32 numbers. Massively fewer parameters, less overfitting, and tiny fan-in (many more configs pass feasibility). Deployable on-chip because an average is just a fixed-weight linear map. The cost: it discards <em>where</em>, keeping only <em>how much</em> — and on this task that historically cost ~40 accuracy points. Tested and kept as an option; not used by winners.</p>
+      <ul>
+        <li>Global Average Pooling collapses each channel's map to its mean: 32×12×12 → <strong>32 numbers</strong>.</li>
+        <li>Far fewer params · less overfitting · tiny fan-in (many more configs pass feasibility).</li>
+        <li>Deployable on-chip: an average is just a fixed-weight linear map.</li>
+        <li>The cost: discards <em>where</em>, keeps only <em>how much</em> — historically ~40 accuracy points on this task. Kept as an option; not used by winners.</li>
+      </ul>
     </div>
   </div>
-  <p>
-    Between the reduction and the classifier sit zero or more hidden fully-connected layers
-    (<code>fc_widths</code>). The 65-trial analysis found the winners used <em>none at all</em> —
-    the conv features were already linearly separable — so the search now caps hidden FC layers
-    at one. Each linear layer is built <code>bias=False</code> (the chip's linear maps carry no
-    bias field), with dropout before it during training, and — like every layer here — a spiking
-    neuron after it.
-  </p>
+  <p>Between reduction and classifier: zero or more hidden FC layers (<code>fc_widths</code>).</p>
+  <ul>
+    <li><strong>The winners used none.</strong> The 65-trial analysis found conv features already linearly separable, so the search caps hidden FC layers at one.</li>
+    <li>Every linear layer is <code>bias=False</code> — the chip's linear maps carry no bias field.</li>
+    <li>During training: dropout before each linear; and, like every layer here, a spiking neuron after it.</li>
+  </ul>
 </section>
 
 <section id="cost" class="reveal">
   <h2><span class="sec-num">3.5</span>The cost model: three different ways to count "size"</h2>
-  <p>
-    "How big is this network?" has three genuinely different answers, and the code refuses to
-    conflate them. For a conv layer with kernel k, C<sub>in</sub> input channels,
-    C<sub>out</sub> output channels and an H<sub>out</sub>×W<sub>out</sub> output map:
+  <p class="lead">
+    "How big is this network?" has three genuinely different answers — the code refuses to
+    conflate them. For a conv layer (kernel k, C<sub>in</sub> in, C<sub>out</sub> out,
+    H<sub>out</sub>×W<sub>out</sub> map):
   </p>
   <div class="tbl-wrap">
     <table class="tbl">
@@ -265,14 +265,13 @@
       </tbody>
     </table>
   </div>
-  <p>
-    Weight sharing is the punchline: in the depth-2 winner, conv1 has just 50,176 parameters but
-    realizes <strong>7.2 million synapses</strong> on chip — the same little filter stamped
-    across 144 spatial positions. GPUs exploit the sharing; a neuromorphic chip must physically
-    wire every synapse. That's why the hardware's constraint language (fan-in/fan-out) is so
-    different from deep learning's usual "parameter count".
-  </p>
-  <p>Here's the real thing — actual output of <code>summary</code> mode for the depth-2 seed config, which the builder above reproduces number-for-number:</p>
+  <p><strong>Weight sharing is the punchline:</strong></p>
+  <ul>
+    <li>In the depth-2 winner, conv1 has just <strong>50,176 parameters</strong> but realizes <strong>7.2 million synapses</strong> on chip — one small filter stamped across 144 positions.</li>
+    <li>GPUs exploit the sharing. A neuromorphic chip must <em>physically wire every synapse</em>.</li>
+    <li>Hence the hardware's constraint language — fan-in/fan-out — instead of deep learning's usual "parameter count".</li>
+  </ul>
+  <p>The real thing — actual <code>summary</code> output for the depth-2 seed config, which the builder above reproduces number-for-number:</p>
   <div class="term-block">
     <div class="term-head">$ python Practice.py summary --input resize_to=64 T=16 --encoder depth=2 channels=32 kernel_size=7 stride=2 --head fc_widths= dropout_rate=0.28</div>
     <pre>==============================================================================
@@ -311,14 +310,11 @@ pipeline flush steps    : 3  (1 per spiking layer)
 
 <section id="perlayer" class="reveal">
   <h2><span class="sec-num">3.6</span>Uniform vs. per-layer: two ways to write the same encoder</h2>
-  <p>
-    <code>EncoderSpec</code> accepts two styles. <strong>Uniform</strong>: give
-    <code>depth=3, channels=32, kernel_size=7</code> and every layer is a copy — simple, and
-    what the original code did. <strong>Per-layer</strong>: hand <code>layers_json</code> a JSON
-    list of <code>ConvLayerSpec</code> dicts and each layer gets its own geometry — different
-    kernels, channel counts, per-layer pooling, even per-layer neuron overrides
-    (<code>tau</code>, <code>v_threshold</code>):
-  </p>
+  <p class="lead"><code>EncoderSpec</code> accepts two styles:</p>
+  <ul>
+    <li><strong>Uniform</strong> — <code>depth=3, channels=32, kernel_size=7</code>: every layer a copy. Simple; what the original code did.</li>
+    <li><strong>Per-layer</strong> — hand <code>layers_json</code> a JSON list of <code>ConvLayerSpec</code> dicts: each layer gets its own kernels, channels, pooling, even neuron overrides (<code>tau</code>, <code>v_threshold</code>):</li>
+  </ul>
   <div class="code-block">
     <div class="code-head"><span class="dot"></span><span class="dot"></span><span class="file">per-layer encoder spec</span><span class="loc">what the per-layer search emits</span></div>
     <pre><code class="language-python">--encoder layers_json='[
@@ -327,15 +323,11 @@ pipeline flush steps    : 3  (1 per spiking layer)
   {"out_channels": 32, "kernel_size": 5, "stride": 2, "tau": 4, "v_threshold": 0.8}
 ]'</code></pre>
   </div>
-  <p>
-    When <code>layers_json</code> is present it <em>wins</em> and the uniform fields are ignored
-    for shape. <code>resolve_conv_layers()</code> collapses either style into the same
-    <code>list[ConvLayerSpec]</code>, so everything downstream — planner, checker, cost model,
-    builder — handles exactly one representation. Per-layer neuron overrides are free on the
-    chip (it reads a neuron model per neuron anyway), but the code deliberately stops at
-    per-<em>layer</em>: per-<em>channel</em> τ/θ were "considered and rejected as too many
-    degrees of freedom for this dataset."
-  </p>
+  <ul>
+    <li>When <code>layers_json</code> is present, it <em>wins</em> — uniform fields are ignored for shape.</li>
+    <li><code>resolve_conv_layers()</code> collapses either style into one canonical <code>list[ConvLayerSpec]</code>, so planner, checker, cost model, and builder handle exactly one representation.</li>
+    <li>Per-<em>layer</em> neuron overrides are free on chip (it reads a neuron model per neuron anyway). Per-<em>channel</em> τ/θ were "considered and rejected as too many degrees of freedom for this dataset."</li>
+  </ul>
   <div class="callout aside">
     <div class="ico">🧪</div>
     <div>

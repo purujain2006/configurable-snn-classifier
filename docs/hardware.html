@@ -18,11 +18,11 @@
     <p class="kicker">Chapter 4 · Hardware & Quantization</p>
     <h1>The chip's house rules<br>(and how training obeys them)</h1>
     <p class="lede">
-      A GPU runs whatever math you write. HiAER-Spike runs only what it is: finite wiring, 16-bit
-      integers, weights that cannot leave [−1, 1], integer leaks. This chapter covers the two
-      halves of living with that — <strong>feasibility</strong> (can this network be wired at
-      all?) and <strong>quantization</strong> (will its numbers survive the integer grid?) — and
-      the training scheme that makes the answer "yes" <em>by construction</em>.
+      A GPU runs whatever you write. HiAER-Spike runs only what it <em>is</em>: finite wiring,
+      16-bit integers, weights clamped to [−1, 1]. Two questions rule this chapter —
+      <strong>feasibility</strong> (can it be wired at all?) and <strong>quantization</strong>
+      (will the numbers survive?) — plus the training scheme that makes both answers "yes"
+      by construction.
     </p>
   </div>
 </header>
@@ -32,10 +32,10 @@
 
 <section id="limits" class="reveal">
   <h2><span class="sec-num">4.1</span>Wiring budgets: fan-in, fan-out, axons</h2>
-  <p>
-    On a neuromorphic chip, a synapse is not a number in a matrix — it's a physical routing
-    entry. Routing tables have finite size, which becomes three hard limits, transcribed in the
-    code as plain dictionaries:
+  <p class="lead">
+    On a neuromorphic chip, a synapse isn't a number in a matrix — it's a <strong>physical routing
+    entry</strong>. Routing tables are finite. That becomes hard limits, transcribed in the code
+    as plain dictionaries:
   </p>
   <div class="code-block">
     <div class="code-head"><span class="dot"></span><span class="dot"></span><span class="file">Practice2.py</span><span class="loc">§3</span></div>
@@ -73,14 +73,12 @@ NEURON_LIMITS = {
       <div class="demo-note" id="fb-note"></div>
     </div>
   </div>
-  <p>
-    The empirical punchline, from the file's own comments after 65 real trials: channel count was
-    the dominant driver of infeasibility — <em>"32ch 88% feasible, 128ch 14%"</em> — and the big
-    channel counts never won on accuracy anyway. So the search space was narrowed to
-    {32, 64} channels. Hardware pressure quietly redesigns your networks: small kernels shrink
-    fan-in per layer, small channel counts shrink both fans, and flatten-into-FC is the most
-    dangerous move of all (a 9,216-wide flatten exceeds the 8,159 fan-in limit all by itself).
-  </p>
+  <p>The empirical punchline, from the file's own comments after 65 real trials:</p>
+  <ul class="facts">
+    <li><strong>Channels were the #1 infeasibility driver:</strong> <em>"32ch 88% feasible, 128ch 14%"</em> — and big channel counts never won on accuracy anyway. The space was narrowed to {32, 64}.</li>
+    <li><strong>Hardware pressure redesigns networks:</strong> small kernels shrink fan-in; small channel counts shrink both fans.</li>
+    <li><strong>Flatten-into-FC is the most dangerous move:</strong> a 9,216-wide flatten exceeds the 8,159 fan-in limit all by itself.</li>
+  </ul>
   <h3>How the full check walks the network</h3>
   <p><code>check_feasibility()</code> (used live in <a href="architecture.html#builder">chapter 3's builder</a>) applies those formulas everywhere, with two corrections the comment calls out — both bugs in the earlier version:</p>
   <ul>
@@ -93,10 +91,10 @@ NEURON_LIMITS = {
 
 <section id="int16" class="reveal">
   <h2><span class="sec-num">4.2</span>The INT16 grid: what numbers survive on chip</h2>
-  <p>
-    Inside the chip there are no floats. The conversion library quantizes with fixed settings
-    that this file mirrors as constants — "every constant here is read off <code>hs_api</code>,
-    not chosen":
+  <p class="lead">
+    Inside the chip there are no floats. The conversion library quantizes with fixed settings this
+    file mirrors as constants — <em>"every constant here is read off <code>hs_api</code>, not
+    chosen"</em>:
   </p>
   <div class="formula">
     w_delta = <span class="c">w_alpha</span> / (2<sup><span class="c">w_bits</span>−1</sup> − 1) = 1 / 32767 ≈ 0.0000305
@@ -135,18 +133,15 @@ NEURON_LIMITS = {
 
 <section id="folding" class="reveal">
   <h2><span class="sec-num">4.3</span>BatchNorm folding — the step that breaks networks</h2>
+  <p class="lead">Three facts collide here:</p>
+  <ul class="facts">
+    <li><strong>BatchNorm (BN)</strong> sits after each conv, re-centering and re-scaling every channel's activations (running stats μ, σ²; learned scale γ and shift β per channel).</li>
+    <li><strong>Networks need it:</strong> the search found <code>norm="none"</code> produced <em>every single dead network</em> in the study.</li>
+    <li><strong>The chip doesn't have it.</strong> Before deployment, BN must disappear.</li>
+  </ul>
   <p>
-    <span class="term">BatchNorm</span> (BN) is a training stabilizer sitting after each conv: it
-    re-centers and re-scales every channel's activations (using running statistics μ, σ², plus a
-    learned scale γ and shift β per channel). Networks train dramatically better with it — the
-    file's search found <code>norm="none"</code> produced <em>every</em> dead network in the
-    study. But <strong>HiAER-Spike has no BatchNorm layer</strong>. Before deployment, BN must
-    disappear.
-  </p>
-  <p>
-    Luckily it can, <em>exactly</em>: conv followed by BN is just one linear operation followed
-    by another, and two linear operations compose into one. "Folding" bakes BN into the conv's
-    weights:
+    Luckily it can disappear <em>exactly</em>: conv + BN are two linear operations, and two linear
+    operations compose into one. "Folding" bakes BN into the conv weights:
   </p>
   <div class="formula">
     W′<sub>c</sub> = W<sub>c</sub> · <span class="v">γ<sub>c</sub></span> / √(<span class="v">σ²<sub>c</sub></span> + ε)
@@ -158,11 +153,19 @@ NEURON_LIMITS = {
   <div class="two-up">
     <div class="panel bad-b">
       <div class="p-title"><span class="chip red">PROBLEM 1</span> The scale factor inflates weights</div>
-      <p>γ/√(σ²+ε) is often &gt; 1 — and folding multiplies <em>every weight in that channel</em> by it. A healthy trained weight of 0.6 with a channel scale of 2.1 folds to 1.26 … which the INT16 clamp then silently amputates to 1.0. Folding is <em>precisely the step</em> that pushes weights out of the representable range. Train float → fold → quantize, and accuracy falls off a cliff nobody can see in the float metrics.</p>
+      <ul>
+        <li>γ/√(σ²+ε) is often &gt; 1 — and folding multiplies <em>every weight in the channel</em> by it.</li>
+        <li>Healthy weight 0.6 × channel scale 2.1 → <strong>1.26</strong> → the INT16 clamp silently amputates it to 1.0.</li>
+        <li>Folding is <em>precisely the step</em> that pushes weights out of range. Train float → fold → quantize = accuracy off a cliff, invisible in float metrics.</li>
+      </ul>
     </div>
     <div class="panel">
       <div class="p-title"><span class="chip yellow">PROBLEM 2</span> Where does b′ go?</div>
-      <p>The fold manufactures a per-channel bias b′ — but the chip's neuron (<code>Custom_LIFNode</code>) has <em>no bias input</em>. Two routes, both implemented in <code>fold_bn</code>: <strong>bias_mode="conv"</strong> keeps b′ on the conv (exact, but needs on-chip conv bias support); <strong>bias_mode="threshold"</strong> — the deployment route — hides it in the neuron: adding b′ to the input every step is equivalent to lowering the threshold to <strong>θ′ = θ − b′</strong>, per channel. The chip natively supports per-neuron thresholds, so this costs nothing.</p>
+      <ul>
+        <li>The fold manufactures a per-channel bias b′ — but the chip's neuron has <em>no bias input</em>.</li>
+        <li><strong>bias_mode="conv"</strong>: keep b′ on the conv. Exact, but needs on-chip conv-bias support.</li>
+        <li><strong>bias_mode="threshold"</strong> (the deployment route): hide it in the neuron. Adding b′ every step ≡ lowering the threshold to <strong>θ′ = θ − b′</strong>, per channel — and per-neuron thresholds are native on this chip. Free.</li>
+      </ul>
     </div>
   </div>
   <div class="demo">
@@ -221,11 +224,10 @@ NEURON_LIMITS = {
 
 <section id="ste" class="reveal">
   <h2><span class="sec-num">4.4</span>Fake quantization & the straight-through estimator</h2>
-  <p>
-    Knowing all this, how do you <em>train</em> a network whose weights will be clamped and
-    rounded? Rounding has zero gradient (flat steps again — same disease as the spike in chapter
-    2, same cure). The code wraps every conv/linear weight in a
-    <span class="term">fake quantization</span>:
+  <p class="lead">
+    How do you <em>train</em> weights that will be clamped and rounded? Rounding has zero gradient —
+    the same disease as the spike in chapter 2, and the same cure. Every conv/linear weight gets
+    wrapped in <span class="term">fake quantization</span>:
   </p>
   <div class="code-block">
     <div class="code-head"><span class="dot"></span><span class="dot"></span><span class="file">Practice2.py · fake_quantize_weight</span><span class="loc">§4b</span></div>
@@ -241,23 +243,13 @@ def fake_quantize_weight(w):
     q = torch.round(wc.abs() * levels) / levels * torch.sign(wc) * W_ALPHA
     return _ste(q, w)</code></pre>
   </div>
-  <p>
-    Forward: the network computes with the <em>clamped, rounded</em> weight — bit-exactly what
-    the chip will store. Backward: the gradient flows to the underlying float as if nothing
-    happened. The <code>_ste</code> one-liner is the whole trick:
-    <code>original + (quantized − original).detach()</code> equals <code>quantized</code> in
-    value, but its derivative w.r.t. <code>original</code> is exactly 1.
-  </p>
-  <p>
-    "The clamp is the part that matters" (the code's words): once clamping happens <em>inside</em>
-    the forward pass, an out-of-range folded weight <strong>hurts the training loss
-    immediately</strong> — so the optimizer learns to route around it — instead of appearing as a
-    surprise after conversion. The same STE pattern quantizes thresholds
-    (<code>fake_quantize_threshold</code>) and rounds the learnable τ. And
-    <code>weight_clip_fraction()</code> measures the damage: the share of folded weights outside
-    ±1, with the docstring warning to call it on the <em>folded</em> net — "pre-fold numbers are
-    meaningless."
-  </p>
+  <ul class="facts">
+    <li><strong>Forward:</strong> the network computes with the <em>clamped, rounded</em> weight — bit-exactly what the chip will store.</li>
+    <li><strong>Backward:</strong> the gradient flows to the underlying float as if nothing happened. The <code>_ste</code> one-liner is the whole trick: <code>original + (quantized − original).detach()</code> equals <code>quantized</code> in value, but its derivative w.r.t. <code>original</code> is exactly 1.</li>
+    <li><strong>"The clamp is the part that matters"</strong> (the code's words): clamping <em>inside</em> the forward pass makes an out-of-range folded weight hurt the loss immediately — the optimizer routes around it — instead of surprising you after conversion.</li>
+    <li><strong>Same pattern everywhere:</strong> thresholds (<code>fake_quantize_threshold</code>) and the learnable integer τ use the identical STE trick.</li>
+    <li><strong>Damage meter:</strong> <code>weight_clip_fraction()</code> = share of weights outside ±1. Call it on the <em>folded</em> net — "pre-fold numbers are meaningless."</li>
+  </ul>
 </section>
 
 <section id="qat" class="reveal">
@@ -297,10 +289,10 @@ def fake_quantize_weight(w):
   </div>
   <h3>Freezing the deployable artifact</h3>
   <p>
-    After training, <code>export_deployed()</code> collapses each <code>ConvBNFoldQuant</code>
-    into a plain bias-free conv holding the final folded+quantized weights, and bakes b′
-    permanently into per-channel neuron thresholds. What remains is exactly the network the
-    converter consumes — with nothing left to fix up. Then two report functions gate and package it:
+    After training, <code>export_deployed()</code> freezes the network: each
+    <code>ConvBNFoldQuant</code> becomes a plain bias-free conv with the final quantized weights;
+    b′ is baked into per-channel thresholds. Exactly what the converter consumes — nothing left to
+    fix up. Two report functions then gate and package it:
   </p>
   <ul>
     <li><strong><code>deployment_report()</code></strong> — legality audit. BLOCKING (score 0, config rejected): any folded threshold ≤ 0. WARNING (allowed, surfaced): more than 2% of weights clipped. The warning is deliberately not a rejection — QAT trains against clipping, and the hardware-accuracy metric already prices in surviving damage.</li>
@@ -319,21 +311,18 @@ def fake_quantize_weight(w):
 
 <section id="verify" class="reveal">
   <h2><span class="sec-num">4.6</span>Trust, but verify the fold</h2>
-  <p>
-    Because a wrong fold looks like a mediocre model rather than a crash, the code ships
-    <code>verify_fold()</code> — a three-level comparison between the BN network and its folded
-    twin, ordered so failures localize the bug:
+  <p class="lead">
+    A wrong fold looks like a mediocre model, not a crash. So <code>verify_fold()</code> compares
+    the BN network against its folded twin at three levels, ordered so failures localize the bug:
   </p>
   <ol class="steps">
     <li><span class="s-title">Prediction agreement.</span> Fraction of samples where both networks pick the same class. For an exact (conv-bias) fold this must be 1.0 — anything less is a bug, not noise.</li>
     <li><span class="s-title">Max |logit difference|.</span> ~10⁻⁵ for a correct fold in fp32. A large value with high agreement means "subtly wrong" — the most dangerous quadrant.</li>
     <li><span class="s-title">Both accuracies.</span> Only now the headline number — because "test accuracy alone is too coarse to catch a subtly wrong fold."</li>
   </ol>
-  <p>
-    A related guard lives at the top of <code>fold_bn</code>: it refuses to run on a network in
-    training mode, because BN would then supply <em>batch</em> statistics instead of running
-    ones — "the single most common cause of a 'folding lost accuracy' report."
-  </p>
+  <ul>
+    <li><strong>Related guard:</strong> <code>fold_bn</code> refuses to run on a network in training mode — BN would supply <em>batch</em> statistics instead of running ones, "the single most common cause of a 'folding lost accuracy' report."</li>
+  </ul>
   <div class="callout key">
     <div class="ico">🎯</div>
     <div>

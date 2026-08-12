@@ -19,11 +19,10 @@
     <p class="kicker">Configurable SNN Classifier · An Interactive Explainer</p>
     <h1>Teaching silicon to see<br>with spikes</h1>
     <p class="lede">
-      This site explains — from absolute zero — what a real 3,200-line research file
-      (<code>Practice2.py</code>) does: it builds a <strong>spiking neural network</strong> that watches
-      a special camera and recognizes hand gestures, then squeezes that network onto a
-      brain-inspired chip called <strong>HiAER&#8209;Spike</strong>. No prior knowledge of spiking
-      networks (or much of anything) required. Every concept gets a demo you can poke.
+      A from-zero, interactive tour of a real research file (<code>Practice2.py</code>): a
+      <strong>spiking neural network</strong> that recognizes hand gestures from an event camera,
+      built to run on the <strong>HiAER&#8209;Spike</strong> neuromorphic chip.
+      No prior knowledge assumed — every concept gets a demo you can poke.
     </p>
   </div>
 </header>
@@ -33,89 +32,77 @@
 
 <section id="what" class="reveal">
   <h2><span class="sec-num">1.1</span>What you're actually looking at</h2>
-  <p>
-    Somewhere in this repository sits one Python file. It has no framework around it, no folder
-    full of modules — just one long, extremely deliberate file. Here is its job description, in
-    one breath:
-  </p>
+  <p class="lead">One Python file. ~3,200 deliberate lines. Four jobs:</p>
+  <ul class="facts">
+    <li><strong>Describe</strong> — a brain-inspired network where <em>every</em> knob (depth, kernels, channels, neuron physics, training recipe) is configuration, not hard-code.</li>
+    <li><strong>Check</strong> — verify a proposed network physically fits the HiAER-Spike chip <em>before</em> wasting GPU time on it.</li>
+    <li><strong>Train</strong> — teach it gestures in a way that already respects the chip's integer arithmetic.</li>
+    <li><strong>Search</strong> — let an automated search try hundreds of configurations, hunting for &gt;97.5% accuracy.</li>
+  </ul>
   <p class="big-idea">
-    Build a brain-inspired neural network whose <em>every knob is configurable</em>, check that a
-    proposed network can physically fit on a neuromorphic chip <em>before</em> wasting GPU time on it,
-    train it in a way that already respects the chip's brutal integer arithmetic, and let an
-    automated search try hundreds of configurations to find one that scores
-    <strong>&gt;97.5% accuracy — measured on the version that actually runs on the chip</strong>,
-    not the flattering floating-point version.
+    The accuracy that matters is measured on the version that <strong>actually runs on the
+    chip</strong> — never the flattering floating-point version.
   </p>
-  <p>
-    That last clause is the soul of the whole file. A recurring disaster in this field: you train a
-    network on your GPU, it hits 95%, you convert it for the chip… and it scores 60%. The chip
-    isn't broken — the network you trained and the network you deployed were quietly
-    <em>different networks</em>. Nearly every unusual design decision in this code exists to make the
-    trained thing and the deployed thing be the <em>same thing</em>.
-  </p>
+  <p>Why the obsession? The field's recurring disaster:</p>
+  <ul>
+    <li>Train on a GPU → <strong>95%</strong>. Convert for the chip → <strong>60%</strong>.</li>
+    <li>The chip isn't broken. The trained network and the deployed network were quietly <em>different networks</em>.</li>
+    <li>Nearly every unusual decision in this code exists to make them the <em>same network</em>.</li>
+  </ul>
   <div class="callout key">
     <div class="ico">🧭</div>
     <div>
       <span class="callout-title">How to read this site</span>
-      <p>Seven pages, in order, like chapters. This page gives you the map and the two or three
-      core ideas. Pages 2–6 each take one part of the system and go deep, with interactive demos
-      whose math is <em>ported line-for-line from the real code</em> (and verified against it).
-      Page 7 is a function-by-function reference for when you read the source itself.</p>
+      <ul>
+        <li><strong>This page</strong> — the map + the three core ideas.</li>
+        <li><strong>Chapters 2–6</strong> — one subsystem each, with demos ported line-for-line from the real code (and verified against it).</li>
+        <li><strong>Chapter 7</strong> — a searchable function-by-function reference.</li>
+      </ul>
     </div>
   </div>
 </section>
 
 <section id="task" class="reveal">
   <h2><span class="sec-num">1.2</span>The task: 11 gestures, one weird camera</h2>
-  <p>
-    The dataset is <strong>DVS128 Gesture</strong> (IBM, 2017): people performing 11 hand
-    gestures — clapping, waving each hand, rotating each arm clockwise and counter-clockwise,
-    air-drums, air-guitar, an arm roll, and an "other" category. The network's job: watch a short
-    clip, output which gesture it was.
-  </p>
-  <p>
-    But it wasn't filmed with a normal camera. A <span class="term">DVS</span> — Dynamic Vision
-    Sensor, also called an <strong>event camera</strong> — has no frames at all. Each of its
-    128×128 pixels works independently and fires a tiny message called an
-    <strong>event</strong> only when the brightness at that pixel <em>changes</em>:
-    one channel for "got brighter" (ON), one for "got darker" (OFF) — which is why the data has
-    <strong>2 channels</strong> instead of RGB's 3. A stationary background produces
-    <em>silence</em>. A moving hand produces a crackling stream of events tracing its outline.
-  </p>
-  <p>
-    So the input is not a picture; it's a <em>sparse stream of change</em>. That is exactly the
-    kind of signal spiking networks were born for — and it's why this pairing of camera and
-    network is a classic. The code chops the event stream into <code>T</code> time-slices
-    (usually 16) and feeds them to the network one slice at a time. More on that in
-    <a href="training.html">chapter 5</a>.
-  </p>
+  <p class="lead">The dataset: <strong>DVS128 Gesture</strong> (IBM, 2017). Watch a short clip of a person, name the gesture.</p>
+  <dl class="kv">
+    <dt>11 classes</dt><dd>clapping · left/right hand wave · each arm clockwise &amp; counter-clockwise · arm roll · air drums · air guitar · "other"</dd>
+    <dt>the camera</dt><dd>A <span class="term">DVS</span> (Dynamic Vision Sensor — an <strong>event camera</strong>). No frames. Each of its 128×128 pixels independently fires an <strong>event</strong> only when its brightness <em>changes</em>.</dd>
+    <dt>2 channels</dt><dd>ON = "got brighter", OFF = "got darker". That's why the data has C=2, not RGB's 3.</dd>
+    <dt>the signal</dt><dd>A stationary background produces <em>silence</em>. A moving hand produces a crackling stream of events tracing its outline. Sparse change — not pictures.</dd>
+    <dt>into the net</dt><dd>Events are chopped into <code>T</code> time-slices (usually 16), fed one slice at a time — details in <a href="training.html">chapter 5</a>.</dd>
+  </dl>
+  <p>A sparse stream of change is exactly the signal spiking networks were born for. This camera-network pairing is a classic for a reason.</p>
 </section>
 
 <section id="snn" class="reveal">
   <h2><span class="sec-num">1.3</span>Normal networks pass numbers. Spiking networks pass blips.</h2>
-  <p>
-    The neural networks you've probably heard of (the ones behind image classifiers and chatbots —
-    call them <strong>ANNs</strong>, artificial neural networks) are giant calculators. Every
-    "neuron" computes <em>weighted&nbsp;sum&nbsp;→ squashing function → pass the resulting number
-    onward</em>. The numbers are precise decimals like 0.7314, and every neuron computes every
-    time, whether or not anything interesting is happening.
-  </p>
-  <p>
-    A <strong>spiking neural network (SNN)</strong> copies biology more literally. A spiking
-    neuron doesn't output a decimal — it outputs either <em>nothing</em> or a
-    <strong>spike</strong>: an all-or-nothing blip, a 1 in a sea of 0s. Internally it keeps a
-    running tally called the <span class="term">membrane potential</span> — think of it as a
-    <em>leaky bucket</em>:
-  </p>
+  <p class="lead">Two ways to build a "neuron":</p>
+  <div class="two-up">
+    <div class="panel">
+      <div class="p-title"><span class="chip blue">ANN</span> the networks you've heard of</div>
+      <ul>
+        <li>Every neuron: weighted sum → squashing function → pass a <strong>precise decimal</strong> (0.7314…) onward.</li>
+        <li>Every neuron computes <em>every time</em> — interesting input or not. A giant calculator.</li>
+      </ul>
+    </div>
+    <div class="panel">
+      <div class="p-title"><span class="chip yellow">SNN</span> this project</div>
+      <ul>
+        <li>A neuron outputs <em>nothing</em>… or a <strong>spike</strong>: an all-or-nothing blip. 1s in a sea of 0s.</li>
+        <li>Its only memory is one number — the <span class="term">membrane potential</span> — a <em>leaky bucket</em> of evidence.</li>
+      </ul>
+    </div>
+  </div>
+  <p>The bucket's three rules:</p>
   <ul>
     <li>Every incoming spike pours a little water in (how much = the connection's <strong>weight</strong>; inhibitory weights scoop water out).</li>
     <li>The bucket <strong>leaks</strong> constantly — old evidence fades. The leak speed is set by a constant called <strong>tau (τ)</strong>.</li>
     <li>If the water level crosses a <strong>threshold (θ)</strong>, the neuron <strong>fires a spike</strong> of its own to everyone downstream, and the bucket empties (a <strong>reset</strong>).</li>
   </ul>
   <p>
-    This particular flavor is called <strong>LIF</strong> — <em>Leaky Integrate-and-Fire</em> —
-    and it is the only neuron type this codebase deploys. Two enormous consequences follow from
-    "output is 0 or 1":
+    That flavor is called <strong>LIF</strong> — <em>Leaky Integrate-and-Fire</em> — the only
+    neuron type this codebase deploys. Two enormous consequences follow from "output is 0 or 1":
   </p>
   <ul>
     <li><strong>Time is part of the computation.</strong> A single spike says almost nothing; <em>how often</em> and <em>when</em> a neuron fires carries the information. The network must be run for T timesteps and its output spikes counted.</li>
@@ -149,13 +136,12 @@
 
 <section id="chip" class="reveal">
   <h2><span class="sec-num">1.4</span>The catch: the chip is a harsh landlord</h2>
-  <p>
-    Spikes-are-cheap only pays off on hardware built for spikes. The target here is
-    <strong>HiAER&#8209;Spike</strong>, a neuromorphic research platform (from UC San Diego —
-    <em>Hierarchical Address-Event Routing</em>), programmed through its Python interface
-    <code>hs_api</code>. Unlike a GPU — which will run whatever math you write — this chip has
-    non-negotiable house rules, and the code treats them as physics:
+  <p class="lead">
+    Spikes-are-cheap only pays off on hardware built for spikes. The target:
+    <strong>HiAER&#8209;Spike</strong> (UC San Diego, <em>Hierarchical Address-Event Routing</em>),
+    programmed via <code>hs_api</code>.
   </p>
+  <p>A GPU runs whatever math you write. This chip has house rules the code treats as physics:</p>
   <div class="two-up">
     <div class="panel">
       <div class="p-title"><span class="chip red">LIMITS</span> Wiring budgets</div>
@@ -166,15 +152,13 @@
       <p>Weights live on a 16-bit integer grid and are <strong>hard-clamped to [−1, +1]</strong> — a weight of 1.3 silently becomes 1.0. Thresholds become integers. Even the leak τ is an integer register: τ=2.1 and τ=2.4 deploy as <em>the same network</em>. Training must anticipate all of this.</p>
     </div>
   </div>
-  <p>
-    And one more subtlety that costs real accuracy if ignored: the chip's neuron performs its
-    internal steps in a <em>different order</em> than the standard software neuron — it fires
-    based on the <em>previous</em> timestep's bucket level. Result: every layer delays the signal
-    by one tick, like a bucket brigade. A 5-layer network needs 5 extra "flush" timesteps of
-    empty input after the clip ends, or the final frames' evidence never reaches the output.
-    The code models this <em>during training</em> so there are no surprises later
-    (<a href="neurons.html">chapter 2</a> animates it).
-  </p>
+  <p>Plus one subtlety that silently costs accuracy if ignored:</p>
+  <ul>
+    <li>The chip's neuron fires based on the <em>previous</em> timestep's bucket level — a different internal order than the standard software neuron.</li>
+    <li>Result: every layer delays the signal by one tick, like a bucket brigade.</li>
+    <li>So a 5-layer network needs 5 extra <strong>"flush" timesteps</strong> of empty input after the clip ends — or the final frames' evidence never reaches the output.</li>
+    <li>The code models this <em>during training</em>, so there are no surprises on chip (<a href="neurons.html">chapter 2</a> animates it).</li>
+  </ul>
 </section>
 
 <section id="pipeline" class="reveal">
@@ -239,12 +223,12 @@
 
 <section id="file-map" class="reveal">
   <h2><span class="sec-num">1.7</span>How the file is organized (and where this site covers it)</h2>
-  <p>
-    <code>Practice2.py</code> is written in numbered sections, like chapters of a book. A design
-    rule worth noticing: <strong>sections 1–4 import no PyTorch</strong> — pure Python math — so
-    the architecture planning and feasibility checking can run on any laptop with no GPU stack
-    installed. The heavy machinery only loads when you actually train.
-  </p>
+  <p class="lead"><code>Practice2.py</code> is written in numbered sections, like book chapters.</p>
+  <ul>
+    <li>Design rule worth noticing: <strong>sections 1–4 import no PyTorch</strong> — pure Python math.</li>
+    <li>So planning + feasibility checking run on any laptop, no GPU stack installed.</li>
+    <li>The heavy machinery only loads when you actually train.</li>
+  </ul>
   <div class="tbl-wrap">
     <table class="tbl">
       <thead><tr><th>File section</th><th>What it does</th><th>Covered in</th></tr></thead>

@@ -92,7 +92,7 @@
   }
 
   const PALETTE = {
-    bg: "#070b13", grid: "#16203466", axis: "#2a3854",
+    bg: "#04070d", grid: "#1a253c55", axis: "#2a3854",
     text: "#7e8ca6", accent: "#6ea8ff", accent2: "#b78cff",
     spike: "#ffd166", good: "#4ade80", bad: "#ff6b6b", warn: "#fbbf24"
   };

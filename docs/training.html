@@ -18,11 +18,9 @@
     <p class="kicker">Chapter 5 · Data & Training</p>
     <h1>From event stream<br>to learned gestures</h1>
     <p class="lede">
-      This chapter follows a gesture clip through the whole training machinery: how millions of
-      camera events become T tidy binary frames, how the network's spikes become a class
-      prediction ("rate coding"), why every training batch runs extra <em>empty</em> timesteps at
-      the end, and how the training loop is scheduled — including the moment mid-run when the
-      network is swapped onto the chip's integer grid.
+      Follow one gesture clip through the machinery: millions of events → T binary frames →
+      spikes → a class prediction — including why every batch runs extra <em>empty</em> timesteps,
+      and the mid-run moment the network is swapped onto the chip's integer grid.
     </p>
   </div>
 </header>
@@ -32,50 +30,43 @@
 
 <section id="dataset" class="reveal">
   <h2><span class="sec-num">5.1</span>The dataset: 1,342 clips of people waving</h2>
-  <p>
-    DVS128 Gesture contains recordings of 29 subjects performing the 11 gestures under three
-    lighting conditions, captured by a 128×128 event camera. Each recording is a long list of
-    events: <code>(x, y, polarity, timestamp)</code> — <em>where</em>, <em>which direction</em>
-    the brightness changed (ON/OFF → the 2 channels), and <em>when</em>, at microsecond
-    resolution. Loading goes through the SpikingJelly library's
-    <code>DVS128Gesture</code> class, which the code asks for
-    <strong>frame mode</strong>: chop each clip's events into <code>T</code> equal-count slices
-    (<code>split_by="number"</code> — each slice holds the same <em>number of events</em>, so
-    fast motion gets thin time slices and slow motion gets thick ones), then rasterize each slice
-    by counting events per pixel. Result per clip: a tensor of shape
-    <strong>(T, 2, 128, 128)</strong>.
-  </p>
-  <p>Three unglamorous decisions in <code>build_dataloaders</code> that careful readers should notice:</p>
+  <p class="lead">29 subjects · 11 gestures · 3 lighting conditions · one 128×128 event camera.</p>
+  <dl class="kv">
+    <dt>raw recording</dt><dd>A long list of events <code>(x, y, polarity, timestamp)</code> — <em>where</em>, <em>which direction</em> brightness changed (ON/OFF → the 2 channels), <em>when</em> (microsecond resolution).</dd>
+    <dt>frame mode</dt><dd>SpikingJelly's <code>DVS128Gesture</code> chops each clip into <code>T</code> slices and rasterizes each by counting events per pixel.</dd>
+    <dt>split_by="number"</dt><dd>Each slice holds the same <em>number of events</em> — fast motion gets thin time slices, slow motion thick ones.</dd>
+    <dt>result per clip</dt><dd>A tensor of shape <strong>(T, 2, 128, 128)</strong>.</dd>
+  </dl>
+  <p>Three unglamorous decisions in <code>build_dataloaders</code> worth noticing:</p>
   <ul>
     <li><strong>The validation split is seeded.</strong> <code>torch.manual_seed(1)</code> before the random 15% split — every run, every search trial, judges itself against the <em>same</em> validation set. Comparisons stay apples-to-apples.</li>
     <li><strong><code>drop_last</code> only on the training loader.</strong> Dropping the ragged final batch is fine for training but on val/test it would silently discard up to N−1 samples "and bias every accuracy number reported."</li>
     <li><strong><code>num_workers=0</code>, deliberately.</strong> Each search trial is already its own process; DataLoader workers would spawn processes <em>inside</em> processes — "nested multiprocessing like that is broken on Windows and would oversubscribe CPUs across concurrent trials."</li>
   </ul>
-  <p class="footnote">
-    Related engineering: <code>warmup_dataset_cache()</code> pre-builds SpikingJelly's frame cache for every T value <em>before</em> parallel trials launch (two trials racing to build the same cache folder can corrupt it), detects half-built caches by checking every class folder has samples, and wraps the noisy extraction in <code>_quiet_with_heartbeat</code> — which swallows hundreds of progress lines and prints one calm heartbeat every 20 s instead, dumping the full captured log only on failure. And <code>validate_data_dir()</code> turns the library's cryptic deep-stack <code>FileNotFoundError</code> into a message that tells you exactly which folder layout it expected.
-  </p>
+  <h3>Supporting cast (§9)</h3>
+  <ul>
+    <li><code>warmup_dataset_cache()</code> — pre-builds the frame cache for every T <em>before</em> parallel trials launch; two trials racing to build the same folder can corrupt it. Detects half-built caches (every class folder must contain samples) and rebuilds them.</li>
+    <li><code>_quiet_with_heartbeat</code> — swallows SpikingJelly's hundreds of extraction print-lines, emits one calm heartbeat every 20 s, and dumps the full captured log only on failure.</li>
+    <li><code>validate_data_dir()</code> — replaces the library's cryptic deep-stack <code>FileNotFoundError</code> with a message showing the exact folder layout expected.</li>
+  </ul>
 </section>
 
 <section id="binarize" class="reveal">
   <h2><span class="sec-num">5.2</span>Resize + binarize: deliberately lossy, in a chosen direction</h2>
-  <p>
-    128×128×2 = 32,768 input axons; the chip allows 16,383. So frames are shrunk (to 64×64 or
-    32×32) and — because spiking input should be spikes, not gray values — snapped to {0, 1}.
-    The transform is two lines with a subtle personality:
+  <p class="lead">
+    128×128×2 = 32,768 input axons. The chip allows 16,383. So: shrink to 64×64 or 32×32, then
+    snap to {0, 1} (spiking input should be spikes, not grays). Two lines, with personality:
   </p>
   <div class="code-block">
     <div class="code-head"><span class="dot"></span><span class="dot"></span><span class="file">Practice2.py · DVSResizeAndBinarize</span><span class="loc">§6</span></div>
     <pre><code class="language-python">out[t] = F.interpolate(frames[t]..., size=self.size, mode="bilinear", ...)
 return (out > 0).float()   # ANY nonzero contribution becomes a full spike</code></pre>
   </div>
-  <p>
-    The docstring is explicit that this is <strong>not</strong> average-downsampling: bilinear
-    interpolation of a sparse binary frame produces small fractional values, and
-    <code>&gt; 0</code> promotes <em>any</em> nonzero contribution back to a full spike.
-    "Effectively OR-pooling — no events are lost, but event density per pixel rises at low
-    resolutions." A deliberate trade: preserve every scrap of sparse signal, accept busier
-    pixels.
-  </p>
+  <ul>
+    <li>This is <strong>not</strong> average-downsampling: bilinear interpolation of a sparse binary frame produces small fractional values, and <code>&gt; 0</code> promotes <em>any</em> nonzero contribution back to a full spike.</li>
+    <li>The docstring names it: <em>"effectively OR-pooling — no events are lost, but event density per pixel rises at low resolutions."</em></li>
+    <li>A deliberate trade: preserve every scrap of sparse signal; accept busier pixels.</li>
+  </ul>
   <div class="demo">
     <div class="demo-head">
       <span class="demo-tag">INTERACTIVE</span>
@@ -104,30 +95,22 @@ return (out > 0).float()   # ANY nonzero contribution becomes a full spike</code
 
 <section id="rate" class="reveal">
   <h2><span class="sec-num">5.3</span>Reading the answer: rate coding</h2>
-  <p>
-    After the last layer, there are 11 output neurons — one per gesture — each emitting spikes
-    over time. The network's "answer" is defined as each output neuron's
-    <strong>firing rate</strong>: total spikes accumulated across the run, divided by T. Highest
-    rate wins (and during training, those 11 rates go into a standard cross-entropy loss exactly
-    as if they were ordinary scores). This is <span class="term">rate coding</span> — the
-    simplest way to turn spike trains back into numbers.
-  </p>
-  <p>
-    But there's a wrinkle you already know from chapter 2: with the chip's fire-on-previous-step
-    neuron, <em>each layer delays everything by one timestep</em>. The evidence from the final
-    input frames is still in flight, somewhere mid-network, when the input ends.
-  </p>
+  <p class="lead">11 output neurons — one per gesture — each emitting spikes over time. How is that an answer?</p>
+  <ul>
+    <li><strong>Rate coding:</strong> each output neuron's score = total spikes accumulated ÷ T. Highest rate wins.</li>
+    <li><strong>Training:</strong> those 11 rates feed a standard cross-entropy loss, exactly as if they were ordinary scores.</li>
+    <li><strong>The wrinkle</strong> (from chapter 2): each layer delays everything by one timestep — so the final frames' evidence is still <em>in flight, mid-network</em>, when the input ends…</li>
+  </ul>
 </section>
 
 <section id="flush" class="reveal">
   <h2><span class="sec-num">5.4</span>The pipeline flush: why the network runs on empty</h2>
-  <p>
-    The fix is <code>forward_over_time()</code>, and it mirrors the hardware conversion script's
-    measurement <em>exactly</em>: feed the T input frames, then keep stepping the network for
-    <code>flush_steps</code> extra timesteps with <strong>all-zero input</strong> — one per
-    spiking layer — while continuing to accumulate output spikes. Then divide by T (not
-    T + flush, so rates stay comparable across depths).
-  </p>
+  <p class="lead">The fix is <code>forward_over_time()</code>, mirroring the hardware conversion script's measurement <em>exactly</em>:</p>
+  <ul>
+    <li>Feed the T input frames…</li>
+    <li>…then keep stepping for <code>flush_steps</code> extra timesteps of <strong>all-zero input</strong> — one per spiking layer — still accumulating output spikes.</li>
+    <li>Divide by T (not T + flush), so rates stay comparable across network depths.</li>
+  </ul>
   <div class="code-block">
     <div class="code-head"><span class="dot"></span><span class="dot"></span><span class="file">Practice2.py · hardware_flush_steps</span><span class="loc">§8</span></div>
     <pre><code class="language-python">def hardware_flush_steps(net) -> int:
@@ -174,20 +157,16 @@ return (out > 0).float()   # ANY nonzero contribution becomes a full spike</code
     <li><span class="s-title">Step.</span> Optional gradient clipping, optimizer update, optional per-batch scheduler tick.</li>
   </ol>
   <p>
-    After each epoch, <code>evaluate()</code> measures validation accuracy, and the best-scoring
-    weights are kept (<code>deepcopy</code> of the state dict) — the final model is the best
-    epoch, not the last one.
+    After each epoch, <code>evaluate()</code> measures validation accuracy and the best-scoring
+    weights are kept — the final model is the <em>best</em> epoch, not the last one.
   </p>
   <h3>Optimizers & schedules</h3>
-  <p>
-    <code>build_optimizer</code> offers Adam, AdamW, and SGD — with a comment worth repeating
-    because it bites people: in classic Adam, <code>weight_decay</code> is L2 <em>added to the
-    gradient</em> and gets tangled with the adaptive step size; AdamW applies decay
-    <em>decoupled</em> from it. Since chapter 4 showed weight decay doubles as a
-    <em>deployment lever</em> (it keeps folded weights inside [−1,1]), the search gives the two
-    optimizers different decay ranges. <code>build_scheduler</code> shapes the learning rate
-    over epochs:
-  </p>
+  <ul>
+    <li><code>build_optimizer</code> offers <strong>Adam, AdamW, SGD</strong>.</li>
+    <li>The comment that bites people: classic Adam's <code>weight_decay</code> is L2 <em>added to the gradient</em>, tangled with the adaptive step; AdamW decays <em>decoupled</em>.</li>
+    <li>It matters extra here: chapter 4 showed weight decay doubles as a <em>deployment lever</em> (keeps folded weights inside [−1,1]) — so the search gives the two optimizers different decay ranges.</li>
+    <li><code>build_scheduler</code> shapes the learning rate over epochs:</li>
+  </ul>
   <div class="demo">
     <div class="demo-head">
       <span class="demo-tag">INTERACTIVE</span>
@@ -231,14 +210,10 @@ return (out > 0).float()   # ANY nonzero contribution becomes a full spike</code
       </tbody>
     </table>
   </div>
-  <p>
-    Run it yourself via <code>single</code> mode and the console ends with an unambiguous
-    scoreboard — "DEPLOYMENT (this is the number that matters)" — printing the float accuracy,
-    the on-grid accuracy, the deployed accuracy, and the gap between them. The checkpoint saved
-    to disk contains both the QAT network and the deployable one, the full config, the metrics,
-    and the <code>hardware_export</code> table — everything needed to reproduce or convert
-    without re-deriving a single value.
-  </p>
+  <ul>
+    <li><strong>The console scoreboard</strong> (single mode) ends with: <em>"DEPLOYMENT (this is the number that matters)"</em> — float accuracy, on-grid accuracy, deployed accuracy, and the gap between them.</li>
+    <li><strong>The saved checkpoint</strong> contains both networks (QAT + deployable), the full config, the metrics, and the <code>hardware_export</code> table — reproduce or convert without re-deriving a single value.</li>
+  </ul>
 </section>
 
 </div>

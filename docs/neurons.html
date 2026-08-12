@@ -18,11 +18,10 @@
     <p class="kicker">Chapter 2 · Spiking Neurons</p>
     <h1>The leaky bucket,<br>now with equations</h1>
     <p class="lede">
-      Everything in this codebase reduces to one small machine repeated tens of thousands of
-      times: the <strong>Leaky Integrate-and-Fire (LIF)</strong> neuron. This chapter builds it
-      from scratch, hands you a full simulator, then explains the three subtle ways the
-      <em>chip's</em> neuron differs from the textbook one — differences the code refuses to
-      paper over, because each one silently changes what the network computes.
+      One small machine, repeated tens of thousands of times: the
+      <strong>Leaky Integrate-and-Fire (LIF)</strong> neuron. Build it from scratch, drive a full
+      simulator, then meet the three ways the <em>chip's</em> neuron differs from the textbook's —
+      each of which silently changes what the network computes.
     </p>
   </div>
 </header>
@@ -39,12 +38,14 @@
     <li><strong>θ (theta) — the firing threshold.</strong> When v exceeds θ, the neuron emits a spike.</li>
     <li><strong>v_reset — where v lands after firing.</strong> Here always 0, and the reset is a <em>hard</em> reset: after a spike the bucket is emptied completely, regardless of how far above θ it was.</li>
   </ul>
+  <p>Each timestep, input arrives as one number x:</p>
+  <ul>
+    <li><strong>x = Σ (weight × spike)</strong> over all upstream neurons that fired this step.</li>
+    <li>Negative weights are <em>inhibitory</em> — they scoop water out of the bucket.</li>
+  </ul>
   <p>
-    Input arrives as a single number x per timestep: the sum of (weight × spike) over all
-    upstream neurons that fired. Weights can be negative — an inhibitory connection scoops water
-    <em>out</em>. In the deployed network there is one more twist:
-    <strong>the neuron the chip runs performs its steps in this exact order</strong>, quoted
-    straight from the code:
+    And the deployed neuron has a twist: <strong>the chip performs its steps in this exact
+    order</strong>, quoted straight from the code —
   </p>
   <div class="code-block">
     <div class="code-head"><span class="dot"></span><span class="dot"></span><span class="file">Practice2.py · HardwareLIFNode docstring</span><span class="loc">§5</span></div>
@@ -61,22 +62,27 @@
     <li><span class="s-title">Leak.</span> Decay toward rest: <code>v ← v − (v − v_reset)/τ</code>. With integer τ this is one shift-and-subtract on chip — dirt cheap.</li>
     <li><span class="s-title">Integrate.</span> Pour in this timestep's input, at full strength: <code>v ← v + x</code>.</li>
   </ol>
-  <p>
-    Notice what step 1 implies: input arriving at time t can, at the very earliest, cause a spike
-    at time <strong>t+1</strong>. The neuron is a one-tick delay line. Stack 5 spiking layers and
-    the network's answer lags its input by 5 ticks — the "pipeline flush" that
-    <a href="training.html#flush">chapter 5</a> animates.
-  </p>
+  <div class="callout key">
+    <div class="ico">⏱️</div>
+    <div>
+      <span class="callout-title">What step 1 implies</span>
+      <ul>
+        <li>Input at time t can cause a spike at <strong>t+1</strong>, at the earliest. The neuron is a one-tick delay line.</li>
+        <li>Stack 5 spiking layers → the answer lags the input by 5 ticks.</li>
+        <li>That lag is the "pipeline flush" <a href="training.html#flush">chapter 5</a> animates.</li>
+      </ul>
+    </div>
+  </div>
 </section>
 
 <section id="sim" class="reveal">
   <h2><span class="sec-num">2.2</span>The simulator</h2>
-  <p>
-    This is the real update rule (ported from <code>HardwareLIFNode.single_step_forward</code>),
-    running live. Experiment suggestions: crank τ to 63 and watch single weak inputs pile up over
-    a long memory; drop τ to 2 and see that only <em>rapid bursts</em> can climb to threshold —
-    a small-τ neuron is a coincidence detector, a big-τ neuron is an evidence accumulator.
-  </p>
+  <p class="lead">The real update rule (ported from <code>HardwareLIFNode.single_step_forward</code>), running live. Things to try:</p>
+  <ul>
+    <li><strong>τ = 63</strong> → single weak inputs pile up over a long memory. An <em>evidence accumulator</em>.</li>
+    <li><strong>τ = 2</strong> → only rapid bursts climb to threshold. A <em>coincidence detector</em>.</li>
+    <li><strong>Lower θ</strong> → a hair-trigger neuron; watch the firing rate jump.</li>
+  </ul>
   <div class="demo">
     <div class="demo-head">
       <span class="demo-tag">INTERACTIVE</span>
@@ -125,12 +131,11 @@
 
 <section id="order" class="reveal">
   <h2><span class="sec-num">2.3</span>Two neurons walk into a timestep: textbook vs. chip</h2>
-  <p>
-    The standard software library used here (<a href="https://github.com/fangwei123456/spikingjelly">SpikingJelly</a>)
-    ships a perfectly good LIF neuron. The obvious approach — and what earlier versions of this
-    project did — is to train with SpikingJelly's neuron and convert to the chip's neuron
-    afterward. The code's author eventually ripped that out, because the two neurons disagree in
-    three ways, and each disagreement quietly changes the network:
+  <p class="lead">
+    The obvious approach — train with
+    <a href="https://github.com/fangwei123456/spikingjelly">SpikingJelly</a>'s standard neuron,
+    convert to the chip's afterward — is what earlier versions did. It got ripped out.
+    <span class="then">The two neurons disagree in three ways, each quietly changing the network:</span>
   </p>
   <div class="two-up">
     <div class="panel">
@@ -189,14 +194,12 @@
 
 <section id="intleak" class="reveal">
   <h2><span class="sec-num">2.4</span>The leak is an integer (and pretending otherwise fooled a whole search)</h2>
-  <p>
-    On HiAER-Spike, τ is not a decimal — it deploys into an integer register:
-    <code>leak = round(τ)</code>. The consequence sounds small and isn't: an earlier version of
-    the hyperparameter search tuned τ as a continuous value in [1.5, 2.5], found a lovely
-    correlation between τ and accuracy… and <em>every single value in that range deploys as
-    leak=2</em>. The search was carefully optimizing a knob that does not exist on the chip.
-    The file's comment on the fix:
-  </p>
+  <p class="lead">On HiAER-Spike, τ deploys into an integer register: <code>leak = round(τ)</code>. That sounds small. It isn't:</p>
+  <ul class="facts">
+    <li><strong>The trap:</strong> an earlier search tuned τ continuously in [1.5, 2.5] and found a lovely τ↔accuracy correlation…</li>
+    <li><strong>The problem:</strong> <em>every</em> value in that range deploys as leak=2. The search was optimizing a knob that does not exist on the chip.</li>
+    <li><strong>The fix</strong> (from the file's comment):</li>
+  </ul>
   <div class="code-block">
     <div class="code-head"><span class="dot"></span><span class="dot"></span><span class="file">Practice2.py · search space</span><span class="loc">§10</span></div>
     <pre><code class="language-python"># tau was suggest_float(1.5, 2.5). On chip the leak register is an
@@ -207,14 +210,12 @@
 
 HW_TAU_CHOICES = [2, 3, 4, 6, 8, 16, 32, 63]   # the leak values worth searching</code></pre>
   </div>
-  <p>
-    Why that spacing? Because the <em>fractional</em> difference between neighboring integers is
-    huge at the small end (τ=2 keeps 50%/step, τ=3 keeps 67% — genuinely different networks) and
-    negligible at the large end (τ=63 vs 64 is invisible). τ=63 matches the leak used by a
-    known-working DVS conversion. When <code>trainable_tau=True</code>, the rounding happens
-    <em>inside the forward pass</em> with a straight-through gradient, so even a learned τ is
-    always the exact integer the chip will use.
-  </p>
+  <p>Why that spacing?</p>
+  <ul>
+    <li><strong>Small end — coarse on purpose:</strong> τ=2 keeps 50%/step, τ=3 keeps 67% — genuinely different networks one integer apart.</li>
+    <li><strong>Large end — nearly flat:</strong> τ=63 vs 64 is invisible; 63 matches a known-working DVS conversion.</li>
+    <li><strong>Learned τ stays honest:</strong> with <code>trainable_tau=True</code> the rounding happens <em>inside the forward pass</em> (straight-through gradient), so even a learned τ is always the exact integer the chip will use.</li>
+  </ul>
   <div class="demo">
     <div class="demo-head">
       <span class="demo-tag">INTERACTIVE</span>
@@ -250,12 +251,15 @@ HW_TAU_CHOICES = [2, 3, 4, 6, 8, 16, 32, 63]   # the leak values worth searching
     <li><strong>θ ≤ 0</strong> → <code>v &gt; θ</code> is true every step: the neuron fires unconditionally, forever, regardless of input. A network containing one such neuron is garbage that still <em>runs</em> — the worst kind of bug.</li>
     <li><strong>Learned θ wandering out of range</strong> → when <code>trainable_threshold=True</code>, θ is not the raw parameter. The code stores an unconstrained number <code>raw_threshold</code> and computes <code>θ = sigmoid(raw)</code>, which mathematically <em>cannot leave</em> (0, 1). The optimizer can push raw anywhere it likes; θ stays legal.</li>
   </ul>
-  <p>
-    One more elegant detail: the chip compares <em>strictly</em> (<code>v &gt; θ</code>), but the
-    training-time surrogate function computes "≥". The code reconciles them by firing on
-    <code>v − θ − w_delta ≥ 0</code> — subtracting exactly one grid step turns ≥ into &gt;
-    without breaking gradients.
-  </p>
+  <div class="callout aside">
+    <div class="ico">✨</div>
+    <div>
+      <span class="callout-title">One elegant detail</span>
+      <p>The chip compares <em>strictly</em> (<code>v &gt; θ</code>); the training surrogate computes "≥".
+      Reconciliation: fire on <code>v − θ − w_delta ≥ 0</code> — subtracting exactly one grid step
+      turns ≥ into &gt; without breaking gradients.</p>
+    </div>
+  </div>
   <div class="demo">
     <div class="demo-head">
       <span class="demo-tag">INTERACTIVE</span>
@@ -281,22 +285,12 @@ HW_TAU_CHOICES = [2, 3, 4, 6, 8, 16, 32, 63]   # the leak values worth searching
 
 <section id="surrogate" class="reveal">
   <h2><span class="sec-num">2.6</span>The trick that makes any of this trainable: surrogate gradients</h2>
-  <p>
-    Training a network means nudging weights downhill on the loss, and "downhill" comes from
-    derivatives. Here's the problem: a spike is a step function — v below θ gives 0, above gives
-    1, and the derivative of that step is <strong>zero everywhere</strong> (and infinite at the
-    exact threshold). Zero gradient means zero learning signal. Taken literally, spiking networks
-    are untrainable by backpropagation.
-  </p>
-  <p>
-    The field's standard workaround, used throughout this code, is the
-    <strong>surrogate gradient</strong>: a small, principled lie. On the <em>forward</em> pass
-    (what the network actually computes), use the true hard step — real spikes, 0 or 1. On the
-    <em>backward</em> pass (used only for learning), pretend the step had been a smooth S-curve,
-    and hand back that curve's derivative — a gentle bump peaked at the threshold. The code uses
-    SpikingJelly's <code>surrogate.ATan()</code>, whose bump is
-    <code>α/2 · 1/(1 + (π/2·α·x)²)</code>.
-  </p>
+  <p class="lead">Training = nudging weights downhill on the loss. "Downhill" comes from derivatives. Spikes break that:</p>
+  <ul class="facts">
+    <li><strong>The problem:</strong> a spike is a step function — below θ gives 0, above gives 1. Its derivative is <strong>zero everywhere</strong> (infinite at the exact threshold). Zero gradient = zero learning signal. Taken literally, SNNs can't be trained by backpropagation.</li>
+    <li><strong>The workaround — a principled lie:</strong> on the <em>forward</em> pass, use the true hard step (real 0/1 spikes). On the <em>backward</em> pass only, pretend it had been a smooth S-curve and hand back that curve's derivative — a gentle bump peaked at the threshold.</li>
+    <li><strong>This code's choice:</strong> SpikingJelly's <code>surrogate.ATan()</code>, bump = <code>α/2 · 1/(1 + (π/2·α·x)²)</code>.</li>
+  </ul>
   <div class="demo">
     <div class="demo-head">
       <span class="demo-tag">INTERACTIVE</span>
