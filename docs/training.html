@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Data & Training — Configurable SNN Classifier, Explained</title>
 <meta name="description" content="Event streams to frames, OR-pooling binarization, rate coding, the pipeline flush, and the training loop — interactively.">
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' fill='%23000'/><path d='M3 22h5l3-13 4 19 3-11h4l2 5h5' fill='none' stroke='%23d6a24c' stroke-width='2.4' stroke-linejoin='round'/></svg>">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' fill='%23000'/><path d='M3 22h5l3-13 4 19 3-11h4l2 5h5' fill='none' stroke='%23e0a94f' stroke-width='2.4' stroke-linejoin='round'/></svg>">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:ital,wght@0,400;0,600;0,700;1,400&display=swap" rel="stylesheet">
@@ -265,20 +265,20 @@ return (out > 0).float()   # ANY nonzero contribution becomes a full spike</code
     }
 
     function draw() {
-      const r = window.Site.setupCanvas(cv, 260);
+      const r = window.Site.setupCanvas(cv, 305);
       const ctx = r.ctx, W = r.w, H = r.h;
       ctx.fillStyle = window.Site.PALETTE.bg; ctx.fillRect(0, 0, W, H);
       const cell = Math.min((W / 2 - 70) / SRC, (H - 60) / SRC);
       const dcell = cell * 2;
       const x0 = 24, y0 = 44;
       const x1 = W / 2 + 40;
-      ctx.font = "600 11px 'JetBrains Mono', monospace";
-      ctx.fillStyle = "#bab6b0"; ctx.textAlign = "left"; ctx.textBaseline = "top";
+      ctx.font = "600 13.5px 'JetBrains Mono', monospace";
+      ctx.fillStyle = "#cfcbc4"; ctx.textAlign = "left"; ctx.textBaseline = "top";
       ctx.fillText("input events 16×16 (click to paint)", x0, 16);
       ctx.fillText(mode === "or" ? "output 8×8 — bilinear > 0 (the code)" : "output 8×8 — plain average", x1, 16);
       // src grid
       for (let y = 0; y < SRC; y++) for (let x = 0; x < SRC; x++) {
-        ctx.fillStyle = grid[y * SRC + x] ? "#d6a24c" : "#111110";
+        ctx.fillStyle = grid[y * SRC + x] ? "#e0a94f" : "#111110";
         ctx.fillRect(x0 + x * cell, y0 + y * cell, cell - 1, cell - 1);
       }
       // dst grid
@@ -289,18 +289,18 @@ return (out > 0).float()   # ANY nonzero contribution becomes a full spike</code
         if (mode === "or") {
           const v = a > 0 ? 1 : 0;
           if (v) active++;
-          ctx.fillStyle = v ? "#d6a24c" : "#111110";
+          ctx.fillStyle = v ? "#e0a94f" : "#111110";
         } else {
           if (a > 0) active++;
           const g = Math.round(a * 255);
-          ctx.fillStyle = a > 0 ? `rgba(214,162,76,${0.15 + a * 0.85})` : "#111110";
+          ctx.fillStyle = a > 0 ? `rgba(224,169,79,${0.15 + a * 0.85})` : "#111110";
         }
         ctx.fillRect(x1 + x * dcell, y0 + y * dcell, dcell - 2, dcell - 2);
         if (mode === "avg" && a > 0 && a < 1) {
-          ctx.fillStyle = "#050505"; ctx.font = "9px 'JetBrains Mono', monospace";
+          ctx.fillStyle = "#050505"; ctx.font = "11.5px 'JetBrains Mono', monospace";
           ctx.textAlign = "center"; ctx.textBaseline = "middle";
           ctx.fillText(a.toFixed(2), x1 + x * dcell + dcell / 2, y0 + y * dcell + dcell / 2);
-          ctx.font = "600 11px 'JetBrains Mono', monospace"; ctx.textAlign = "left"; ctx.textBaseline = "top";
+          ctx.font = "600 13.5px 'JetBrains Mono', monospace"; ctx.textAlign = "left"; ctx.textBaseline = "top";
         }
       }
       geom = { x0, y0, cell };
@@ -341,24 +341,24 @@ return (out > 0).float()   # ANY nonzero contribution becomes a full spike</code
     if (!cv) return;
     const T = 8;
     let playT = -1, timer = null;
-    const COLORS = ["#c0604f", "#c98a4e", "#d6a24c", "#a3a878", "#8f9e73", "#7f9c8b", "#ece7de", "#c07a5c"];
+    const COLORS = ["#cf6b58", "#c98a4e", "#e0a94f", "#a3a878", "#9bb17a", "#7f9c8b", "#ece7de", "#cf8763"];
 
     function draw() {
       const L = +$("fl-l").value;
       const doFlush = $("fl-flush").checked;
       const totalSteps = T + (doFlush ? L : 0);
       const rows = L + 2; // input, L layers, output accumulator
-      const r = window.Site.setupCanvas(cv, 250);
+      const r = window.Site.setupCanvas(cv, 295);
       const ctx = r.ctx, W = r.w, H = r.h;
       ctx.fillStyle = window.Site.PALETTE.bg; ctx.fillRect(0, 0, W, H);
       const padL = 84, padT = 26;
       const cw = Math.min((W - padL - 14) / (T + 6), 40);
       const rh = (H - padT - 14) / rows;
-      ctx.font = "10px 'JetBrains Mono', monospace";
+      ctx.font = "12.5px 'JetBrains Mono', monospace";
 
       // row labels
       const labels = ["input frame"].concat(Array.from({ length: L }, (_, i) => "layer " + i)).concat(["output count"]);
-      ctx.fillStyle = "#8d8983"; ctx.textAlign = "right"; ctx.textBaseline = "middle";
+      ctx.fillStyle = "#a7a29a"; ctx.textAlign = "right"; ctx.textBaseline = "middle";
       labels.forEach((lb, i) => ctx.fillText(lb, padL - 8, padT + i * rh + rh / 2));
 
       let reached = 0;
@@ -366,7 +366,7 @@ return (out > 0).float()   # ANY nonzero contribution becomes a full spike</code
         const x = padL + t * cw;
         const inFlush = t >= T;
         // column header
-        ctx.fillStyle = inFlush ? "#d6a24c" : "#66625d";
+        ctx.fillStyle = inFlush ? "#e0a94f" : "#7d7871";
         ctx.textAlign = "center"; ctx.textBaseline = "bottom";
         ctx.fillText(inFlush ? "∅" : "t" + t, x + cw / 2, padT - 4);
         const visible = playT < 0 || t <= playT;
@@ -388,16 +388,16 @@ return (out > 0).float()   # ANY nonzero contribution becomes a full spike</code
           ctx.globalAlpha = 1;
         }
         if (inFlush) {
-          ctx.strokeStyle = "#d6a24c40";
+          ctx.strokeStyle = "#e0a94f40";
           ctx.strokeRect(x, padT, cw, rows * rh);
         }
       }
       // flush divider
-      ctx.strokeStyle = "#d6a24c"; ctx.setLineDash([4, 4]);
+      ctx.strokeStyle = "#e0a94f"; ctx.setLineDash([4, 4]);
       ctx.beginPath(); ctx.moveTo(padL + T * cw, padT - 14); ctx.lineTo(padL + T * cw, padT + rows * rh); ctx.stroke();
       ctx.setLineDash([]);
       if (doFlush) {
-        ctx.fillStyle = "#d6a24c"; ctx.textAlign = "left"; ctx.textBaseline = "bottom";
+        ctx.fillStyle = "#e0a94f"; ctx.textAlign = "left"; ctx.textBaseline = "bottom";
         ctx.fillText("← input ends · flush →", padL + T * cw + 4, padT - 14);
       }
 
@@ -465,7 +465,7 @@ return (out > 0).float()   # ANY nonzero contribution becomes a full spike</code
       const xs = ys.map((_, i) => i);
       window.Site.linePlot(cv, [
         { xs, ys, color: "#ece7de", width: 2.2, label: kind + (warmup && kind !== "onecycle" && kind !== "none" ? ` + ${warmup} warmup` : ""), dots: epochs <= 40, dotR: 2 }
-      ], { height: 230, xlabel: "epoch", ylabel: "learning rate", ymin: 0, ymax: lr0 * 1.12 });
+      ], { height: 275, xlabel: "epoch", ylabel: "learning rate", ymin: 0, ymax: lr0 * 1.12 });
     }
     ["lr-kind"].forEach(id => $(id).addEventListener("change", draw));
     ["lr-ep", "lr-wu"].forEach(id => $(id).addEventListener("input", draw));

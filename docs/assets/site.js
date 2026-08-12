@@ -93,15 +93,15 @@
 
   const PALETTE = {
     bg: "#050505", grid: "#2a272455", axis: "#3a3733",
-    text: "#8d8983", accent: "#ece7de", accent2: "#c07a5c",
-    spike: "#d6a24c", good: "#8f9e73", bad: "#c0604f", warn: "#d6a24c"
+    text: "#a7a29a", accent: "#ece7de", accent2: "#cf8763",
+    spike: "#e0a94f", good: "#9bb17a", bad: "#cf6b58", warn: "#e0a94f"
   };
 
   // Minimal line plot. series: [{xs, ys, color, width, dash, label, step}]
   function linePlot(canvas, series, opts) {
     opts = opts || {};
-    const { ctx, w, h } = setupCanvas(canvas, opts.height || 260);
-    const padL = opts.padL ?? 46, padR = opts.padR ?? 14, padT = opts.padT ?? 14, padB = opts.padB ?? 30;
+    const { ctx, w, h } = setupCanvas(canvas, opts.height || 305);
+    const padL = opts.padL ?? 58, padR = opts.padR ?? 18, padT = opts.padT ?? 18, padB = opts.padB ?? 40;
     const pw = w - padL - padR, ph = h - padT - padB;
 
     let xmin = opts.xmin, xmax = opts.xmax, ymin = opts.ymin, ymax = opts.ymax;
@@ -121,7 +121,7 @@
 
     // grid + ticks
     ctx.strokeStyle = PALETTE.grid; ctx.fillStyle = PALETTE.text;
-    ctx.font = "10.5px 'JetBrains Mono', monospace"; ctx.lineWidth = 1;
+    ctx.font = "13px 'JetBrains Mono', monospace"; ctx.lineWidth = 1;
     const yticks = opts.yticks || niceTicks(ymin, ymax, 5);
     yticks.forEach(t => {
       if (t < ymin - 1e-9 || t > ymax + 1e-9) return;
@@ -138,9 +138,9 @@
     });
 
     // axis labels
-    if (opts.xlabel) { ctx.textAlign = "center"; ctx.fillText(opts.xlabel, padL + pw / 2, h - 13); }
+    if (opts.xlabel) { ctx.textAlign = "center"; ctx.fillText(opts.xlabel, padL + pw / 2, h - 10); }
     if (opts.ylabel) {
-      ctx.save(); ctx.translate(12, padT + ph / 2); ctx.rotate(-Math.PI / 2);
+      ctx.save(); ctx.translate(15, padT + ph / 2); ctx.rotate(-Math.PI / 2);
       ctx.textAlign = "center"; ctx.fillText(opts.ylabel, 0, 0); ctx.restore();
     }
 
@@ -180,13 +180,13 @@
 
     // legend
     if (opts.legend !== false) {
-      let lx = padL + 8, ly = padT + 8;
+      let lx = padL + 10, ly = padT + 8;
       series.filter(s => s.label).forEach(s => {
         ctx.fillStyle = s.color || PALETTE.accent;
         ctx.fillRect(lx, ly + 2, 14, 3);
         ctx.fillStyle = PALETTE.text; ctx.textAlign = "left"; ctx.textBaseline = "middle";
-        ctx.fillText(s.label, lx + 19, ly + 4);
-        ly += 15;
+        ctx.fillText(s.label, lx + 22, ly + 4);
+        ly += 19;
       });
     }
     return { X, Y, ctx, w, h, padL, padR, padT, padB };
@@ -218,11 +218,11 @@
       const pct = Math.max(0.5, i.value / max * 100);
       const col = i.color || "var(--accent)";
       return `<div style="display:flex;align-items:center;gap:10px;margin:7px 0;">
-        <div style="flex:0 0 ${opts.labelW || 110}px;font-family:var(--mono);font-size:11.5px;color:var(--muted);text-align:right;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${i.label}</div>
-        <div style="flex:1;height:${opts.barH || 16}px;background:var(--bg-3);border-radius:5px;overflow:hidden;">
+        <div style="flex:0 0 ${opts.labelW || 130}px;font-family:var(--mono);font-size:13.5px;color:var(--muted);text-align:right;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${i.label}</div>
+        <div style="flex:1;height:${opts.barH || 20}px;background:var(--bg-3);border-radius:5px;overflow:hidden;">
           <div style="width:${pct}%;height:100%;background:${col};border-radius:5px;transition:width .35s ease;"></div>
         </div>
-        <div style="flex:0 0 ${opts.valueW || 84}px;font-family:var(--mono);font-size:11.5px;color:var(--text);">${i.display !== undefined ? i.display : i.value}</div>
+        <div style="flex:0 0 ${opts.valueW || 100}px;font-family:var(--mono);font-size:13.5px;color:var(--text);">${i.display !== undefined ? i.display : i.value}</div>
       </div>`;
     }).join("");
   }

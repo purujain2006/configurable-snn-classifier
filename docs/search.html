@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>The Hyperparameter Search — Configurable SNN Classifier, Explained</title>
 <meta name="description" content="Optuna + Ray Tune + ASHA, the three-tier evaluation funnel, and the crash-proof results pipeline — interactively.">
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' fill='%23000'/><path d='M3 22h5l3-13 4 19 3-11h4l2 5h5' fill='none' stroke='%23d6a24c' stroke-width='2.4' stroke-linejoin='round'/></svg>">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' fill='%23000'/><path d='M3 22h5l3-13 4 19 3-11h4l2 5h5' fill='none' stroke='%23e0a94f' stroke-width='2.4' stroke-linejoin='round'/></svg>">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:ital,wght@0,400;0,600;0,700;1,400&display=swap" rel="stylesheet">
@@ -278,25 +278,25 @@
 
     function draw() {
       const { trials, rungs, epochs } = simulate();
-      const r = window.Site.setupCanvas(cv, 280);
+      const r = window.Site.setupCanvas(cv, 325);
       const ctx = r.ctx, W = r.w, H = r.h;
       ctx.fillStyle = window.Site.PALETTE.bg; ctx.fillRect(0, 0, W, H);
       const padL = 40, padB = 26, padT = 12;
       const X = e => padL + e / (epochs - 1) * (W - padL - 12);
       const Y = a => padT + (1 - a) * (H - padT - padB);
       // axes
-      ctx.strokeStyle = "#2a272455"; ctx.fillStyle = "#8d8983";
-      ctx.font = "10px 'JetBrains Mono', monospace";
+      ctx.strokeStyle = "#2a272455"; ctx.fillStyle = "#a7a29a";
+      ctx.font = "12.5px 'JetBrains Mono', monospace";
       [0, 0.25, 0.5, 0.75, 1].forEach(t => {
         ctx.beginPath(); ctx.moveTo(padL, Y(t)); ctx.lineTo(W - 12, Y(t)); ctx.stroke();
         ctx.textAlign = "right"; ctx.textBaseline = "middle"; ctx.fillText(t.toFixed(2), padL - 6, Y(t));
       });
       // rungs
       rungs.forEach(rg => {
-        ctx.strokeStyle = "#d6a24c"; ctx.setLineDash([5, 4]);
+        ctx.strokeStyle = "#e0a94f"; ctx.setLineDash([5, 4]);
         ctx.beginPath(); ctx.moveTo(X(rg - 1), padT); ctx.lineTo(X(rg - 1), H - padB); ctx.stroke();
         ctx.setLineDash([]);
-        ctx.fillStyle = "#d6a24c"; ctx.textAlign = "center"; ctx.textBaseline = "top";
+        ctx.fillStyle = "#e0a94f"; ctx.textAlign = "center"; ctx.textBaseline = "top";
         ctx.fillText("rung@" + rg, X(rg - 1), H - padB + 6);
       });
       // curves
@@ -305,7 +305,7 @@
         cost += t.aliveUntil;
         const dead = t.aliveUntil < epochs;
         if (!dead) finished++;
-        ctx.strokeStyle = dead ? "#33302c55" : (t.cap > 0.85 ? "#8f9e73" : "#ece7de");
+        ctx.strokeStyle = dead ? "#33302c55" : (t.cap > 0.85 ? "#9bb17a" : "#ece7de");
         ctx.lineWidth = dead ? 1 : 1.6;
         ctx.beginPath();
         for (let e = 0; e < t.aliveUntil; e++) {
@@ -314,7 +314,7 @@
         }
         ctx.stroke();
         if (dead) {
-          ctx.fillStyle = "#c0604f";
+          ctx.fillStyle = "#cf6b58";
           ctx.beginPath(); ctx.arc(X(t.aliveUntil - 1), Y(t.ys[t.aliveUntil - 1]), 2.6, 0, Math.PI * 2); ctx.fill();
         }
       });

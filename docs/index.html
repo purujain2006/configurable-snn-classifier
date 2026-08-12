@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>The Big Picture — Configurable SNN Classifier, Explained</title>
 <meta name="description" content="A plain-English, interactive tour of a real spiking neural network research codebase: from event cameras to neuromorphic silicon.">
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' fill='%23000'/><path d='M3 22h5l3-13 4 19 3-11h4l2 5h5' fill='none' stroke='%23d6a24c' stroke-width='2.4' stroke-linejoin='round'/></svg>">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' fill='%23000'/><path d='M3 22h5l3-13 4 19 3-11h4l2 5h5' fill='none' stroke='%23e0a94f' stroke-width='2.4' stroke-linejoin='round'/></svg>">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:ital,wght@0,400;0,600;0,700;1,400&display=swap" rel="stylesheet">
@@ -29,6 +29,117 @@
 
 <main class="with-toc">
 <div class="wrap">
+
+<section id="overview" class="reveal">
+  <h2><span class="sec-num">Overview</span>The system at a glance</h2>
+  <p class="lead">
+    One file, four jobs, eleven moving parts. Every leaf links to the chapter that explains it.
+  </p>
+  <figure class="figure wide">
+    <div class="figure-scroll">
+      <svg viewBox="0 0 900 620" role="img" aria-label="A left-to-right tree: Practice2.py branches into Describe, Check, Train and Search, each with its own components.">
+        <!-- connectors -->
+        <g stroke="#413d38" stroke-width="1.4" fill="none">
+          <path d="M174 274 H200"/>
+          <path d="M200 72 V514"/>
+          <path d="M200 72 H230"/><path d="M200 176 H230"/><path d="M200 332 H230"/><path d="M200 514 H230"/>
+          <path d="M400 72 H428"/><path d="M428 46 V98"/><path d="M428 46 H456"/><path d="M428 98 H456"/>
+          <path d="M400 176 H428"/><path d="M428 150 V202"/><path d="M428 150 H456"/><path d="M428 202 H456"/>
+          <path d="M400 332 H428"/><path d="M428 254 V410"/>
+          <path d="M428 254 H456"/><path d="M428 306 H456"/><path d="M428 358 H456"/><path d="M428 410 H456"/>
+          <path d="M400 514 H428"/><path d="M428 462 V566"/>
+          <path d="M428 462 H456"/><path d="M428 514 H456"/><path d="M428 566 H456"/>
+        </g>
+
+        <!-- root -->
+        <rect x="6" y="232" width="168" height="84" fill="rgba(255,255,255,.05)" stroke="#5a5550"/>
+        <text class="tree-node-title" x="90" y="267" font-size="19" text-anchor="middle">Practice2.py</text>
+        <text class="tree-node-sub" x="90" y="292" font-size="12.5" text-anchor="middle">one file &#183; ~3,200 lines</text>
+
+        <!-- branches -->
+        <g>
+          <rect x="230" y="45" width="170" height="54" fill="rgba(255,255,255,.028)" stroke="#6b5530"/>
+          <text class="tree-branch-label" x="248" y="70" font-size="13">DESCRIBE</text>
+          <text class="tree-node-sub" x="248" y="88" font-size="12">architecture as data</text>
+
+          <rect x="230" y="149" width="170" height="54" fill="rgba(255,255,255,.028)" stroke="#6b5530"/>
+          <text class="tree-branch-label" x="248" y="174" font-size="13">CHECK</text>
+          <text class="tree-node-sub" x="248" y="192" font-size="12">before any GPU time</text>
+
+          <rect x="230" y="305" width="170" height="54" fill="rgba(255,255,255,.028)" stroke="#6b5530"/>
+          <text class="tree-branch-label" x="248" y="330" font-size="13">TRAIN</text>
+          <text class="tree-node-sub" x="248" y="348" font-size="12">exactly as it deploys</text>
+
+          <rect x="230" y="487" width="170" height="54" fill="rgba(255,255,255,.028)" stroke="#6b5530"/>
+          <text class="tree-branch-label" x="248" y="512" font-size="13">SEARCH</text>
+          <text class="tree-node-sub" x="248" y="530" font-size="12">hundreds of configs</text>
+        </g>
+
+        <!-- leaves -->
+        <a href="architecture.html">
+          <rect class="tree-leaf-box" x="456" y="27" width="438" height="38" fill="rgba(255,255,255,.022)" stroke="#3a3733"/>
+          <text class="tree-node-title" x="472" y="51" font-size="15.5" font-weight="500">Seven config dataclasses</text>
+          <text class="tree-tag" x="878" y="51" font-size="12.5" text-anchor="end">&#167;1</text>
+        </a>
+        <a href="architecture.html">
+          <rect class="tree-leaf-box" x="456" y="79" width="438" height="38" fill="rgba(255,255,255,.022)" stroke="#3a3733"/>
+          <text class="tree-node-title" x="472" y="103" font-size="15.5" font-weight="500">Shape planning &#8212; one source of truth</text>
+          <text class="tree-tag" x="878" y="103" font-size="12.5" text-anchor="end">&#167;2</text>
+        </a>
+        <a href="hardware.html">
+          <rect class="tree-leaf-box" x="456" y="131" width="438" height="38" fill="rgba(255,255,255,.022)" stroke="#3a3733"/>
+          <text class="tree-node-title" x="472" y="155" font-size="15.5" font-weight="500">HiAER-Spike feasibility check</text>
+          <text class="tree-tag" x="878" y="155" font-size="12.5" text-anchor="end">&#167;3</text>
+        </a>
+        <a href="architecture.html">
+          <rect class="tree-leaf-box" x="456" y="183" width="438" height="38" fill="rgba(255,255,255,.022)" stroke="#3a3733"/>
+          <text class="tree-node-title" x="472" y="207" font-size="15.5" font-weight="500">Cost model &#8212; neurons, synapses, params</text>
+          <text class="tree-tag" x="878" y="207" font-size="12.5" text-anchor="end">&#167;4</text>
+        </a>
+        <a href="training.html">
+          <rect class="tree-leaf-box" x="456" y="235" width="438" height="38" fill="rgba(255,255,255,.022)" stroke="#3a3733"/>
+          <text class="tree-node-title" x="472" y="259" font-size="15.5" font-weight="500">Event stream &#8594; T binary frames</text>
+          <text class="tree-tag" x="878" y="259" font-size="12.5" text-anchor="end">&#167;6</text>
+        </a>
+        <a href="neurons.html">
+          <rect class="tree-leaf-box" x="456" y="287" width="438" height="38" fill="rgba(255,255,255,.022)" stroke="#3a3733"/>
+          <text class="tree-node-title" x="472" y="311" font-size="15.5" font-weight="500">HardwareLIFNode &#8212; the chip's neuron</text>
+          <text class="tree-tag" x="878" y="311" font-size="12.5" text-anchor="end">&#167;5</text>
+        </a>
+        <a href="training.html">
+          <rect class="tree-leaf-box" x="456" y="339" width="438" height="38" fill="rgba(255,255,255,.022)" stroke="#3a3733"/>
+          <text class="tree-node-title" x="472" y="363" font-size="15.5" font-weight="500">Training loop + pipeline flush</text>
+          <text class="tree-tag" x="878" y="363" font-size="12.5" text-anchor="end">&#167;8</text>
+        </a>
+        <a href="hardware.html">
+          <rect class="tree-leaf-box" x="456" y="391" width="438" height="38" fill="rgba(255,255,255,.022)" stroke="#3a3733"/>
+          <text class="tree-node-title" x="472" y="415" font-size="15.5" font-weight="500">Fold BatchNorm &#8594; INT16 grid (QAT)</text>
+          <text class="tree-tag" x="878" y="415" font-size="12.5" text-anchor="end">&#167;5c</text>
+        </a>
+        <a href="search.html">
+          <rect class="tree-leaf-box" x="456" y="443" width="438" height="38" fill="rgba(255,255,255,.022)" stroke="#3a3733"/>
+          <text class="tree-node-title" x="472" y="467" font-size="15.5" font-weight="500">Define-by-run space (Optuna)</text>
+          <text class="tree-tag" x="878" y="467" font-size="12.5" text-anchor="end">&#167;10</text>
+        </a>
+        <a href="search.html">
+          <rect class="tree-leaf-box" x="456" y="495" width="438" height="38" fill="rgba(255,255,255,.022)" stroke="#3a3733"/>
+          <text class="tree-node-title" x="472" y="519" font-size="15.5" font-weight="500">ASHA prunes on the float curve</text>
+          <text class="tree-tag" x="878" y="519" font-size="12.5" text-anchor="end">&#167;10</text>
+        </a>
+        <a href="search.html">
+          <rect class="tree-leaf-box" x="456" y="547" width="438" height="38" fill="rgba(255,255,255,.022)" stroke="#3a3733"/>
+          <text class="tree-node-title" x="472" y="571" font-size="15.5" font-weight="500">Objective: accuracy measured on chip</text>
+          <text class="tree-tag" x="878" y="571" font-size="12.5" text-anchor="end">&#167;10</text>
+        </a>
+      </svg>
+    </div>
+    <figcaption>
+      Section numbers refer to <code>Practice2.py</code>'s own numbered sections. Read left to right:
+      the file describes a network, checks it against the chip, trains it the way it will deploy,
+      then searches for a better one.
+    </figcaption>
+  </figure>
+</section>
 
 <section id="what" class="reveal">
   <h2><span class="sec-num">1.1</span>What you're actually looking at</h2>
@@ -347,7 +458,7 @@ python Practice.py search  --compute local --trials 50  # Optuna hyperparameter 
         g.addColorStop(1, "rgba(236,231,222,.35)");
         ctx.fillStyle = g;
         ctx.fillRect(s.x - 26, y - 0.6, 26, 1.2);
-        ctx.fillStyle = "rgba(214,162,76,.8)";
+        ctx.fillStyle = "rgba(224,169,79,.8)";
         ctx.fillRect(s.x, y - 2.6, 1.8, 5.2);
       }
       requestAnimationFrame(tick);
@@ -378,29 +489,29 @@ python Practice.py search  --compute local --trials 50  # Optuna hyperparameter 
     }
 
     function draw(grid, step, annOps, snnOps, spikesOut) {
-      const { ctx, w, h } = window.Site.setupCanvas(cv, 240);
+      const { ctx, w, h } = window.Site.setupCanvas(cv, 285);
       ctx.fillStyle = P().bg; ctx.fillRect(0, 0, w, h);
       const half = w / 2;
       const cell = Math.min((half - 90) / T, 16);
       const rowH = 20;
       const topY = 46;
-      ctx.font = "11px 'JetBrains Mono', monospace";
+      ctx.font = "13.5px 'JetBrains Mono', monospace";
 
       function panel(x0, title, isSNN) {
-        ctx.fillStyle = "#bab6b0"; ctx.textAlign = "left"; ctx.textBaseline = "top";
-        ctx.font = "600 12px 'JetBrains Mono', monospace";
+        ctx.fillStyle = "#cfcbc4"; ctx.textAlign = "left"; ctx.textBaseline = "top";
+        ctx.font = "600 14px 'JetBrains Mono', monospace";
         ctx.fillText(title, x0 + 12, 12);
-        ctx.font = "10px 'JetBrains Mono', monospace";
+        ctx.font = "12.5px 'JetBrains Mono', monospace";
         for (let i = 0; i < N_IN; i++) {
           const y = topY + i * rowH;
-          ctx.fillStyle = "#66625d";
+          ctx.fillStyle = "#7d7871";
           ctx.fillText("in" + i, x0 + 12, y + 3);
           for (let t = 0; t < T; t++) {
             const x = x0 + 44 + t * cell;
             const active = grid[i][t] === 1;
             const done = t < step;
             if (isSNN) {
-              ctx.fillStyle = active ? (done ? "#d6a24c" : "#3a3025") : (done ? "#161514" : "#0a0a0a");
+              ctx.fillStyle = active ? (done ? "#e0a94f" : "#3a3025") : (done ? "#161514" : "#0a0a0a");
             } else {
               // ANN: every cell is "a number", always processed
               ctx.fillStyle = done ? "rgba(236,231,222,.75)" : "#1e1c1a";
@@ -420,11 +531,11 @@ python Practice.py search  --compute local --trials 50  # Optuna hyperparameter 
       // divider
       ctx.strokeStyle = "#2a2724"; ctx.beginPath(); ctx.moveTo(half, 8); ctx.lineTo(half, h - 8); ctx.stroke();
       // output spikes for SNN
-      ctx.fillStyle = "#8d8983"; ctx.font = "10px 'JetBrains Mono', monospace";
+      ctx.fillStyle = "#a7a29a"; ctx.font = "12.5px 'JetBrains Mono', monospace";
       ctx.fillText("neuron output:", half + 12, topY + N_IN * rowH + 14);
       for (let t = 0; t < Math.min(step, T); t++) {
         if (spikesOut[t]) {
-          ctx.fillStyle = "#8f9e73";
+          ctx.fillStyle = "#9bb17a";
           ctx.fillRect(half + 118 + t * cell, topY + N_IN * rowH + 10, cell - 2.5, 12);
         } else {
           ctx.fillStyle = "#161514";
@@ -496,23 +607,23 @@ python Practice.py search  --compute local --trials 50  # Optuna hyperparameter 
     }
 
     function draw() {
-      const { ctx, w, h } = window.Site.setupCanvas(cv, 230);
+      const { ctx, w, h } = window.Site.setupCanvas(cv, 275);
       ctx.fillStyle = P().bg; ctx.fillRect(0, 0, w, h);
       const padL = 8, plotTop = 34, plotBot = h - 26;
       const dx = (w - padL - 8) / HIST;
       const vmax = Math.max(1.6, ...vHist) * 1.05;
       const Y = v => plotBot - (v / vmax) * (plotBot - plotTop);
       // threshold line
-      ctx.strokeStyle = "#d6a24c"; ctx.setLineDash([5, 4]); ctx.lineWidth = 1.2;
+      ctx.strokeStyle = "#e0a94f"; ctx.setLineDash([5, 4]); ctx.lineWidth = 1.2;
       ctx.beginPath(); ctx.moveTo(padL, Y(THETA)); ctx.lineTo(w - 8, Y(THETA)); ctx.stroke();
       ctx.setLineDash([]);
-      ctx.fillStyle = "#d6a24c"; ctx.font = "10px 'JetBrains Mono', monospace";
+      ctx.fillStyle = "#e0a94f"; ctx.font = "12.5px 'JetBrains Mono', monospace";
       ctx.textAlign = "left"; ctx.textBaseline = "bottom";
       ctx.fillText("threshold θ = 1.0", padL + 4, Y(THETA) - 3);
       // input bars
       for (let i = 0; i < HIST; i++) {
         if (inHist[i] > 0) {
-          ctx.fillStyle = "rgba(214,162,76,.5)";
+          ctx.fillStyle = "rgba(224,169,79,.5)";
           const bh = (inHist[i] / vmax) * (plotBot - plotTop);
           ctx.fillRect(padL + i * dx, plotBot - bh, Math.max(1.5, dx * 0.6), bh);
         }
@@ -528,13 +639,13 @@ python Practice.py search  --compute local --trials 50  # Optuna hyperparameter 
       // output spikes
       for (let i = 0; i < HIST; i++) {
         if (spkHist[i]) {
-          ctx.fillStyle = "#8f9e73";
+          ctx.fillStyle = "#9bb17a";
           ctx.fillRect(padL + i * dx, 12, Math.max(2, dx * 0.6), 14);
         }
       }
-      ctx.fillStyle = "#8f9e73"; ctx.textBaseline = "top";
+      ctx.fillStyle = "#9bb17a"; ctx.textBaseline = "top";
       ctx.fillText("output spikes", padL, 0);
-      ctx.fillStyle = "#8d8983"; ctx.textAlign = "right";
+      ctx.fillStyle = "#a7a29a"; ctx.textAlign = "right";
       ctx.fillText("v = " + state.v.toFixed(3), w - 10, 0);
     }
 
