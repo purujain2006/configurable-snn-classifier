@@ -256,10 +256,10 @@
     <div class="m-row">
       <span class="m-label">Consequence</span>
       <p>
-        The constraint has to be built into the parametrisation rather than checked afterwards, so
-        that no optimiser step can produce an illegal threshold. A separate accessor is needed for
-        deployment checks, because a clamp applied for numerical safety would hide an illegal
-        value from the check that is supposed to catch it.
+        The constraint has to be built into the parameterization rather than checked afterwards, so
+        that no optimizer step can produce an illegal threshold. Later, we will cover how folding biases into the threshold calculation will make it possible to produce negative/illegal thresholds, but those temporary biases will be able to end at legal values throughout a training run. Because of this, a separate accessor is needed for
+        deployment checks, because a clamp applied for numerical safety during training (to allow a singular trial to pass) would hide the illegal
+        value from a check that is supposed to catch it once it is supposedly ready to deploy.
       </p>
     </div>
     <div class="m-row code">
