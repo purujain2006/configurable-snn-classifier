@@ -36,15 +36,14 @@
     <div class="m-row">
       <span class="m-label">Observation</span>
       <p>
-        Research code usually hard-codes its architecture. Changing the depth or the kernel size
+        Research code usually hardcodes its architecture. Changing the depth or the kernel size
         then means editing the model class, which a search process cannot do.
       </p>
     </div>
     <div class="m-row">
       <span class="m-label">Consequence</span>
       <p>
-        Every property the search may vary has to live in a data structure that can be constructed,
-        serialised and compared. Properties that affect the shape of the network should be
+        Every property the search may vary has to live in a data structure that can be constructed and compared. Properties that affect the shape of the network should be
         separated from properties that affect only training, so the feasibility check can run
         without knowing the optimiser.
       </p>
@@ -53,7 +52,7 @@
       <span class="m-label">In code</span>
       <p>
         Seven dataclasses hold the shape-determining settings, and an eighth,
-        <code>TrainSpec</code>, holds the optimisation recipe. A dataclass is a Python structure of
+        <code>TrainSpec</code>, holds the optimization recipe. A dataclass is simply a Python structure of
         named fields with types and defaults.
       </p>
     </div>
@@ -120,10 +119,7 @@
       <span class="m-label">Observation</span>
       <p>
         Three parts of the program need the spatial size of every layer: the module that builds the
-        network, the check against the routing limits, and the count of neurons and synapses. An
-        earlier version derived shapes separately in each place. The derivations drifted, and the
-        classifier head ended up excluded from the feasibility check entirely, which allowed
-        configurations that could not be wired to pass.
+        network, the check against the routing limits, and the count of neurons and synapses. 
       </p>
     </div>
     <div class="m-row">
@@ -186,7 +182,7 @@
   </div>
   <p>
     In the two-layer configuration below, the second convolution holds 50,176 parameters and
-    realises 7.2 million connections, because the same filter is applied at 144 positions. Weight
+    realizes 7.2 million connections, because the same filter is applied at 144 positions. Weight
     reuse costs a GPU nothing. The chip has to route each connection individually, which is why its
     limits are expressed as fan-in and fan-out rather than as a parameter budget.
   </p>
