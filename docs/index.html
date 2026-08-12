@@ -3,8 +3,8 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>The Big Picture — Configurable SNN Classifier, Explained</title>
-<meta name="description" content="A plain-English, interactive tour of a real spiking neural network research codebase: from event cameras to neuromorphic silicon.">
+<title>The Problem — Configurable SNN Classifier</title>
+<meta name="description" content="A spiking neural network classifier built around the constraints of the HiAER-Spike neuromorphic chip, with an automated search over deployable configurations.">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' fill='%23000'/><path d='M3 22h5l3-13 4 19 3-11h4l2 5h5' fill='none' stroke='%23e0a94f' stroke-width='2.4' stroke-linejoin='round'/></svg>">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -16,13 +16,13 @@
 <header class="hero">
   <canvas class="hero-canvas" id="hero-raster"></canvas>
   <div class="hero-inner">
-    <p class="kicker">Configurable SNN Classifier · An Interactive Explainer</p>
-    <h1>Teaching silicon to see<br>with spikes</h1>
+    <p class="kicker">Project showcase</p>
+    <h1>A gesture classifier built<br>around its hardware</h1>
     <p class="lede">
-      A from-zero, interactive tour of a real research file (<code>Practice2.py</code>): a
-      <strong>spiking neural network</strong> that recognizes hand gestures from an event camera,
-      built to run on the <strong>HiAER&#8209;Spike</strong> neuromorphic chip.
-      No prior knowledge assumed — every concept gets a demo you can poke.
+      This project trains spiking neural networks to recognise hand gestures from an event camera,
+      and targets a neuromorphic chip called HiAER-Spike. The chip constrains how a network may be
+      wired and what precision its numbers may carry. Those constraints drive every decision in the
+      code, so this walkthrough starts with the hardware and works outward from it.
     </p>
   </div>
 </header>
@@ -30,15 +30,281 @@
 <main class="with-toc">
 <div class="wrap">
 
-<section id="overview" class="reveal">
-  <h2><span class="sec-num">Overview</span>The system at a glance</h2>
-  <p class="lead">
-    One file, four jobs, eleven moving parts. Every leaf links to the chapter that explains it.
+<section id="hardware" class="reveal">
+  <h2><span class="sec-num">1.1</span>The hardware: HiAER-Spike</h2>
+  <p>
+    HiAER-Spike is a neuromorphic research platform developed at UC San Diego and programmed
+    through a Python interface called <code>hs_api</code>. It executes networks of spiking neurons
+    directly. A neuron on the chip holds a small amount of state, receives events from other
+    neurons, and emits an event of its own when its state crosses a threshold.
   </p>
+  <p>
+    The appeal is power consumption. A conventional processor evaluates every unit of a network on
+    every input. This chip performs work only where an event actually arrives, so a workload with
+    little activity costs little energy.
+  </p>
+  <p>
+    In exchange, the chip fixes several properties of any network it runs. These are hardware
+    facts, not settings, and the rest of this project exists to work inside them.
+  </p>
+
+  <div class="tbl-wrap">
+    <table class="tbl">
+      <thead><tr><th>Constraint</th><th>Value</th><th>What it restricts</th></tr></thead>
+      <tbody>
+        <tr>
+          <td class="layer-name">input axons</td><td class="num">16,383</td>
+          <td>Total input lines into the chip. An input image larger than this cannot be presented at all.</td>
+        </tr>
+        <tr>
+          <td class="layer-name">neuron fan-in</td><td class="num">8,159</td>
+          <td>How many sources one neuron may listen to. Caps the receptive field of a convolution and the width of a fully connected layer.</td>
+        </tr>
+        <tr>
+          <td class="layer-name">neuron fan-out</td><td class="num">4,095</td>
+          <td>How many destinations one neuron may drive.</td>
+        </tr>
+        <tr>
+          <td class="layer-name">weight format</td><td class="num">INT16, |w| &#8804; 1</td>
+          <td>Weights are 16-bit integers on a fixed grid of 1/32767. Values outside the range are truncated rather than rescaled.</td>
+        </tr>
+        <tr>
+          <td class="layer-name">threshold format</td><td class="num">int(&#952; &#183; 32767)</td>
+          <td>Firing thresholds are integers, so &#952; has to stay within (0, 1].</td>
+        </tr>
+        <tr>
+          <td class="layer-name">leak</td><td class="num">integer register</td>
+          <td>The decay constant of a neuron is an integer. Fractional values do not survive conversion.</td>
+        </tr>
+        <tr>
+          <td class="layer-name">available layers</td><td class="num">conv, linear, pool</td>
+          <td>No batch normalisation, and no bias term on convolutions or linear maps.</td>
+        </tr>
+        <tr>
+          <td class="layer-name">neuron update order</td><td class="num">fixed</td>
+          <td>The neuron fires on the state it carried in from the previous timestep, then resets, leaks, and integrates. Each layer therefore delays its output by one timestep.</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <p>
+    Two of these have consequences that reach far into the code. Because thresholds and weights are
+    quantised, a network measured in floating point is not the network that runs. Because the
+    update order is fixed, a network trained with a different order produces different spike times
+    once converted.
+  </p>
+</section>
+
+<section id="ann" class="reveal">
+  <h2><span class="sec-num">1.2</span>Conventional neural networks</h2>
+  <p>
+    Most neural networks in use today are artificial neural networks, or ANNs. A unit in an ANN
+    computes a weighted sum of its inputs, applies a nonlinear function, and passes the resulting
+    number forward. Values are continuous, typically 32-bit floating point, and every unit
+    evaluates on every input.
+  </p>
+  <p>
+    A convolutional ANN applies the same small filter across an image and stacks layers of these
+    filters. The design is a good match for a GPU, which multiplies large dense matrices quickly.
+    HiAER-Spike does not run this model of computation, because there is no continuous value for a
+    spike to carry and no dense multiply for the hardware to perform.
+  </p>
+</section>
+
+<section id="snn" class="reveal">
+  <h2><span class="sec-num">1.3</span>Spiking neural networks</h2>
+  <p>
+    A spiking neural network, or SNN, replaces the continuous activation with a binary event. Each
+    neuron keeps one number, the <span class="term">membrane potential</span> <code>v</code>, and
+    updates it over a sequence of timesteps.
+  </p>
+  <ul>
+    <li>Incoming spikes add their connection weights to <code>v</code>. Negative weights subtract.</li>
+    <li>Between updates <code>v</code> decays toward rest at a rate set by a constant &#964;. Older input therefore counts for less than recent input.</li>
+    <li>When <code>v</code> crosses a threshold &#952;, the neuron emits a spike and <code>v</code> returns to zero.</li>
+  </ul>
+  <p>
+    This neuron model is called <strong>leaky integrate-and-fire</strong>, abbreviated LIF, and it
+    is the model HiAER-Spike implements. Its parameters are the leak &#964;, the threshold &#952;,
+    and the reset value.
+  </p>
+  <p>
+    Because a single spike carries almost no information, an SNN is run for <code>T</code>
+    timesteps and its answer is read from how often each output neuron fired. The simulator below
+    runs the same update rule the chip uses.
+  </p>
+
+  <div class="demo" id="demo-poke">
+    <div class="demo-head">
+      <span class="demo-tag">INTERACTIVE</span>
+      <span class="demo-title">One LIF neuron</span>
+      <span class="demo-sub">Amber bars are input spikes, each adding a weight of 0.45 to the membrane. The pale trace is the membrane potential, the dashed line is the threshold, and the top band marks output spikes. Press the button to inject input.</span>
+    </div>
+    <div class="demo-body">
+      <div class="controls">
+        <button class="btn primary" id="poke-btn">Inject input spike</button>
+        <div class="ctl">
+          <label>leak &#964; <output id="poke-tau-out">4</output></label>
+          <input type="range" id="poke-tau" min="0" max="7" value="2" step="1">
+        </div>
+        <label class="toggle"><input type="checkbox" id="poke-auto"> random background input</label>
+      </div>
+      <canvas id="poke-canvas" height="230"></canvas>
+    </div>
+    <div class="demo-note">
+      The leak slider moves through the values the chip's integer register can hold. A small
+      &#964; discards evidence quickly, so only closely spaced inputs reach the threshold. A large
+      &#964; accumulates weak input over many timesteps.
+    </div>
+  </div>
+</section>
+
+<section id="difference" class="reveal">
+  <h2><span class="sec-num">1.4</span>Why the two models differ in cost</h2>
+  <p>
+    The distinction that matters for hardware is when work happens. An ANN unit multiplies each of
+    its inputs on every evaluation. An SNN neuron does arithmetic only for inputs that spiked, and
+    a spike contributes an addition rather than a multiplication.
+  </p>
+  <p>
+    Event camera recordings are mostly silent, so this difference is large in practice. The
+    comparison below runs one neuron with six inputs for sixteen timesteps and counts the
+    operations each model performs.
+  </p>
+
+  <div class="demo" id="demo-ann-vs-snn">
+    <div class="demo-head">
+      <span class="demo-tag">INTERACTIVE</span>
+      <span class="demo-title">Operation count, dense against event-driven</span>
+      <span class="demo-sub">The left panel shades every input the ANN processes. The right panel shades only the inputs that spiked, which are the only ones the SNN touches. Lower the input activity to see the gap widen.</span>
+    </div>
+    <div class="demo-body">
+      <div class="controls">
+        <div class="ctl" style="flex:1;min-width:200px;">
+          <label>input activity <output id="avs-sparsity-out">20%</output></label>
+          <input type="range" id="avs-sparsity" min="2" max="60" value="20">
+        </div>
+        <button class="btn primary" id="avs-run">Run 16 timesteps</button>
+      </div>
+      <canvas id="avs-canvas" height="240"></canvas>
+      <div class="stats">
+        <div class="stat"><div class="k">ANN operations</div><div class="val" id="avs-ann-ops">0</div><div class="sub">6 multiply-adds per timestep</div></div>
+        <div class="stat"><div class="k">SNN operations</div><div class="val acc" id="avs-snn-ops">0</div><div class="sub">one addition per arriving spike</div></div>
+        <div class="stat"><div class="k">work avoided</div><div class="val good" id="avs-saved">&#8212;</div><div class="sub">this run</div></div>
+      </div>
+    </div>
+    <div class="demo-note">
+      The networks in this project realise roughly ten million synaptic connections, so the ratio
+      shown here scales up accordingly. The cost of the SNN is that time becomes part of the
+      computation: the network runs T times per sample instead of once.
+    </div>
+  </div>
+</section>
+
+<section id="task" class="reveal">
+  <h2><span class="sec-num">1.5</span>The workload: DVS128 Gesture</h2>
+  <p>
+    The dataset is DVS128 Gesture, published by IBM in 2017. It contains recordings of 29 people
+    performing 11 gestures, including hand waves, arm rotations, air drums and air guitar, under
+    three lighting conditions.
+  </p>
+  <p>
+    The recordings come from a dynamic vision sensor, an event camera with a 128&#215;128 array. A
+    conventional camera reports the brightness of every pixel at a fixed frame rate. Each pixel of
+    an event camera instead reports independently, and only when its own brightness changes. A
+    report of an increase and a report of a decrease occupy separate channels, which is why the
+    data has two channels rather than three.
+  </p>
+  <p>
+    A still background produces no events. A moving hand produces a dense stream of them along its
+    edges. The recording is therefore a sparse sequence of changes, which matches what a spiking
+    network consumes.
+  </p>
+  <p>
+    The code converts each recording into <code>T</code> frames by dividing the event stream into
+    <code>T</code> groups of equal event count and rasterising each group.
+  </p>
+</section>
+
+<section id="goal" class="reveal">
+  <h2><span class="sec-num">1.6</span>What the project sets out to do</h2>
+  <p>
+    A network for this chip has many free parameters: how many convolution layers, how wide, what
+    kernel size, how the resolution is reduced, how many timesteps, what leak and threshold the
+    neurons use, and how the network is trained. Some combinations exceed the routing limits in
+    section 1.1 and cannot be built. Others fit but lose accuracy when their weights are
+    quantised.
+  </p>
+  <p>
+    The project searches that space automatically. The requirement is a configuration that
+    satisfies the hardware limits and reaches at least 97.5% validation accuracy, measured on the
+    converted network rather than on the floating-point one.
+  </p>
+
+  <div class="motiv">
+    <div class="m-row">
+      <span class="m-label">Observation</span>
+      <p>
+        A network trained in floating point differs from the network the chip runs in weight
+        precision, threshold precision, leak resolution, neuron update order, and the presence of
+        batch normalisation. Each difference changes the output, and none of them appear in a
+        training accuracy figure.
+      </p>
+    </div>
+    <div class="m-row">
+      <span class="m-label">Consequence</span>
+      <p>
+        Accuracy measured during ordinary training overstates what the deployed network achieves,
+        so it is the wrong quantity to optimise. Any search guided by it will prefer configurations
+        that happen to degrade badly on conversion.
+      </p>
+    </div>
+    <div class="m-row code">
+      <span class="m-label">In code</span>
+      <p>
+        Each trial ends by converting its network into the deployable form and evaluating that
+        instead. The resulting <code>hw_val_accuracy</code> is the value the search optimises. A
+        configuration that cannot be represented on the chip scores zero, whatever it reached
+        during training.
+      </p>
+    </div>
+  </div>
+
+  <div class="result-grid">
+    <div>
+      <div class="r-k">Objective</div>
+      <div class="r-v accent">97.5%</div>
+      <div class="r-s">Validation accuracy required of the converted network, not the float model.</div>
+    </div>
+    <div>
+      <div class="r-k">Search space</div>
+      <div class="r-v">21 dimensions</div>
+      <div class="r-s">Architecture, neuron parameters and optimiser settings, sampled conditionally per trial.</div>
+    </div>
+    <div>
+      <div class="r-k">Rejected before training</div>
+      <div class="r-v">arithmetic only</div>
+      <div class="r-s">Routing limits are checked in microseconds, so infeasible configurations never reach a GPU.</div>
+    </div>
+  </div>
+</section>
+
+<section id="map" class="reveal">
+  <h2><span class="sec-num">1.7</span>How the code is organised</h2>
+  <p>
+    The implementation is a single file, <code>Practice2.py</code>, divided into numbered sections.
+    Sections 1 to 4 import no deep learning libraries, so architecture planning and the feasibility
+    check run on any machine without a GPU stack installed.
+  </p>
+  <p>
+    The diagram below maps those sections onto the four jobs the file performs. Each leaf links to
+    the page that covers it.
+  </p>
+
   <figure class="figure wide">
     <div class="figure-scroll">
       <svg viewBox="0 0 900 620" role="img" aria-label="A left-to-right tree: Practice2.py branches into Describe, Check, Train and Search, each with its own components.">
-        <!-- connectors -->
         <g stroke="#413d38" stroke-width="1.4" fill="none">
           <path d="M174 274 H200"/>
           <path d="M200 72 V514"/>
@@ -51,12 +317,10 @@
           <path d="M428 462 H456"/><path d="M428 514 H456"/><path d="M428 566 H456"/>
         </g>
 
-        <!-- root -->
         <rect x="6" y="232" width="168" height="84" fill="rgba(255,255,255,.05)" stroke="#5a5550"/>
         <text class="tree-node-title" x="90" y="267" font-size="19" text-anchor="middle">Practice2.py</text>
         <text class="tree-node-sub" x="90" y="292" font-size="12.5" text-anchor="middle">one file &#183; ~3,200 lines</text>
 
-        <!-- branches -->
         <g>
           <rect x="230" y="45" width="170" height="54" fill="rgba(255,255,255,.028)" stroke="#6b5530"/>
           <text class="tree-branch-label" x="248" y="70" font-size="13">DESCRIBE</text>
@@ -68,14 +332,13 @@
 
           <rect x="230" y="305" width="170" height="54" fill="rgba(255,255,255,.028)" stroke="#6b5530"/>
           <text class="tree-branch-label" x="248" y="330" font-size="13">TRAIN</text>
-          <text class="tree-node-sub" x="248" y="348" font-size="12">exactly as it deploys</text>
+          <text class="tree-node-sub" x="248" y="348" font-size="12">on the deployed form</text>
 
           <rect x="230" y="487" width="170" height="54" fill="rgba(255,255,255,.028)" stroke="#6b5530"/>
           <text class="tree-branch-label" x="248" y="512" font-size="13">SEARCH</text>
           <text class="tree-node-sub" x="248" y="530" font-size="12">hundreds of configs</text>
         </g>
 
-        <!-- leaves -->
         <a href="architecture.html">
           <rect class="tree-leaf-box" x="456" y="27" width="438" height="38" fill="rgba(255,255,255,.022)" stroke="#3a3733"/>
           <text class="tree-node-title" x="472" y="51" font-size="15.5" font-weight="500">Seven config dataclasses</text>
@@ -83,327 +346,115 @@
         </a>
         <a href="architecture.html">
           <rect class="tree-leaf-box" x="456" y="79" width="438" height="38" fill="rgba(255,255,255,.022)" stroke="#3a3733"/>
-          <text class="tree-node-title" x="472" y="103" font-size="15.5" font-weight="500">Shape planning &#8212; one source of truth</text>
+          <text class="tree-node-title" x="472" y="103" font-size="15.5" font-weight="500">Shape planning, computed once</text>
           <text class="tree-tag" x="878" y="103" font-size="12.5" text-anchor="end">&#167;2</text>
         </a>
         <a href="hardware.html">
           <rect class="tree-leaf-box" x="456" y="131" width="438" height="38" fill="rgba(255,255,255,.022)" stroke="#3a3733"/>
-          <text class="tree-node-title" x="472" y="155" font-size="15.5" font-weight="500">HiAER-Spike feasibility check</text>
+          <text class="tree-node-title" x="472" y="155" font-size="15.5" font-weight="500">Routing limits as arithmetic</text>
           <text class="tree-tag" x="878" y="155" font-size="12.5" text-anchor="end">&#167;3</text>
         </a>
         <a href="architecture.html">
           <rect class="tree-leaf-box" x="456" y="183" width="438" height="38" fill="rgba(255,255,255,.022)" stroke="#3a3733"/>
-          <text class="tree-node-title" x="472" y="207" font-size="15.5" font-weight="500">Cost model &#8212; neurons, synapses, params</text>
+          <text class="tree-node-title" x="472" y="207" font-size="15.5" font-weight="500">Cost model: neurons, synapses, parameters</text>
           <text class="tree-tag" x="878" y="207" font-size="12.5" text-anchor="end">&#167;4</text>
         </a>
         <a href="training.html">
           <rect class="tree-leaf-box" x="456" y="235" width="438" height="38" fill="rgba(255,255,255,.022)" stroke="#3a3733"/>
-          <text class="tree-node-title" x="472" y="259" font-size="15.5" font-weight="500">Event stream &#8594; T binary frames</text>
+          <text class="tree-node-title" x="472" y="259" font-size="15.5" font-weight="500">Event stream to T binary frames</text>
           <text class="tree-tag" x="878" y="259" font-size="12.5" text-anchor="end">&#167;6</text>
         </a>
         <a href="neurons.html">
           <rect class="tree-leaf-box" x="456" y="287" width="438" height="38" fill="rgba(255,255,255,.022)" stroke="#3a3733"/>
-          <text class="tree-node-title" x="472" y="311" font-size="15.5" font-weight="500">HardwareLIFNode &#8212; the chip's neuron</text>
+          <text class="tree-node-title" x="472" y="311" font-size="15.5" font-weight="500">HardwareLIFNode, the chip's neuron</text>
           <text class="tree-tag" x="878" y="311" font-size="12.5" text-anchor="end">&#167;5</text>
         </a>
         <a href="training.html">
           <rect class="tree-leaf-box" x="456" y="339" width="438" height="38" fill="rgba(255,255,255,.022)" stroke="#3a3733"/>
-          <text class="tree-node-title" x="472" y="363" font-size="15.5" font-weight="500">Training loop + pipeline flush</text>
+          <text class="tree-node-title" x="472" y="363" font-size="15.5" font-weight="500">Training loop and pipeline flush</text>
           <text class="tree-tag" x="878" y="363" font-size="12.5" text-anchor="end">&#167;8</text>
         </a>
         <a href="hardware.html">
           <rect class="tree-leaf-box" x="456" y="391" width="438" height="38" fill="rgba(255,255,255,.022)" stroke="#3a3733"/>
-          <text class="tree-node-title" x="472" y="415" font-size="15.5" font-weight="500">Fold BatchNorm &#8594; INT16 grid (QAT)</text>
+          <text class="tree-node-title" x="472" y="415" font-size="15.5" font-weight="500">Batch-norm folding and INT16 training</text>
           <text class="tree-tag" x="878" y="415" font-size="12.5" text-anchor="end">&#167;5c</text>
         </a>
         <a href="search.html">
           <rect class="tree-leaf-box" x="456" y="443" width="438" height="38" fill="rgba(255,255,255,.022)" stroke="#3a3733"/>
-          <text class="tree-node-title" x="472" y="467" font-size="15.5" font-weight="500">Define-by-run space (Optuna)</text>
+          <text class="tree-node-title" x="472" y="467" font-size="15.5" font-weight="500">Conditional search space</text>
           <text class="tree-tag" x="878" y="467" font-size="12.5" text-anchor="end">&#167;10</text>
         </a>
         <a href="search.html">
           <rect class="tree-leaf-box" x="456" y="495" width="438" height="38" fill="rgba(255,255,255,.022)" stroke="#3a3733"/>
-          <text class="tree-node-title" x="472" y="519" font-size="15.5" font-weight="500">ASHA prunes on the float curve</text>
+          <text class="tree-node-title" x="472" y="519" font-size="15.5" font-weight="500">Early stopping on the training curve</text>
           <text class="tree-tag" x="878" y="519" font-size="12.5" text-anchor="end">&#167;10</text>
         </a>
         <a href="search.html">
           <rect class="tree-leaf-box" x="456" y="547" width="438" height="38" fill="rgba(255,255,255,.022)" stroke="#3a3733"/>
-          <text class="tree-node-title" x="472" y="571" font-size="15.5" font-weight="500">Objective: accuracy measured on chip</text>
+          <text class="tree-node-title" x="472" y="571" font-size="15.5" font-weight="500">Selection on converted accuracy</text>
           <text class="tree-tag" x="878" y="571" font-size="12.5" text-anchor="end">&#167;10</text>
         </a>
       </svg>
     </div>
     <figcaption>
-      Section numbers refer to <code>Practice2.py</code>'s own numbered sections. Read left to right:
-      the file describes a network, checks it against the chip, trains it the way it will deploy,
-      then searches for a better one.
+      Section numbers refer to the numbered sections inside <code>Practice2.py</code>.
     </figcaption>
   </figure>
-</section>
 
-<section id="what" class="reveal">
-  <h2><span class="sec-num">1.1</span>What you're actually looking at</h2>
-  <p class="lead">One Python file. ~3,200 deliberate lines. Four jobs:</p>
-  <ul class="facts">
-    <li><strong>Describe</strong> — a brain-inspired network where <em>every</em> knob (depth, kernels, channels, neuron physics, training recipe) is configuration, not hard-code.</li>
-    <li><strong>Check</strong> — verify a proposed network physically fits the HiAER-Spike chip <em>before</em> wasting GPU time on it.</li>
-    <li><strong>Train</strong> — teach it gestures in a way that already respects the chip's integer arithmetic.</li>
-    <li><strong>Search</strong> — let an automated search try hundreds of configurations, hunting for &gt;97.5% accuracy.</li>
-  </ul>
-  <p class="big-idea">
-    The accuracy that matters is measured on the version that <strong>actually runs on the
-    chip</strong> — never the flattering floating-point version.
-  </p>
-  <p>Why the obsession? The field's recurring disaster:</p>
-  <ul>
-    <li>Train on a GPU → <strong>95%</strong>. Convert for the chip → <strong>60%</strong>.</li>
-    <li>The chip isn't broken. The trained network and the deployed network were quietly <em>different networks</em>.</li>
-    <li>Nearly every unusual decision in this code exists to make them the <em>same network</em>.</li>
-  </ul>
-  <div class="callout key">
-    <div>
-      <span class="callout-title">How to read this site</span>
-      <ul>
-        <li><strong>This page</strong> — the map + the three core ideas.</li>
-        <li><strong>Chapters 2–6</strong> — one subsystem each, with demos ported line-for-line from the real code (and verified against it).</li>
-        <li><strong>Chapter 7</strong> — a searchable function-by-function reference.</li>
-      </ul>
-    </div>
-  </div>
-</section>
-
-<section id="task" class="reveal">
-  <h2><span class="sec-num">1.2</span>The task: 11 gestures, one weird camera</h2>
-  <p class="lead">The dataset: <strong>DVS128 Gesture</strong> (IBM, 2017). Watch a short clip of a person, name the gesture.</p>
-  <dl class="kv">
-    <dt>11 classes</dt><dd>clapping · left/right hand wave · each arm clockwise &amp; counter-clockwise · arm roll · air drums · air guitar · "other"</dd>
-    <dt>the camera</dt><dd>A <span class="term">DVS</span> (Dynamic Vision Sensor — an <strong>event camera</strong>). No frames. Each of its 128×128 pixels independently fires an <strong>event</strong> only when its brightness <em>changes</em>.</dd>
-    <dt>2 channels</dt><dd>ON = "got brighter", OFF = "got darker". That's why the data has C=2, not RGB's 3.</dd>
-    <dt>the signal</dt><dd>A stationary background produces <em>silence</em>. A moving hand produces a crackling stream of events tracing its outline. Sparse change — not pictures.</dd>
-    <dt>into the net</dt><dd>Events are chopped into <code>T</code> time-slices (usually 16), fed one slice at a time — details in <a href="training.html">chapter 5</a>.</dd>
-  </dl>
-  <p>A sparse stream of change is exactly the signal spiking networks were born for. This camera-network pairing is a classic for a reason.</p>
-</section>
-
-<section id="snn" class="reveal">
-  <h2><span class="sec-num">1.3</span>Normal networks pass numbers. Spiking networks pass blips.</h2>
-  <p class="lead">Two ways to build a "neuron":</p>
-  <div class="two-up">
-    <div class="panel">
-      <div class="p-title"><span class="chip blue">ANN</span> the networks you've heard of</div>
-      <ul>
-        <li>Every neuron: weighted sum → squashing function → pass a <strong>precise decimal</strong> (0.7314…) onward.</li>
-        <li>Every neuron computes <em>every time</em> — interesting input or not. A giant calculator.</li>
-      </ul>
-    </div>
-    <div class="panel">
-      <div class="p-title"><span class="chip yellow">SNN</span> this project</div>
-      <ul>
-        <li>A neuron outputs <em>nothing</em>… or a <strong>spike</strong>: an all-or-nothing blip. 1s in a sea of 0s.</li>
-        <li>Its only memory is one number — the <span class="term">membrane potential</span> — a <em>leaky bucket</em> of evidence.</li>
-      </ul>
-    </div>
-  </div>
-  <p>The bucket's three rules:</p>
-  <ul>
-    <li>Every incoming spike pours a little water in (how much = the connection's <strong>weight</strong>; inhibitory weights scoop water out).</li>
-    <li>The bucket <strong>leaks</strong> constantly — old evidence fades. The leak speed is set by a constant called <strong>tau (τ)</strong>.</li>
-    <li>If the water level crosses a <strong>threshold (θ)</strong>, the neuron <strong>fires a spike</strong> of its own to everyone downstream, and the bucket empties (a <strong>reset</strong>).</li>
-  </ul>
-  <p>
-    That flavor is called <strong>LIF</strong> — <em>Leaky Integrate-and-Fire</em> — the only
-    neuron type this codebase deploys. Two enormous consequences follow from "output is 0 or 1":
-  </p>
-  <ul>
-    <li><strong>Time is part of the computation.</strong> A single spike says almost nothing; <em>how often</em> and <em>when</em> a neuron fires carries the information. The network must be run for T timesteps and its output spikes counted.</li>
-    <li><strong>Silence is free.</strong> When nothing spikes, downstream neurons do <em>no work</em> — no multiply, no add, nothing. Sparse input ⇒ tiny energy. This is why neuromorphic chips can run on milliwatts.</li>
-  </ul>
-
-  <div class="demo reveal" id="demo-ann-vs-snn">
-    <div class="demo-head">
-      <span class="demo-tag">INTERACTIVE</span>
-      <span class="demo-title">Numbers vs. spikes — watch the work happen</span>
-      <span class="demo-sub">One neuron with 6 inputs, run for 16 timesteps. The ANN multiplies every input every step. The SNN only does work when a spike arrives. Drag the sparsity slider — this is the energy story of the whole field.</span>
-    </div>
-    <div class="demo-body">
-      <div class="controls">
-        <div class="ctl" style="flex:1;min-width:200px;">
-          <label>input activity (how busy the scene is) <output id="avs-sparsity-out">20%</output></label>
-          <input type="range" id="avs-sparsity" min="2" max="60" value="20">
-        </div>
-        <button class="btn primary" id="avs-run">Run 16 timesteps</button>
-      </div>
-      <canvas id="avs-canvas" height="240"></canvas>
-      <div class="stats">
-        <div class="stat"><div class="k">ANN operations</div><div class="val" id="avs-ann-ops">0</div><div class="sub">multiply-adds (6 per step, always)</div></div>
-        <div class="stat"><div class="k">SNN operations</div><div class="val acc" id="avs-snn-ops">0</div><div class="sub">additions (only when a spike lands)</div></div>
-        <div class="stat"><div class="k">SNN work saved</div><div class="val good" id="avs-saved">—</div><div class="sub">vs. the ANN, this run</div></div>
-      </div>
-    </div>
-    <div class="demo-note">The saving compounds absurdly at scale: the real networks in this project have ~10 <em>million</em> synaptic connections (<a href="architecture.html">chapter 3</a> counts them exactly), and DVS input is mostly silence.</div>
-  </div>
-</section>
-
-<section id="chip" class="reveal">
-  <h2><span class="sec-num">1.4</span>The catch: the chip is a harsh landlord</h2>
-  <p class="lead">
-    Spikes-are-cheap only pays off on hardware built for spikes. The target:
-    <strong>HiAER&#8209;Spike</strong> (UC San Diego, <em>Hierarchical Address-Event Routing</em>),
-    programmed via <code>hs_api</code>.
-  </p>
-  <p>A GPU runs whatever math you write. This chip has house rules the code treats as physics:</p>
-  <div class="two-up">
-    <div class="panel">
-      <div class="p-title"><span class="chip red">LIMITS</span> Wiring budgets</div>
-      <p>A neuron may listen to at most <strong>8,159</strong> other neurons (<em>fan-in</em>) and shout to at most <strong>4,095</strong> (<em>fan-out</em>). The input side gets <strong>16,383</strong> total input lines ("axons"). Design a layer that exceeds these and it <em>cannot be wired up, period</em>. <a href="hardware.html">Chapter 4</a> lets you trip these limits yourself.</p>
-    </div>
-    <div class="panel">
-      <div class="p-title"><span class="chip red">INTEGERS</span> No decimals on chip</div>
-      <p>Weights live on a 16-bit integer grid and are <strong>hard-clamped to [−1, +1]</strong> — a weight of 1.3 silently becomes 1.0. Thresholds become integers. Even the leak τ is an integer register: τ=2.1 and τ=2.4 deploy as <em>the same network</em>. Training must anticipate all of this.</p>
-    </div>
-  </div>
-  <p>Plus one subtlety that silently costs accuracy if ignored:</p>
-  <ul>
-    <li>The chip's neuron fires based on the <em>previous</em> timestep's bucket level — a different internal order than the standard software neuron.</li>
-    <li>Result: every layer delays the signal by one tick, like a bucket brigade.</li>
-    <li>So a 5-layer network needs 5 extra <strong>"flush" timesteps</strong> of empty input after the clip ends — or the final frames' evidence never reaches the output.</li>
-    <li>The code models this <em>during training</em>, so there are no surprises on chip (<a href="neurons.html">chapter 2</a> animates it).</li>
-  </ul>
-</section>
-
-<section id="pipeline" class="reveal">
-  <h2><span class="sec-num">1.5</span>The whole system in five boxes</h2>
-  <p>Everything in the file serves this pipeline. Click any box to jump to its chapter.</p>
-  <div class="pipe">
-    <a class="pipe-card" href="training.html">
-      <div class="pc-step">STAGE A</div>
-      <div class="pc-title">Event camera</div>
-      <div class="pc-desc">128×128 DVS sensor streams sparse ON/OFF brightness-change events. Chopped into T=16 time-slices, shrunk to 64×64, snapped to 0/1.</div>
-    </a>
-    <a class="pipe-card" href="architecture.html">
-      <div class="pc-step">STAGE B</div>
-      <div class="pc-title">Configurable SNN</div>
-      <div class="pc-desc">A few convolution layers of LIF neurons + a tiny classifier head. Depth, kernels, channels, pooling — all knobs. Planned & feasibility-checked before building.</div>
-    </a>
-    <a class="pipe-card" href="training.html">
-      <div class="pc-step">STAGE C</div>
-      <div class="pc-title">Training</div>
-      <div class="pc-desc">Backpropagation with a "surrogate gradient" trick, warmup in float, then training <em>on the chip's integer grid</em> (quantization-aware training).</div>
-    </a>
-    <a class="pipe-card" href="hardware.html">
-      <div class="pc-step">STAGE D</div>
-      <div class="pc-title">Fold &amp; quantize</div>
-      <div class="pc-desc">BatchNorm gets mathematically absorbed into conv weights; weights snap to INT16 in [−1,1]; biases hide inside per-channel thresholds. Deployability is checked, not hoped for.</div>
-    </a>
-    <a class="pipe-card" href="search.html">
-      <div class="pc-step">STAGE E</div>
-      <div class="pc-title">The search</div>
-      <div class="pc-desc">Optuna + Ray Tune try hundreds of configs. Free feasibility check first, cheap float training with early stopping, and the <em>chip-accurate</em> number is what gets optimized.</div>
-    </a>
-  </div>
-</section>
-
-<section id="poke" class="reveal">
-  <h2><span class="sec-num">1.6</span>Meet the neuron (30-second version)</h2>
-  <p>
-    Before the deep dive in chapter 2, poke one. This is a real simulation of the exact update
-    rule from the code's <code>HardwareLIFNode</code> — the neuron the chip runs. Tap
-    <strong>inject</strong> to send input spikes; watch the bucket fill, leak, and fire.
-  </p>
-  <div class="demo" id="demo-poke">
-    <div class="demo-head">
-      <span class="demo-tag">INTERACTIVE</span>
-      <span class="demo-title">Poke a hardware LIF neuron</span>
-      <span class="demo-sub">Amber bars: your input spikes (weight 0.45). Pale trace: membrane potential v. Dashed line: threshold θ=1.0. When v crosses θ → output spike (top row), hard reset to 0.</span>
-    </div>
-    <div class="demo-body">
-      <div class="controls">
-        <button class="btn primary" id="poke-btn">Inject input spike</button>
-        <div class="ctl">
-          <label>leak τ <output id="poke-tau-out">4</output></label>
-          <input type="range" id="poke-tau" min="0" max="7" value="2" step="1">
-        </div>
-        <label class="toggle"><input type="checkbox" id="poke-auto"> random background input</label>
-      </div>
-      <canvas id="poke-canvas" height="230"></canvas>
-    </div>
-    <div class="demo-note">τ snaps to the chip's legal values {2, 3, 4, 6, 8, 16, 32, 63} — because on HiAER-Spike the leak is an integer register. Small τ = fast leak = "goldfish memory"; big τ = slow leak = "elephant memory". Full simulator with the fire/reset/leak/integrate order-of-operations story in <a href="neurons.html">chapter 2</a>.</div>
-  </div>
-</section>
-
-<section id="file-map" class="reveal">
-  <h2><span class="sec-num">1.7</span>How the file is organized (and where this site covers it)</h2>
-  <p class="lead"><code>Practice2.py</code> is written in numbered sections, like book chapters.</p>
-  <ul>
-    <li>Design rule worth noticing: <strong>sections 1–4 import no PyTorch</strong> — pure Python math.</li>
-    <li>So planning + feasibility checking run on any laptop, no GPU stack installed.</li>
-    <li>The heavy machinery only loads when you actually train.</li>
-  </ul>
-  <div class="tbl-wrap">
-    <table class="tbl">
-      <thead><tr><th>File section</th><th>What it does</th><th>Covered in</th></tr></thead>
-      <tbody>
-        <tr><td class="layer-name">§1 Config dataclasses</td><td>Every knob of the experiment as typed, defaulted fields — input shape, layers, head, neuron, training recipe — settable from the command line as <code>key=value</code>.</td><td><a href="architecture.html">Ch. 3</a></td></tr>
-        <tr><td class="layer-name">§2 Shape planning</td><td>One function walks the network on paper, computing every layer's spatial size. Model, feasibility checker, and cost model all read this <em>same plan</em> — so they can never disagree.</td><td><a href="architecture.html">Ch. 3</a></td></tr>
-        <tr><td class="layer-name">§3 Feasibility check</td><td>Does this config fit HiAER-Spike's axon/fan-in/fan-out budgets? Answered with arithmetic in microseconds, before any GPU time is spent.</td><td><a href="hardware.html">Ch. 4</a></td></tr>
-        <tr><td class="layer-name">§4 Cost model</td><td>Exact counts of spiking neurons, synaptic connections, and trainable parameters, plus a printable architecture summary table.</td><td><a href="architecture.html">Ch. 3</a></td></tr>
-        <tr><td class="layer-name">§4b Deployment grid</td><td>The chip's numeric reality: INT16 weights clamped to ±1, integer thresholds, integer leak — with differentiable "fake quantize" mirrors for training.</td><td><a href="hardware.html">Ch. 4</a></td></tr>
-        <tr><td class="layer-name">§5 The model</td><td><code>HardwareLIFNode</code> (the chip's neuron, trained directly), tdBN, inline BatchNorm-fold quantization-aware training, and the network builder that follows the §2 plan.</td><td><a href="neurons.html">Ch. 2</a> · <a href="hardware.html">4</a></td></tr>
-        <tr><td class="layer-name">§5b–5c Folding & deployment</td><td>BatchNorm folding (exact math, two bias strategies), fold verification, deployment report, per-layer hardware export.</td><td><a href="hardware.html">Ch. 4</a></td></tr>
-        <tr><td class="layer-name">§6–9 Data & training</td><td>DVS128 loading, resize+binarize, train/eval loops with pipeline flush, optimizers, schedulers, dataset cache warmup.</td><td><a href="training.html">Ch. 5</a></td></tr>
-        <tr><td class="layer-name">§10 Search</td><td>Optuna define-by-run space + Ray Tune orchestration + ASHA early stopping + crash-proof streaming results.</td><td><a href="search.html">Ch. 6</a></td></tr>
-        <tr><td class="layer-name">§11 CLI</td><td>Four run modes: <code>summary</code>, <code>single</code>, <code>fold</code>, <code>search</code>.</td><td><a href="reference.html">Ch. 7</a></td></tr>
-      </tbody>
-    </table>
-  </div>
-  <p>The four ways to run it:</p>
+  <h3>Running it</h3>
   <div class="code-block">
-    <div class="code-head"><span class="dot"></span><span class="dot"></span><span class="file">terminal</span><span class="loc">run modes, from the file's docstring</span></div>
-    <pre><code class="language-bash">python Practice.py summary --input ... --encoder ...   # architecture table + feasibility. No GPU, no torch needed.
-python Practice.py single  --data-dir ... --encoder ... # one full training run (laptop or single GPU)
-python Practice.py fold    --ckpt ... --data-dir ...    # fold BatchNorm, quantize, verify, export for the chip
-python Practice.py search  --compute local --trials 50  # Optuna hyperparameter search (add --compute cluster for multi-node)</code></pre>
+    <div class="code-head"><span class="file">terminal</span><span class="loc">four modes</span></div>
+    <pre><code class="language-bash">python Practice2.py summary --input resize_to=64 T=16 --encoder depth=2 channels=32 kernel_size=7
+python Practice2.py single  --data-dir &lt;DVS128 root&gt; --ckpt best.pth
+python Practice2.py fold    --ckpt best.pth --data-dir &lt;DVS128 root&gt;
+python Practice2.py search  --compute local --trials 50 --data-dir &lt;DVS128 root&gt;</code></pre>
   </div>
+  <ul>
+    <li><code>summary</code> prints the architecture table, the neuron and synapse counts, and the feasibility verdict. It needs no GPU.</li>
+    <li><code>single</code> trains one configuration and reports both its float accuracy and its converted accuracy.</li>
+    <li><code>fold</code> loads a checkpoint, folds batch normalisation into the convolutions, quantises, verifies the result, and writes the per-layer tables the converter reads.</li>
+    <li><code>search</code> runs the automated search.</li>
+  </ul>
 </section>
 
-<section id="map" class="reveal">
-  <h2><span class="sec-num">1.8</span>Choose your next chapter</h2>
+<section id="pages" class="reveal">
+  <h2><span class="sec-num">1.8</span>The rest of this walkthrough</h2>
   <div class="cards">
     <a class="card" href="neurons.html">
-      <div class="c-num">CHAPTER 2</div>
-      <div class="c-title">Spiking neurons, properly</div>
-      <div class="c-desc">The leaky bucket in equations, a full interactive simulator, why the chip's order-of-operations differs from the textbook's, integer leaks, and the surrogate-gradient trick that makes spikes trainable.</div>
-      <div class="c-tags"><span>LIF simulator</span><span>fire→reset→leak→integrate</span><span>surrogate gradients</span></div>
+      <div class="c-num">PAGE 02</div>
+      <div class="c-title">The neuron</div>
+      <div class="c-desc">The neuron HiAER-Spike implements, built in PyTorch so that training and deployment use the same update rule. Covers the integer leak, the quantised threshold, and how a binary spike is trained through.</div>
+      <div class="c-tags"><span>simulator</span><span>update order</span><span>surrogate gradient</span></div>
     </a>
     <a class="card" href="architecture.html">
-      <div class="c-num">CHAPTER 3</div>
-      <div class="c-title">The configurable architecture</div>
-      <div class="c-desc">Build your own network layer by layer and watch shapes, neuron counts, synapse counts, and the feasibility verdict update live — using the exact planning math from the file.</div>
+      <div class="c-num">PAGE 03</div>
+      <div class="c-title">The architecture</div>
+      <div class="c-desc">How a network becomes configuration that a search can vary. Layer shapes are derived once and reused by everything that needs them, including the count of what a configuration would occupy on chip.</div>
       <div class="c-tags"><span>network builder</span><span>shape planning</span><span>cost model</span></div>
     </a>
     <a class="card" href="hardware.html">
-      <div class="c-num">CHAPTER 4</div>
-      <div class="c-title">Hardware rules & quantization</div>
-      <div class="c-desc">Fan-in/fan-out budgets, the INT16 grid, why BatchNorm folding is the step that breaks networks, the per-channel threshold trick, and quantization-aware training.</div>
-      <div class="c-tags"><span>feasibility</span><span>INT16 playground</span><span>BN folding</span></div>
+      <div class="c-num">PAGE 04</div>
+      <div class="c-title">Fitting the chip</div>
+      <div class="c-desc">The routing limits become an arithmetic check. Batch normalisation is removed without changing what the network computes, and training moves onto the INT16 grid rather than meeting it afterwards.</div>
+      <div class="c-tags"><span>feasibility</span><span>folding</span><span>quantisation</span></div>
     </a>
     <a class="card" href="training.html">
-      <div class="c-num">CHAPTER 5</div>
-      <div class="c-title">Data & training</div>
-      <div class="c-desc">Event streams to frames, OR-style binarization, rate-coded outputs, the pipeline-flush trick, and the three-phase training schedule that ends on the chip's grid.</div>
-      <div class="c-tags"><span>DVS demo</span><span>flush animation</span><span>QAT phases</span></div>
+      <div class="c-num">PAGE 05</div>
+      <div class="c-title">Training</div>
+      <div class="c-desc">Event data prepared to fit the axon budget, predictions read from spike counts, and the extra timesteps needed to drain the layer delay. Ends with the schedule that produces the deployed network.</div>
+      <div class="c-tags"><span>data pipeline</span><span>flush steps</span><span>training phases</span></div>
     </a>
     <a class="card" href="search.html">
-      <div class="c-num">CHAPTER 6</div>
-      <div class="c-title">The hyperparameter search</div>
-      <div class="c-desc">How Optuna proposes configs, how Ray runs them in parallel, how ASHA kills losers early, and why the search optimizes the chip-measured number — with a funnel you can tune.</div>
-      <div class="c-tags"><span>ASHA visualizer</span><span>define-by-run</span><span>3-tier funnel</span></div>
+      <div class="c-num">PAGE 06</div>
+      <div class="c-title">The search</div>
+      <div class="c-desc">How hundreds of configurations get evaluated on a fixed budget. Infeasible ones are rejected by arithmetic, weak ones stop early, and selection uses the converted accuracy.</div>
+      <div class="c-tags"><span>evaluation tiers</span><span>early stopping</span><span>results</span></div>
     </a>
     <a class="card" href="reference.html">
-      <div class="c-num">CHAPTER 7</div>
-      <div class="c-title">Code reference</div>
-      <div class="c-desc">Every class and function in the file, grouped by section, each with its signature, a plain-English explanation, and the reason it exists. Searchable.</div>
-      <div class="c-tags"><span>~80 entries</span><span>searchable</span></div>
+      <div class="c-num">PAGE 07</div>
+      <div class="c-title">Reference</div>
+      <div class="c-desc">A searchable index of every class and function in the file, grouped by the section it belongs to, with the reason each one exists.</div>
+      <div class="c-tags"><span>~80 entries</span></div>
     </a>
   </div>
 </section>
@@ -413,11 +464,11 @@ python Practice.py search  --compute local --trials 50  # Optuna hyperparameter 
 </main>
 
 <nav class="foot-nav">
-  <a class="next" href="neurons.html"><span class="dir">Next chapter →</span><span class="pg">02 · Spiking neurons, properly</span></a>
+  <a class="next" href="neurons.html"><span class="dir">Next</span><span class="pg">02 &#183; The neuron</span></a>
 </nav>
 <footer class="site-foot">
-  <span>An interactive explainer for <a href="https://github.com/purujain2006/configurable-snn-classifier">configurable-snn-classifier</a></span>
-  <span>All demo math is ported from <code>Practice2.py</code> and verified against it.</span>
+  <span>Documentation for <a href="https://github.com/purujain2006/configurable-snn-classifier">configurable-snn-classifier</a></span>
+  <span>Interactive demonstrations use the same arithmetic as <code>Practice2.py</code>, verified against it.</span>
 </footer>
 
 <script src="assets/snn.js"></script>
@@ -425,237 +476,6 @@ python Practice.py search  --compute local --trials 50  # Optuna hyperparameter 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-python.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-bash.min.js"></script>
-<script>
-(function () {
-  "use strict";
-  const P = () => window.Site.PALETTE;
-
-  /* ---------------- hero: ambient spike raster ---------------- */
-  (function heroRaster() {
-    const cv = document.getElementById("hero-raster");
-    if (!cv) return;
-    let ctx, W, H;
-    const ROWS = 26;
-    let spikes = []; // {row, x}
-    const rand = SNN.rng(7);
-    function resize() {
-      const r = window.Site.setupCanvas(cv, cv.parentElement.clientHeight);
-      ctx = r.ctx; W = r.w; H = r.h;
-    }
-    resize();
-    window.addEventListener("resize", resize);
-    function tick() {
-      ctx.clearRect(0, 0, W, H);
-      const rowH = H / ROWS;
-      // spawn
-      if (rand() < 0.9) spikes.push({ row: Math.floor(rand() * ROWS), x: W + 4 });
-      spikes.forEach(s => s.x -= 1.15);
-      spikes = spikes.filter(s => s.x > -6);
-      for (const s of spikes) {
-        const y = s.row * rowH + rowH / 2;
-        const g = ctx.createLinearGradient(s.x - 26, 0, s.x, 0);
-        g.addColorStop(0, "rgba(236,231,222,0)");
-        g.addColorStop(1, "rgba(236,231,222,.35)");
-        ctx.fillStyle = g;
-        ctx.fillRect(s.x - 26, y - 0.6, 26, 1.2);
-        ctx.fillStyle = "rgba(224,169,79,.8)";
-        ctx.fillRect(s.x, y - 2.6, 1.8, 5.2);
-      }
-      requestAnimationFrame(tick);
-    }
-    if (!matchMedia("(prefers-reduced-motion: reduce)").matches) tick();
-  })();
-
-  /* ---------------- demo: ANN vs SNN ops ---------------- */
-  (function annVsSnn() {
-    const cv = document.getElementById("avs-canvas");
-    if (!cv) return;
-    const N_IN = 6, T = 16;
-    const slider = document.getElementById("avs-sparsity");
-    const out = document.getElementById("avs-sparsity-out");
-    const runBtn = document.getElementById("avs-run");
-    const annOpsEl = document.getElementById("avs-ann-ops");
-    const snnOpsEl = document.getElementById("avs-snn-ops");
-    const savedEl = document.getElementById("avs-saved");
-    let anim = null;
-
-    function makeInput(p) {
-      const rand = SNN.rng(Math.floor(Math.random() * 1e9));
-      const grid = [];
-      for (let i = 0; i < N_IN; i++) {
-        grid.push(Array.from({ length: T }, () => rand() < p ? 1 : 0));
-      }
-      return grid;
-    }
-
-    function draw(grid, step, annOps, snnOps, spikesOut) {
-      const { ctx, w, h } = window.Site.setupCanvas(cv, 285);
-      ctx.fillStyle = P().bg; ctx.fillRect(0, 0, w, h);
-      const half = w / 2;
-      const cell = Math.min((half - 90) / T, 16);
-      const rowH = 20;
-      const topY = 46;
-      ctx.font = "13.5px 'JetBrains Mono', monospace";
-
-      function panel(x0, title, isSNN) {
-        ctx.fillStyle = "#cfcbc4"; ctx.textAlign = "left"; ctx.textBaseline = "top";
-        ctx.font = "600 14px 'JetBrains Mono', monospace";
-        ctx.fillText(title, x0 + 12, 12);
-        ctx.font = "12.5px 'JetBrains Mono', monospace";
-        for (let i = 0; i < N_IN; i++) {
-          const y = topY + i * rowH;
-          ctx.fillStyle = "#7d7871";
-          ctx.fillText("in" + i, x0 + 12, y + 3);
-          for (let t = 0; t < T; t++) {
-            const x = x0 + 44 + t * cell;
-            const active = grid[i][t] === 1;
-            const done = t < step;
-            if (isSNN) {
-              ctx.fillStyle = active ? (done ? "#e0a94f" : "#3a3025") : (done ? "#161514" : "#0a0a0a");
-            } else {
-              // ANN: every cell is "a number", always processed
-              ctx.fillStyle = done ? "rgba(236,231,222,.75)" : "#1e1c1a";
-            }
-            ctx.fillRect(x, y, cell - 2.5, 12);
-          }
-        }
-        // step cursor
-        if (step > 0 && step <= T) {
-          const x = x0 + 44 + (step - 1) * cell;
-          ctx.strokeStyle = "#ffffff2e";
-          ctx.strokeRect(x - 1, topY - 3, cell - 0.5, N_IN * rowH + 2);
-        }
-      }
-      panel(0, "ANN — dense numbers, all processed", false);
-      panel(half, "SNN — spikes, silence is skipped", true);
-      // divider
-      ctx.strokeStyle = "#2a2724"; ctx.beginPath(); ctx.moveTo(half, 8); ctx.lineTo(half, h - 8); ctx.stroke();
-      // output spikes for SNN
-      ctx.fillStyle = "#a7a29a"; ctx.font = "12.5px 'JetBrains Mono', monospace";
-      ctx.fillText("neuron output:", half + 12, topY + N_IN * rowH + 14);
-      for (let t = 0; t < Math.min(step, T); t++) {
-        if (spikesOut[t]) {
-          ctx.fillStyle = "#9bb17a";
-          ctx.fillRect(half + 118 + t * cell, topY + N_IN * rowH + 10, cell - 2.5, 12);
-        } else {
-          ctx.fillStyle = "#161514";
-          ctx.fillRect(half + 118 + t * cell, topY + N_IN * rowH + 10, cell - 2.5, 12);
-        }
-      }
-    }
-
-    function run() {
-      if (anim) cancelAnimationFrame(anim);
-      const p = parseInt(slider.value, 10) / 100;
-      const grid = makeInput(p);
-      // simulate the SNN neuron (hardware order) with weight .45 per input
-      const state = { v: 0 };
-      const spikesOut = [];
-      let step = 0, annOps = 0, snnOps = 0, last = 0;
-      function frame(ts) {
-        if (ts - last > 240) {
-          last = ts;
-          if (step < T) {
-            let x = 0, events = 0;
-            for (let i = 0; i < N_IN; i++) { if (grid[i][step]) { events++; x += 0.45; } }
-            annOps += N_IN;          // dense: one MAC per input, every step
-            snnOps += events;        // event-driven: one ADD per spike
-            spikesOut.push(SNN.hardwareLIFStep(state, x, { tau: 4, v_threshold: 1.0 }));
-            step++;
-            annOpsEl.textContent = annOps;
-            snnOpsEl.textContent = snnOps;
-            savedEl.textContent = annOps ? Math.round((1 - snnOps / annOps) * 100) + "%" : "—";
-          }
-          draw(grid, step, annOps, snnOps, spikesOut);
-          if (step >= T) return;
-        }
-        anim = requestAnimationFrame(frame);
-      }
-      anim = requestAnimationFrame(frame);
-    }
-    slider.addEventListener("input", () => { out.textContent = slider.value + "%"; });
-    runBtn.addEventListener("click", run);
-    draw(makeInput(0.2), 0, 0, 0, []);
-  })();
-
-  /* ---------------- demo: poke the neuron ---------------- */
-  (function poke() {
-    const cv = document.getElementById("poke-canvas");
-    if (!cv) return;
-    const TAUS = SNN.HW_TAU_CHOICES;
-    const tauSlider = document.getElementById("poke-tau");
-    const tauOut = document.getElementById("poke-tau-out");
-    const autoBox = document.getElementById("poke-auto");
-    const btn = document.getElementById("poke-btn");
-    const W_IN = 0.45, THETA = 1.0, HIST = 160;
-    const state = { v: 0 };
-    const vHist = new Array(HIST).fill(0);
-    const inHist = new Array(HIST).fill(0);
-    const spkHist = new Array(HIST).fill(0);
-    let pending = 0;
-    const rand = SNN.rng(42);
-
-    function stepSim() {
-      let x = pending * W_IN;
-      pending = 0;
-      if (autoBox.checked && rand() < 0.28) x += W_IN;
-      const tau = TAUS[parseInt(tauSlider.value, 10)];
-      const s = SNN.hardwareLIFStep(state, x, { tau, v_threshold: THETA });
-      vHist.push(state.v); vHist.shift();
-      inHist.push(x); inHist.shift();
-      spkHist.push(s); spkHist.shift();
-    }
-
-    function draw() {
-      const { ctx, w, h } = window.Site.setupCanvas(cv, 275);
-      ctx.fillStyle = P().bg; ctx.fillRect(0, 0, w, h);
-      const padL = 8, plotTop = 34, plotBot = h - 26;
-      const dx = (w - padL - 8) / HIST;
-      const vmax = Math.max(1.6, ...vHist) * 1.05;
-      const Y = v => plotBot - (v / vmax) * (plotBot - plotTop);
-      // threshold line
-      ctx.strokeStyle = "#e0a94f"; ctx.setLineDash([5, 4]); ctx.lineWidth = 1.2;
-      ctx.beginPath(); ctx.moveTo(padL, Y(THETA)); ctx.lineTo(w - 8, Y(THETA)); ctx.stroke();
-      ctx.setLineDash([]);
-      ctx.fillStyle = "#e0a94f"; ctx.font = "12.5px 'JetBrains Mono', monospace";
-      ctx.textAlign = "left"; ctx.textBaseline = "bottom";
-      ctx.fillText("threshold θ = 1.0", padL + 4, Y(THETA) - 3);
-      // input bars
-      for (let i = 0; i < HIST; i++) {
-        if (inHist[i] > 0) {
-          ctx.fillStyle = "rgba(224,169,79,.5)";
-          const bh = (inHist[i] / vmax) * (plotBot - plotTop);
-          ctx.fillRect(padL + i * dx, plotBot - bh, Math.max(1.5, dx * 0.6), bh);
-        }
-      }
-      // membrane trace
-      ctx.strokeStyle = "#ece7de"; ctx.lineWidth = 2;
-      ctx.beginPath();
-      for (let i = 0; i < HIST; i++) {
-        const x = padL + i * dx, y = Y(vHist[i]);
-        if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
-      }
-      ctx.stroke();
-      // output spikes
-      for (let i = 0; i < HIST; i++) {
-        if (spkHist[i]) {
-          ctx.fillStyle = "#9bb17a";
-          ctx.fillRect(padL + i * dx, 12, Math.max(2, dx * 0.6), 14);
-        }
-      }
-      ctx.fillStyle = "#9bb17a"; ctx.textBaseline = "top";
-      ctx.fillText("output spikes", padL, 0);
-      ctx.fillStyle = "#a7a29a"; ctx.textAlign = "right";
-      ctx.fillText("v = " + state.v.toFixed(3), w - 10, 0);
-    }
-
-    btn.addEventListener("click", () => { pending += 1; });
-    tauSlider.addEventListener("input", () => { tauOut.textContent = TAUS[parseInt(tauSlider.value, 10)]; });
-    tauOut.textContent = TAUS[parseInt(tauSlider.value, 10)];
-    setInterval(stepSim, 90);
-    (function loop() { draw(); requestAnimationFrame(loop); })();
-  })();
-})();
-</script>
+<script src="assets/demo-index.js"></script>
 </body>
 </html>

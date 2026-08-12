@@ -3,8 +3,8 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Data & Training — Configurable SNN Classifier, Explained</title>
-<meta name="description" content="Event streams to frames, OR-pooling binarization, rate coding, the pipeline flush, and the training loop — interactively.">
+<title>Training — Configurable SNN Classifier</title>
+<meta name="description" content="Preparing event data within the axon budget, reading predictions from spike counts, draining layer delay, and the training schedule.">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' fill='%23000'/><path d='M3 22h5l3-13 4 19 3-11h4l2 5h5' fill='none' stroke='%23e0a94f' stroke-width='2.4' stroke-linejoin='round'/></svg>">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -15,12 +15,12 @@
 
 <header class="hero">
   <div class="hero-inner">
-    <p class="kicker">Chapter 5 · Data & Training</p>
-    <h1>From event stream<br>to learned gestures</h1>
+    <p class="kicker">Page 5</p>
+    <h1>Training</h1>
     <p class="lede">
-      Follow one gesture clip through the machinery: millions of events → T binary frames →
-      spikes → a class prediction — including why every batch runs extra <em>empty</em> timesteps,
-      and the mid-run moment the network is swapped onto the chip's integer grid.
+      This page follows one gesture recording through the pipeline: how the event stream becomes
+      network input within the axon budget of section 1.1, how spike counts become a prediction,
+      how the layer delay from section 2.1 is accounted for, and what the run reports at the end.
     </p>
   </div>
 </header>
@@ -29,102 +29,152 @@
 <div class="wrap">
 
 <section id="dataset" class="reveal">
-  <h2><span class="sec-num">5.1</span>The dataset: 1,342 clips of people waving</h2>
-  <p class="lead">29 subjects · 11 gestures · 3 lighting conditions · one 128×128 event camera.</p>
+  <h2><span class="sec-num">5.1</span>From recording to tensor</h2>
+  <p>
+    Each DVS128 Gesture recording is a list of events of the form
+    <code>(x, y, polarity, timestamp)</code> at microsecond resolution. The SpikingJelly library
+    converts a recording into frames, and the code requests a fixed number of frames per clip.
+  </p>
   <dl class="kv">
-    <dt>raw recording</dt><dd>A long list of events <code>(x, y, polarity, timestamp)</code> — <em>where</em>, <em>which direction</em> brightness changed (ON/OFF → the 2 channels), <em>when</em> (microsecond resolution).</dd>
-    <dt>frame mode</dt><dd>SpikingJelly's <code>DVS128Gesture</code> chops each clip into <code>T</code> slices and rasterizes each by counting events per pixel.</dd>
-    <dt>split_by="number"</dt><dd>Each slice holds the same <em>number of events</em> — fast motion gets thin time slices, slow motion thick ones.</dd>
-    <dt>result per clip</dt><dd>A tensor of shape <strong>(T, 2, 128, 128)</strong>.</dd>
+    <dt>frames_number</dt><dd>Set to <code>T</code>, so every clip yields the same number of frames regardless of its duration.</dd>
+    <dt>split_by</dt><dd>Set to <code>"number"</code>, so each frame covers an equal count of events rather than an equal span of time. Fast motion produces short frames and slow motion produces long ones.</dd>
+    <dt>rasterisation</dt><dd>Events within a frame are accumulated per pixel and per polarity channel.</dd>
+    <dt>result</dt><dd>One tensor of shape (T, 2, 128, 128) per clip.</dd>
   </dl>
-  <p>Three unglamorous decisions in <code>build_dataloaders</code> worth noticing:</p>
+  <p>Three settings in <code>build_dataloaders</code> affect how comparable the reported numbers are.</p>
   <ul>
-    <li><strong>The validation split is seeded.</strong> <code>torch.manual_seed(1)</code> before the random 15% split — every run, every search trial, judges itself against the <em>same</em> validation set. Comparisons stay apples-to-apples.</li>
-    <li><strong><code>drop_last</code> only on the training loader.</strong> Dropping the ragged final batch is fine for training but on val/test it would silently discard up to N−1 samples "and bias every accuracy number reported."</li>
-    <li><strong><code>num_workers=0</code>, deliberately.</strong> Each search trial is already its own process; DataLoader workers would spawn processes <em>inside</em> processes — "nested multiprocessing like that is broken on Windows and would oversubscribe CPUs across concurrent trials."</li>
+    <li>The 15% validation split is drawn after <code>torch.manual_seed(1)</code>, so every run and every search trial is scored against the same held-out clips.</li>
+    <li><code>drop_last</code> is enabled on the training loader only. On validation it would discard up to N&#8722;1 clips and bias every accuracy figure.</li>
+    <li><code>num_workers</code> is 0. Each search trial already runs in its own process, and nested worker processes oversubscribe the CPUs and fail on Windows.</li>
   </ul>
-  <h3>Supporting cast (§9)</h3>
-  <ul>
-    <li><code>warmup_dataset_cache()</code> — pre-builds the frame cache for every T <em>before</em> parallel trials launch; two trials racing to build the same folder can corrupt it. Detects half-built caches (every class folder must contain samples) and rebuilds them.</li>
-    <li><code>_quiet_with_heartbeat</code> — swallows SpikingJelly's hundreds of extraction print-lines, emits one calm heartbeat every 20 s, and dumps the full captured log only on failure.</li>
-    <li><code>validate_data_dir()</code> — replaces the library's cryptic deep-stack <code>FileNotFoundError</code> with a message showing the exact folder layout expected.</li>
-  </ul>
+  <p>
+    Three supporting functions exist because of failures encountered while running searches.
+    <code>warmup_dataset_cache()</code> builds the frame cache for every value of T before any
+    parallel trial starts, since two trials building the same cache directory can corrupt it, and
+    it treats a directory with missing class folders as incomplete rather than usable.
+    <code>_quiet_with_heartbeat</code> suppresses the library's per-file progress output and prints
+    one line every twenty seconds, restoring the full log if the operation fails.
+    <code>validate_data_dir()</code> reports the expected directory layout instead of allowing a
+    missing dataset to surface as a file error inside the library.
+  </p>
 </section>
 
 <section id="binarize" class="reveal">
-  <h2><span class="sec-num">5.2</span>Resize + binarize: deliberately lossy, in a chosen direction</h2>
-  <p class="lead">
-    128×128×2 = 32,768 input axons. The chip allows 16,383. So: shrink to 64×64 or 32×32, then
-    snap to {0, 1} (spiking input should be spikes, not grays). Two lines, with personality:
-  </p>
-  <div class="code-block">
-    <div class="code-head"><span class="dot"></span><span class="dot"></span><span class="file">Practice2.py · DVSResizeAndBinarize</span><span class="loc">§6</span></div>
-    <pre><code class="language-python">out[t] = F.interpolate(frames[t]..., size=self.size, mode="bilinear", ...)
-return (out > 0).float()   # ANY nonzero contribution becomes a full spike</code></pre>
+  <h2><span class="sec-num">5.2</span>Resizing and binarising the input</h2>
+
+  <div class="motiv">
+    <div class="m-row">
+      <span class="m-label">Observation</span>
+      <p>
+        A 128&#215;128 sensor with two polarity channels needs 32,768 input axons. The chip provides
+        16,383. The native resolution cannot be presented at all. Separately, the network's input
+        layer expects spikes, and a rasterised frame holds event counts.
+      </p>
+    </div>
+    <div class="m-row">
+      <span class="m-label">Consequence</span>
+      <p>
+        Frames have to be reduced to 64&#215;64 or 32&#215;32 and converted to binary. The choice of
+        how to reduce them matters: averaging a sparse binary frame produces small fractional
+        values that a spiking input cannot represent, and isolated events disappear.
+      </p>
+    </div>
+    <div class="m-row code">
+      <span class="m-label">In code</span>
+      <p>
+        <code>DVSResizeAndBinarize</code> interpolates and then applies <code>&gt; 0</code>, so any
+        non-zero contribution becomes a full spike. The docstring records the effect: no events are
+        lost, and event density per pixel rises as resolution falls.
+      </p>
+    </div>
   </div>
-  <ul>
-    <li>This is <strong>not</strong> average-downsampling: bilinear interpolation of a sparse binary frame produces small fractional values, and <code>&gt; 0</code> promotes <em>any</em> nonzero contribution back to a full spike.</li>
-    <li>The docstring names it: <em>"effectively OR-pooling — no events are lost, but event density per pixel rises at low resolutions."</em></li>
-    <li>A deliberate trade: preserve every scrap of sparse signal; accept busier pixels.</li>
-  </ul>
+
+  <div class="code-block">
+    <div class="code-head"><span class="file">Practice2.py &#183; DVSResizeAndBinarize</span><span class="loc">&#167;6</span></div>
+    <pre><code class="language-python">out[t] = F.interpolate(frames[t]..., size=self.size, mode="bilinear", ...)
+return (out > 0).float()   # any nonzero contribution becomes a full spike</code></pre>
+  </div>
+
   <div class="demo">
     <div class="demo-head">
       <span class="demo-tag">INTERACTIVE</span>
-      <span class="demo-title">OR-pooling vs. averaging — paint events and downsample</span>
-      <span class="demo-sub">Left: a 16×16 event frame (click cells to toggle; or randomize). Right: the 8×8 downsampled result under each rule.</span>
+      <span class="demo-title">Two ways to downsample a sparse frame</span>
+      <span class="demo-sub">On the left, a 16&#215;16 frame of events, editable by clicking. On the right, the 8&#215;8 result under each rule.</span>
     </div>
     <div class="demo-body">
       <div class="controls">
-        <button class="btn" id="bz-rand">Randomize events</button>
-        <button class="btn" id="bz-clear">clear</button>
+        <button class="btn" id="bz-rand">Randomise events</button>
+        <button class="btn" id="bz-clear">Clear</button>
         <div class="seg" id="bz-mode">
-          <button class="on" data-m="or">code's rule: bilinear &gt; 0 (OR)</button>
-          <button data-m="avg">naive: average</button>
+          <button class="on" data-m="or">interpolate then threshold</button>
+          <button data-m="avg">average</button>
         </div>
       </div>
       <canvas id="bz-canvas" height="260"></canvas>
       <div class="stats">
-        <div class="stat"><div class="k">events in (16×16)</div><div class="val" id="bz-in">0</div><div class="sub" id="bz-ind">0% density</div></div>
-        <div class="stat"><div class="k">active out (8×8)</div><div class="val acc" id="bz-out">0</div><div class="sub" id="bz-outd">0% density</div></div>
-        <div class="stat"><div class="k">events lost</div><div class="val" id="bz-lost">0</div><div class="sub">OR-rule target: 0</div></div>
+        <div class="stat"><div class="k">events in</div><div class="val" id="bz-in">0</div><div class="sub" id="bz-ind">0% density</div></div>
+        <div class="stat"><div class="k">active pixels out</div><div class="val acc" id="bz-out">0</div><div class="sub" id="bz-outd">0% density</div></div>
+        <div class="stat"><div class="k">events lost</div><div class="val" id="bz-lost">0</div></div>
       </div>
     </div>
-    <div class="demo-note">With the OR rule, a lone event always survives downsampling (density rises); with averaging it fades to a small gray value that a spiking input can't represent. Same story at 32×32, just stronger.</div>
+    <div class="demo-note">
+      Under the threshold rule an isolated event survives the reduction. Under averaging it becomes
+      a small fractional value with no spiking equivalent.
+    </div>
   </div>
 </section>
 
 <section id="rate" class="reveal">
-  <h2><span class="sec-num">5.3</span>Reading the answer: rate coding</h2>
-  <p class="lead">11 output neurons — one per gesture — each emitting spikes over time. How is that an answer?</p>
-  <ul>
-    <li><strong>Rate coding:</strong> each output neuron's score = total spikes accumulated ÷ T. Highest rate wins.</li>
-    <li><strong>Training:</strong> those 11 rates feed a standard cross-entropy loss, exactly as if they were ordinary scores.</li>
-    <li><strong>The wrinkle</strong> (from chapter 2): each layer delays everything by one timestep — so the final frames' evidence is still <em>in flight, mid-network</em>, when the input ends…</li>
-  </ul>
+  <h2><span class="sec-num">5.3</span>Reading a prediction from spikes</h2>
+  <p>
+    The final layer holds 11 neurons, one per gesture. Each emits a train of spikes across the run
+    rather than a single number, so the prediction is defined as the firing rate: total spikes
+    divided by <code>T</code>. The highest rate wins.
+  </p>
+  <p>
+    During training those 11 rates are treated as class scores and passed to a cross-entropy loss,
+    optionally softened by label smoothing. The winning configurations used a smoothing value near
+    0.15.
+  </p>
 </section>
 
 <section id="flush" class="reveal">
-  <h2><span class="sec-num">5.4</span>The pipeline flush: why the network runs on empty</h2>
-  <p class="lead">The fix is <code>forward_over_time()</code>, mirroring the hardware conversion script's measurement <em>exactly</em>:</p>
-  <ul>
-    <li>Feed the T input frames…</li>
-    <li>…then keep stepping for <code>flush_steps</code> extra timesteps of <strong>all-zero input</strong> — one per spiking layer — still accumulating output spikes.</li>
-    <li>Divide by T (not T + flush), so rates stay comparable across network depths.</li>
-  </ul>
-  <div class="code-block">
-    <div class="code-head"><span class="dot"></span><span class="dot"></span><span class="file">Practice2.py · hardware_flush_steps</span><span class="loc">§8</span></div>
-    <pre><code class="language-python">def hardware_flush_steps(net) -> int:
-    """Extra zero-input timesteps needed to drain the pipeline, = the number
-    of spiking layers. ... Without the flush, the last frames' evidence never
-    reaches the classifier and the deployed accuracy is lower than anything
-    measured in training -- for no reason visible in the config."""
-    return sum(1 for m in net.conv_fc if isinstance(m, HardwareLIFNode))</code></pre>
+  <h2><span class="sec-num">5.4</span>Draining the pipeline</h2>
+
+  <div class="motiv">
+    <div class="m-row">
+      <span class="m-label">Observation</span>
+      <p>
+        Section 2.1 established that the chip's neuron fires on the potential it carried in from
+        the previous timestep, so each spiking layer delays its output by one timestep. When the
+        input ends after T frames, the evidence from the final frames has not yet reached the
+        classifier.
+      </p>
+    </div>
+    <div class="m-row">
+      <span class="m-label">Consequence</span>
+      <p>
+        Stopping the simulation at T discards the last frames of every clip, and the amount
+        discarded grows with depth. A network measured this way scores lower on chip than in
+        training, with nothing in the configuration to indicate why.
+      </p>
+    </div>
+    <div class="m-row code">
+      <span class="m-label">In code</span>
+      <p>
+        <code>forward_over_time()</code> runs the T input frames and then continues for
+        <code>hardware_flush_steps(net)</code> further timesteps with zero input, accumulating
+        output spikes throughout. The total is divided by T rather than by T plus the flush, so
+        rates stay comparable across depths. This matches what the conversion script measures.
+      </p>
+    </div>
   </div>
+
   <div class="demo">
     <div class="demo-head">
       <span class="demo-tag">INTERACTIVE</span>
-      <span class="demo-title">Watch evidence drain through the pipeline</span>
-      <span class="demo-sub">Each column is a timestep; each row is a stage. A filled cell means "this stage is currently carrying evidence from input frame #n" (color = frame). The output row only counts what reaches it.</span>
+      <span class="demo-title">Evidence moving through the layers</span>
+      <span class="demo-sub">Columns are timesteps and rows are stages. A filled cell means the stage is carrying evidence from a given input frame, coloured by frame. The bottom row is what the output has received.</span>
     </div>
     <div class="demo-body">
       <div class="controls">
@@ -132,56 +182,61 @@ return (out > 0).float()   # ANY nonzero contribution becomes a full spike</code
           <label>spiking layers <output id="fl-l-out">3</output></label>
           <input type="range" id="fl-l" min="1" max="6" value="3">
         </div>
-        <label class="toggle"><input type="checkbox" id="fl-flush" checked> run flush steps after input ends</label>
+        <label class="toggle"><input type="checkbox" id="fl-flush" checked> run flush steps</label>
         <button class="btn primary" id="fl-play">Play</button>
       </div>
       <canvas id="fl-canvas" height="250"></canvas>
       <div class="stats">
-        <div class="stat"><div class="k">input frames T</div><div class="val">8</div></div>
-        <div class="stat"><div class="k">flush steps</div><div class="val acc" id="fl-fs">3</div><div class="sub">= number of spiking layers</div></div>
-        <div class="stat"><div class="k">frames reaching output</div><div class="val" id="fl-reach">8 / 8</div></div>
-        <div class="stat"><div class="k">evidence lost</div><div class="val good" id="fl-lost">0%</div><div class="sub">without flush this grows with depth</div></div>
+        <div class="stat"><div class="k">input frames</div><div class="val">8</div></div>
+        <div class="stat"><div class="k">flush steps</div><div class="val acc" id="fl-fs">3</div><div class="sub">one per spiking layer</div></div>
+        <div class="stat"><div class="k">frames reaching the output</div><div class="val" id="fl-reach">8 / 8</div></div>
+        <div class="stat"><div class="k">evidence discarded</div><div class="val good" id="fl-lost">0%</div></div>
       </div>
     </div>
-    <div class="demo-note">Turn the flush OFF and add layers: a 6-layer network quietly throws away the last 6 frames — <sup>6</sup>/<sub>8</sub> of the clip! This bug class is vicious precisely because nothing errors; accuracy is just mysteriously lower on hardware. Modeling the flush during training (every batch, every epoch) makes train-time and chip-time agree.</div>
+    <div class="demo-note">
+      Turning the flush off and raising the layer count shows the size of the effect. A six-layer
+      network loses the last six frames of an eight-frame clip.
+    </div>
   </div>
 </section>
 
 <section id="loop" class="reveal">
-  <h2><span class="sec-num">5.5</span>The training loop, from the inside</h2>
-  <p>One training step, spelled out for readers who haven't seen a PyTorch loop:</p>
+  <h2><span class="sec-num">5.5</span>The training step</h2>
   <ol class="steps">
-    <li><span class="s-title">Forward.</span> A batch of clips <code>(N, T, 2, H, W)</code> goes through <code>forward_over_time</code> — the full T + flush simulation — yielding 11 firing rates per clip. The membrane states are then reset (<code>functional.reset_net</code>): clips must not leak into each other.</li>
-    <li><span class="s-title">Loss.</span> Cross-entropy between rates and the true gesture, optionally softened by <code>label_smoothing</code> (the true class becomes e.g. 0.85 instead of 1.0 — a mild overconfidence penalty that the winning configs used at ~0.15).</li>
-    <li><span class="s-title">Backward.</span> Backpropagation <em>through time and through spikes</em>: gradients flow back across all T timesteps, crossing every spike via the ATan surrogate (chapter 2) and every quantizer via STE (chapter 4).</li>
-    <li><span class="s-title">Step.</span> Optional gradient clipping, optimizer update, optional per-batch scheduler tick.</li>
+    <li><span class="s-title">Forward</span> A batch of clips of shape (N, T, 2, H, W) passes through <code>forward_over_time</code>, producing 11 firing rates per clip. Neuron state is reset afterwards so clips do not influence each other.</li>
+    <li><span class="s-title">Loss</span> Cross-entropy between the rates and the true gesture.</li>
+    <li><span class="s-title">Backward</span> Gradients propagate across all T timesteps, through every spike using the surrogate from section 2.5 and through every quantiser using the estimator from section 4.4.</li>
+    <li><span class="s-title">Update</span> Optional gradient clipping, then the optimiser step and any per-batch scheduler step.</li>
   </ol>
   <p>
-    After each epoch, <code>evaluate()</code> measures validation accuracy and the best-scoring
-    weights are kept — the final model is the <em>best</em> epoch, not the last one.
+    Validation accuracy is measured after each epoch and the best weights are retained, so the
+    reported model is the best epoch rather than the last.
   </p>
-  <h3>Optimizers & schedules</h3>
-  <ul>
-    <li><code>build_optimizer</code> offers <strong>Adam, AdamW, SGD</strong>.</li>
-    <li>The comment that bites people: classic Adam's <code>weight_decay</code> is L2 <em>added to the gradient</em>, tangled with the adaptive step; AdamW decays <em>decoupled</em>.</li>
-    <li>It matters extra here: chapter 4 showed weight decay doubles as a <em>deployment lever</em> (keeps folded weights inside [−1,1]) — so the search gives the two optimizers different decay ranges.</li>
-    <li><code>build_scheduler</code> shapes the learning rate over epochs:</li>
-  </ul>
+
+  <h3>Optimiser and schedule</h3>
+  <p>
+    <code>build_optimizer</code> offers Adam, AdamW and SGD. The distinction between the first two
+    matters more here than usual: Adam adds weight decay to the gradient, where it interacts with
+    the adaptive step size, while AdamW applies it separately. Since section 4.3 showed that weight
+    decay controls whether folded weights stay inside the representable range, the search samples
+    different decay ranges for the two optimisers.
+  </p>
+
   <div class="demo">
     <div class="demo-head">
       <span class="demo-tag">INTERACTIVE</span>
-      <span class="demo-title">Learning-rate schedule shapes</span>
-      <span class="demo-sub">The schedule families build_scheduler constructs (shape sketch). Warmup, when present, is a linear ramp from 10% over the first warmup_epochs, wrapped via SequentialLR.</span>
+      <span class="demo-title">Learning rate schedules</span>
+      <span class="demo-sub">The shapes <code>build_scheduler</code> produces. Warm-up, when configured, is a linear ramp from 10% of the base rate.</span>
     </div>
     <div class="demo-body">
       <div class="controls">
         <div class="ctl">
           <label>scheduler</label>
           <select id="lr-kind">
-            <option value="cosine" selected>cosine (smooth decay to 0)</option>
-            <option value="step">step (÷5 every ⅓ of the run)</option>
-            <option value="onecycle">onecycle (ramp up, long anneal)</option>
-            <option value="none">none (constant)</option>
+            <option value="cosine" selected>cosine</option>
+            <option value="step">step</option>
+            <option value="onecycle">onecycle</option>
+            <option value="none">constant</option>
           </select>
         </div>
         <div class="ctl">
@@ -189,31 +244,53 @@ return (out > 0).float()   # ANY nonzero contribution becomes a full spike</code
           <input type="range" id="lr-ep" min="10" max="80" value="40">
         </div>
         <div class="ctl">
-          <label>warmup epochs <output id="lr-wu-out">2</output></label>
+          <label>warm-up epochs <output id="lr-wu-out">2</output></label>
           <input type="range" id="lr-wu" min="0" max="3" value="2">
         </div>
       </div>
       <canvas id="lr-canvas" height="230"></canvas>
     </div>
-    <div class="demo-note">Why the search's early-stopper must respect schedules: cosine and onecycle do their best work <em>late</em>. Judge a trial at epoch 3 and you systematically favor constant-LR configs — one of the reasons ASHA's grace period exists (chapter 6).</div>
+    <div class="demo-note">
+      Cosine and onecycle deliver most of their benefit late in the run. Section 6.4 relies on that
+      property when deciding how early a trial may be stopped.
+    </div>
   </div>
+</section>
 
-  <h3>The full run: three phases, one number</h3>
-  <p><code>run_training()</code> stitches everything into the inline-QAT shape you met in chapter 4:</p>
+<section id="phases" class="reveal">
+  <h2><span class="sec-num">5.6</span>What a run reports</h2>
+  <p>
+    <code>run_training()</code> combines the pieces above with the inline schedule from section
+    4.5.
+  </p>
   <div class="tbl-wrap">
     <table class="tbl">
-      <thead><tr><th>Phase</th><th>What happens</th><th>Metrics reported</th></tr></thead>
+      <thead><tr><th>Phase</th><th>What happens</th><th>Reported</th></tr></thead>
       <tbody>
-        <tr><td class="layer-name">float warmup</td><td>~25% of epochs. BN active, precise weights. Purpose: let BN's running statistics mature into something worth folding from.</td><td><code>val_acc</code> per epoch (phase="float")</td></tr>
-        <tr><td class="layer-name">fold + grid training</td><td>Best warmup weights reloaded; every (Conv, BN) fused into <code>ConvBNFoldQuant</code>; the rest of the budget trains on the folded INT16 grid at half LR with a fresh cosine schedule.</td><td><code>val_acc</code> per epoch (phase="grid")</td></tr>
-        <tr><td class="layer-name">export & measure</td><td><code>export_deployed()</code> freezes the BN-free integer network; it is evaluated one final time; <code>deployment_report</code> audits legality.</td><td><strong><code>hw_val_accuracy</code></strong> — the number that matters — plus <code>quant_gap</code> (float − hardware), <code>weight_clip_frac</code>, <code>min_threshold</code>, <code>flush_steps</code>, <code>deployable</code></td></tr>
+        <tr>
+          <td class="layer-name">warm-up</td>
+          <td>About a quarter of the epoch budget in floating point with batch normalisation active, so its running statistics become meaningful.</td>
+          <td>Validation accuracy per epoch.</td>
+        </tr>
+        <tr>
+          <td class="layer-name">on-grid</td>
+          <td>The best warm-up weights are reloaded, each convolution and batch normalisation pair is fused, and the remaining epochs train on folded and quantised weights at half the learning rate.</td>
+          <td>Validation accuracy per epoch, continuing the same curve.</td>
+        </tr>
+        <tr>
+          <td class="layer-name">export</td>
+          <td>The batch-norm-free INT16 network is frozen, evaluated once, and audited by <code>deployment_report</code>.</td>
+          <td><code>hw_val_accuracy</code>, <code>quant_gap</code>, <code>weight_clip_frac</code>, <code>min_threshold</code>, <code>deployable</code>.</td>
+        </tr>
       </tbody>
     </table>
   </div>
-  <ul>
-    <li><strong>The console scoreboard</strong> (single mode) ends with: <em>"DEPLOYMENT (this is the number that matters)"</em> — float accuracy, on-grid accuracy, deployed accuracy, and the gap between them.</li>
-    <li><strong>The saved checkpoint</strong> contains both networks (QAT + deployable), the full config, the metrics, and the <code>hardware_export</code> table — reproduce or convert without re-deriving a single value.</li>
-  </ul>
+  <p>
+    In <code>single</code> mode the console prints both accuracies and the gap between them. The
+    checkpoint written to disk holds the trained network, the deployable network, the configuration,
+    the metrics and the per-layer hardware table, so a conversion can proceed without recomputing
+    anything.
+  </p>
 </section>
 
 </div>
@@ -221,258 +298,18 @@ return (out > 0).float()   # ANY nonzero contribution becomes a full spike</code
 </main>
 
 <nav class="foot-nav">
-  <a class="prev" href="hardware.html"><span class="dir">← Previous</span><span class="pg">04 · Hardware rules & quantization</span></a>
-  <a class="next" href="search.html"><span class="dir">Next →</span><span class="pg">06 · The hyperparameter search</span></a>
+  <a class="prev" href="hardware.html"><span class="dir">Previous</span><span class="pg">04 &#183; Fitting the chip</span></a>
+  <a class="next" href="search.html"><span class="dir">Next</span><span class="pg">06 &#183; The search</span></a>
 </nav>
 <footer class="site-foot">
-  <span>An interactive explainer for <a href="https://github.com/purujain2006/configurable-snn-classifier">configurable-snn-classifier</a></span>
-  <span>All demo math is ported from <code>Practice2.py</code> and verified against it.</span>
+  <span>Documentation for <a href="https://github.com/purujain2006/configurable-snn-classifier">configurable-snn-classifier</a></span>
+  <span>Interactive demonstrations use the same arithmetic as <code>Practice2.py</code>, verified against it.</span>
 </footer>
 
 <script src="assets/snn.js"></script>
 <script src="assets/site.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-python.min.js"></script>
-<script>
-(function () {
-  "use strict";
-  const $ = id => document.getElementById(id);
-
-  /* ---------- 5.2 binarize demo ---------- */
-  (function binarize() {
-    const cv = $("bz-canvas");
-    if (!cv) return;
-    const SRC = 16, DST = 8;
-    let grid = new Array(SRC * SRC).fill(0);
-    let mode = "or";
-    let geom = null;
-
-    function randomize() {
-      const rand = SNN.rng(Math.floor(Math.random() * 1e9));
-      grid = grid.map(() => rand() < 0.09 ? 1 : 0);
-      draw();
-    }
-    // bilinear 2x downsample of a grid == average of each 2x2 block for aligned corners=False halving
-    function downAvg() {
-      const out = new Array(DST * DST).fill(0);
-      for (let y = 0; y < DST; y++) for (let x = 0; x < DST; x++) {
-        let s = 0;
-        for (let dy = 0; dy < 2; dy++) for (let dx = 0; dx < 2; dx++)
-          s += grid[(y * 2 + dy) * SRC + (x * 2 + dx)];
-        out[y * DST + x] = s / 4;
-      }
-      return out;
-    }
-
-    function draw() {
-      const r = window.Site.setupCanvas(cv, 305);
-      const ctx = r.ctx, W = r.w, H = r.h;
-      ctx.fillStyle = window.Site.PALETTE.bg; ctx.fillRect(0, 0, W, H);
-      const cell = Math.min((W / 2 - 70) / SRC, (H - 60) / SRC);
-      const dcell = cell * 2;
-      const x0 = 24, y0 = 44;
-      const x1 = W / 2 + 40;
-      ctx.font = "600 13.5px 'JetBrains Mono', monospace";
-      ctx.fillStyle = "#cfcbc4"; ctx.textAlign = "left"; ctx.textBaseline = "top";
-      ctx.fillText("input events 16×16 (click to paint)", x0, 16);
-      ctx.fillText(mode === "or" ? "output 8×8 — bilinear > 0 (the code)" : "output 8×8 — plain average", x1, 16);
-      // src grid
-      for (let y = 0; y < SRC; y++) for (let x = 0; x < SRC; x++) {
-        ctx.fillStyle = grid[y * SRC + x] ? "#e0a94f" : "#111110";
-        ctx.fillRect(x0 + x * cell, y0 + y * cell, cell - 1, cell - 1);
-      }
-      // dst grid
-      const avg = downAvg();
-      let active = 0;
-      for (let y = 0; y < DST; y++) for (let x = 0; x < DST; x++) {
-        const a = avg[y * DST + x];
-        if (mode === "or") {
-          const v = a > 0 ? 1 : 0;
-          if (v) active++;
-          ctx.fillStyle = v ? "#e0a94f" : "#111110";
-        } else {
-          if (a > 0) active++;
-          const g = Math.round(a * 255);
-          ctx.fillStyle = a > 0 ? `rgba(224,169,79,${0.15 + a * 0.85})` : "#111110";
-        }
-        ctx.fillRect(x1 + x * dcell, y0 + y * dcell, dcell - 2, dcell - 2);
-        if (mode === "avg" && a > 0 && a < 1) {
-          ctx.fillStyle = "#050505"; ctx.font = "11.5px 'JetBrains Mono', monospace";
-          ctx.textAlign = "center"; ctx.textBaseline = "middle";
-          ctx.fillText(a.toFixed(2), x1 + x * dcell + dcell / 2, y0 + y * dcell + dcell / 2);
-          ctx.font = "600 13.5px 'JetBrains Mono', monospace"; ctx.textAlign = "left"; ctx.textBaseline = "top";
-        }
-      }
-      geom = { x0, y0, cell };
-      const nIn = grid.reduce((a, b) => a + b, 0);
-      const nOut = mode === "or" ? avg.filter(a => a > 0).length : avg.filter(a => a > 0).length;
-      $("bz-in").textContent = nIn;
-      $("bz-ind").textContent = Math.round(nIn / (SRC * SRC) * 100) + "% density";
-      $("bz-out").textContent = mode === "or" ? avg.filter(a => a > 0).length : "—";
-      $("bz-outd").textContent = mode === "or"
-        ? Math.round(avg.filter(a => a > 0).length / (DST * DST) * 100) + "% density (rises!)"
-        : "fractional grays — not spikes";
-      $("bz-lost").textContent = mode === "or" ? 0 : "n/a";
-    }
-
-    cv.addEventListener("click", e => {
-      if (!geom) return;
-      const rect = cv.getBoundingClientRect();
-      const mx = e.clientX - rect.left, my = e.clientY - rect.top;
-      const gx = Math.floor((mx - geom.x0) / geom.cell), gy = Math.floor((my - geom.y0) / geom.cell);
-      if (gx >= 0 && gx < SRC && gy >= 0 && gy < SRC) {
-        grid[gy * SRC + gx] ^= 1;
-        draw();
-      }
-    });
-    $("bz-rand").addEventListener("click", randomize);
-    $("bz-clear").addEventListener("click", () => { grid.fill(0); draw(); });
-    document.querySelectorAll("#bz-mode button").forEach(b => b.addEventListener("click", () => {
-      document.querySelectorAll("#bz-mode button").forEach(x => x.classList.remove("on"));
-      b.classList.add("on"); mode = b.dataset.m; draw();
-    }));
-    window.addEventListener("resize", draw);
-    randomize();
-  })();
-
-  /* ---------- 5.4 flush pipeline ---------- */
-  (function flush() {
-    const cv = $("fl-canvas");
-    if (!cv) return;
-    const T = 8;
-    let playT = -1, timer = null;
-    const COLORS = ["#cf6b58", "#c98a4e", "#e0a94f", "#a3a878", "#9bb17a", "#7f9c8b", "#ece7de", "#cf8763"];
-
-    function draw() {
-      const L = +$("fl-l").value;
-      const doFlush = $("fl-flush").checked;
-      const totalSteps = T + (doFlush ? L : 0);
-      const rows = L + 2; // input, L layers, output accumulator
-      const r = window.Site.setupCanvas(cv, 295);
-      const ctx = r.ctx, W = r.w, H = r.h;
-      ctx.fillStyle = window.Site.PALETTE.bg; ctx.fillRect(0, 0, W, H);
-      const padL = 84, padT = 26;
-      const cw = Math.min((W - padL - 14) / (T + 6), 40);
-      const rh = (H - padT - 14) / rows;
-      ctx.font = "12.5px 'JetBrains Mono', monospace";
-
-      // row labels
-      const labels = ["input frame"].concat(Array.from({ length: L }, (_, i) => "layer " + i)).concat(["output count"]);
-      ctx.fillStyle = "#a7a29a"; ctx.textAlign = "right"; ctx.textBaseline = "middle";
-      labels.forEach((lb, i) => ctx.fillText(lb, padL - 8, padT + i * rh + rh / 2));
-
-      let reached = 0;
-      for (let t = 0; t < totalSteps; t++) {
-        const x = padL + t * cw;
-        const inFlush = t >= T;
-        // column header
-        ctx.fillStyle = inFlush ? "#e0a94f" : "#7d7871";
-        ctx.textAlign = "center"; ctx.textBaseline = "bottom";
-        ctx.fillText(inFlush ? "∅" : "t" + t, x + cw / 2, padT - 4);
-        const visible = playT < 0 || t <= playT;
-        for (let rI = 0; rI < rows; rI++) {
-          const y = padT + rI * rh;
-          // stage rI at time t carries frame (t - rI) if 0 <= t-rI < T
-          let frame = t - rI;
-          let fill = "#111110";
-          if (rI === 0) { frame = t; fill = (t < T) ? COLORS[t % COLORS.length] : "#111110"; }
-          else if (rI <= L) { fill = (frame >= 0 && frame < T) ? COLORS[frame % COLORS.length] : "#111110"; }
-          else { // output row: frame arriving = t - L
-            const fa = t - L;
-            fill = (fa >= 0 && fa < T) ? COLORS[fa % COLORS.length] : "#111110";
-            if (fa >= 0 && fa < T && visible) reached = Math.max(reached, fa + 1);
-          }
-          ctx.globalAlpha = visible ? 1 : 0.13;
-          ctx.fillStyle = fill;
-          ctx.fillRect(x + 1, y + 2, cw - 3, rh - 5);
-          ctx.globalAlpha = 1;
-        }
-        if (inFlush) {
-          ctx.strokeStyle = "#e0a94f40";
-          ctx.strokeRect(x, padT, cw, rows * rh);
-        }
-      }
-      // flush divider
-      ctx.strokeStyle = "#e0a94f"; ctx.setLineDash([4, 4]);
-      ctx.beginPath(); ctx.moveTo(padL + T * cw, padT - 14); ctx.lineTo(padL + T * cw, padT + rows * rh); ctx.stroke();
-      ctx.setLineDash([]);
-      if (doFlush) {
-        ctx.fillStyle = "#e0a94f"; ctx.textAlign = "left"; ctx.textBaseline = "bottom";
-        ctx.fillText("← input ends · flush →", padL + T * cw + 4, padT - 14);
-      }
-
-      const total = playT < 0 ? totalSteps : Math.min(playT + 1, totalSteps);
-      const fullReach = doFlush ? T : Math.max(0, T - L);
-      const shown = playT < 0 ? fullReach : Math.min(reached, fullReach);
-      $("fl-fs").textContent = doFlush ? L : 0;
-      $("fl-l-out").textContent = L;
-      $("fl-reach").textContent = `${shown} / ${T}`;
-      const lost = Math.round((T - fullReach) / T * 100);
-      $("fl-lost").textContent = lost + "%";
-      $("fl-lost").className = "val " + (lost > 0 ? "bad" : "good");
-    }
-
-    $("fl-play").addEventListener("click", () => {
-      if (timer) clearInterval(timer);
-      playT = -1;
-      const L = +$("fl-l").value;
-      const totalSteps = T + ($("fl-flush").checked ? L : 0);
-      timer = setInterval(() => {
-        playT++;
-        if (playT >= totalSteps) { clearInterval(timer); timer = null; playT = -1; }
-        draw();
-      }, 330);
-    });
-    ["fl-l"].forEach(id => $(id).addEventListener("input", () => { playT = -1; draw(); }));
-    $("fl-flush").addEventListener("change", () => { playT = -1; draw(); });
-    window.addEventListener("resize", draw);
-    draw();
-  })();
-
-  /* ---------- 5.5 LR schedules ---------- */
-  (function lrviz() {
-    const cv = $("lr-canvas");
-    if (!cv) return;
-    function schedule(kind, epochs, warmup, lr0) {
-      const ys = [];
-      const main = epochs - (kind === "onecycle" ? 0 : warmup);
-      for (let e = 0; e < epochs; e++) {
-        let lr;
-        if (kind === "onecycle") {
-          const pct = e / Math.max(1, epochs - 1);
-          if (pct < 0.3) lr = lr0 / 25 + (lr0 - lr0 / 25) * (pct / 0.3);
-          else lr = lr0 * (0.5 * (1 + Math.cos(Math.PI * (pct - 0.3) / 0.7)));
-        } else if (e < warmup && kind !== "none") {
-          lr = lr0 * (0.1 + 0.9 * (e / Math.max(1, warmup)));
-        } else {
-          const t = e - warmup;
-          if (kind === "cosine") lr = lr0 * 0.5 * (1 + Math.cos(Math.PI * t / Math.max(1, main)));
-          else if (kind === "step") lr = lr0 * Math.pow(0.2, Math.floor(e / Math.max(1, Math.floor(epochs / 3))));
-          else lr = lr0;
-        }
-        ys.push(lr);
-      }
-      return ys;
-    }
-    function draw() {
-      const kind = $("lr-kind").value;
-      const epochs = +$("lr-ep").value;
-      const warmup = +$("lr-wu").value;
-      $("lr-ep-out").textContent = epochs;
-      $("lr-wu-out").textContent = warmup;
-      const lr0 = 0.003;
-      const ys = schedule(kind, epochs, warmup, lr0);
-      const xs = ys.map((_, i) => i);
-      window.Site.linePlot(cv, [
-        { xs, ys, color: "#ece7de", width: 2.2, label: kind + (warmup && kind !== "onecycle" && kind !== "none" ? ` + ${warmup} warmup` : ""), dots: epochs <= 40, dotR: 2 }
-      ], { height: 275, xlabel: "epoch", ylabel: "learning rate", ymin: 0, ymax: lr0 * 1.12 });
-    }
-    ["lr-kind"].forEach(id => $(id).addEventListener("change", draw));
-    ["lr-ep", "lr-wu"].forEach(id => $(id).addEventListener("input", draw));
-    window.addEventListener("resize", draw);
-    draw();
-  })();
-})();
-</script>
+<script src="assets/demo-training.js"></script>
 </body>
 </html>

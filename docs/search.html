@@ -3,8 +3,8 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>The Hyperparameter Search — Configurable SNN Classifier, Explained</title>
-<meta name="description" content="Optuna + Ray Tune + ASHA, the three-tier evaluation funnel, and the crash-proof results pipeline — interactively.">
+<title>The Search — Configurable SNN Classifier</title>
+<meta name="description" content="Rejecting infeasible configurations for free, stopping weak trials early, sampling a conditional space, and selecting on converted accuracy.">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' fill='%23000'/><path d='M3 22h5l3-13 4 19 3-11h4l2 5h5' fill='none' stroke='%23e0a94f' stroke-width='2.4' stroke-linejoin='round'/></svg>">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -15,13 +15,12 @@
 
 <header class="hero">
   <div class="hero-inner">
-    <p class="kicker">Chapter 6 · The Search</p>
-    <h1>Hundreds of experiments,<br>run by machines, judged fairly</h1>
+    <p class="kicker">Page 6</p>
+    <h1>The search</h1>
     <p class="lede">
-      The design space has millions of corners. <strong>Optuna</strong> proposes,
-      <strong>Ray Tune</strong> orchestrates, <strong>ASHA</strong> executes the stragglers — and
-      the score being optimized is the accuracy <em>after</em> folding, quantization, and hardware
-      neuron dynamics. Nothing else counts.
+      Pages 2 to 5 built one configurable network and a way to measure what it achieves after
+      conversion. This page covers the process that searches the configuration space on a fixed
+      hardware budget, and the metric that decides which configuration wins.
     </p>
   </div>
 </header>
@@ -29,66 +28,125 @@
 <main class="with-toc">
 <div class="wrap">
 
-<section id="cast" class="reveal">
-  <h2><span class="sec-num">6.1</span>The cast of characters</h2>
-  <ul>
-    <li><strong>Optuna</strong> — the strategist. A Bayesian-ish optimizer (TPE): it looks at every finished trial's (config, score) pair and proposes the next config, spending more samples near what's been working, while still exploring.</li>
-    <li><strong>Ray Tune</strong> — the factory manager. Launches each proposed config as its own <em>process</em> (one CPU + one GPU per trial), on this machine (<code>--compute local</code>) or across a cluster (<code>--compute cluster</code>), collects the metric reports each trial emits, checkpoints the search itself.</li>
-    <li><strong>ASHA</strong> — the executioner. Watches every trial's per-epoch accuracy curve and kills trials that are clearly behind at scheduled checkpoints ("rungs"), freeing their GPU for fresh configs. The file quotes ~2.6× throughput.</li>
-    <li><strong>The seeds</strong> — three known-good configs (<code>SEED_CONFIGS</code>) evaluated <em>first</em>, "so the search branches out from the winners instead of rediscovering them." With an honest caveat attached: their old scores came from the old float objective, so they're kept as <em>geometry</em> priors whose numbers "will not reproduce."</li>
-  </ul>
+<section id="tools" class="reveal">
+  <h2><span class="sec-num">6.1</span>The components</h2>
+  <p>
+    Three libraries divide the work, and the file wires them together with settings that matter
+    enough to be defended in comments.
+  </p>
+  <dl class="kv">
+    <dt>Optuna</dt><dd>Proposes configurations. It models the relationship between past configurations and their scores, and samples new ones in promising regions while continuing to explore.</dd>
+    <dt>Ray Tune</dt><dd>Runs each proposed configuration as a separate process with one CPU and one GPU, collects the metrics each trial reports, and checkpoints the search itself. It runs on one machine or across a cluster.</dd>
+    <dt>ASHA</dt><dd>Stops trials whose accuracy curve falls behind at fixed checkpoints, which frees hardware for new proposals.</dd>
+  </dl>
+  <p>
+    The search also begins from three known configurations rather than from nothing. Their
+    geometry, two or three layers of 32 channels with kernel 5 or 7 at 64&#215;64 input, came from an
+    earlier study. The comment attached to them notes that their recorded accuracies were measured
+    under the older floating-point objective and will not reproduce, so they serve as starting
+    points for the sampler rather than as claims.
+  </p>
 </section>
 
 <section id="funnel" class="reveal">
-  <h2><span class="sec-num">6.2</span>Three tiers: every trial earns its GPU time</h2>
-  <p>The heart of the search is <code>trainable(config)</code> — the function each Ray process runs. It's a funnel with three progressively more expensive gates:</p>
-  <ol class="steps">
-    <li><span class="s-title">Tier 1 — feasibility. Cost: microseconds.</span> The chapter-4 wiring check, before touching a GPU. Infeasible → report score 0 and exit immediately. (Earlier versions <em>crashed</em> on impossible configs — a collapsed feature map threw an exception mid-build; now the planner catches it as data, not disaster.)</li>
-    <li><span class="s-title">Tier 2 — float training. Cost: minutes-to-hours. Purpose: a pruning signal, NOT the score.</span> The warmup + on-grid phases from chapter 5, reporting <code>float_val_accuracy</code> every epoch. This dense trajectory exists so ASHA has something continuous to judge trials by.</li>
-    <li><span class="s-title">Tier 3 — deployment. The only report that counts.</span> Fold, quantize, export, evaluate: <code>hw_val_accuracy</code>. If <code>deployment_report</code> says undeployable (a folded threshold ≤ 0), the score is 0 — "regardless of how good its float accuracy looked."</li>
-    </ol>
-  <div class="callout key">
-    <div>
-      <span class="callout-title">The subtle trick: one name, two meanings — on purpose</span>
-      <ul>
-        <li><code>float_val_accuracy</code> — the per-epoch float curve. <strong>ASHA prunes on this.</strong></li>
-        <li><code>val_accuracy</code> — float during training, but the <em>hardware</em> number in the final report. <strong>Optuna selects on this with scope="last"</strong>, so it only ever learns the hardware number.</li>
-        <li>Why the split: a scheduler watching <code>val_accuracy</code> would compare float epochs against hardware finals — two different quantities.</li>
-        <li>The comments defend this wiring line-by-line against future "simplification."</li>
-      </ul>
+  <h2><span class="sec-num">6.2</span>Three tiers of evaluation</h2>
+
+  <div class="motiv">
+    <div class="m-row">
+      <span class="m-label">Observation</span>
+      <p>
+        Configurations differ enormously in how much they cost to evaluate. Section 4.1 showed that
+        a large fraction violate the routing limits, which arithmetic detects in microseconds.
+        Among the rest, many are clearly weak within a few epochs.
+      </p>
+    </div>
+    <div class="m-row">
+      <span class="m-label">Consequence</span>
+      <p>
+        Spending equal time on every proposal wastes most of the budget. Evaluation should proceed
+        in stages, with each stage cheap enough to justify the population that reaches it.
+      </p>
+    </div>
+    <div class="m-row code">
+      <span class="m-label">In code</span>
+      <p>
+        <code>trainable(config)</code> runs three tiers: the feasibility check, then floating-point
+        training that reports each epoch, then the conversion and its measurement. An infeasible
+        configuration reports a score of zero and returns before any GPU work.
+      </p>
     </div>
   </div>
-  <div class="callout warn">
-    <div>
-      <span class="callout-title">The best bug story in the file: <code>max_t = epochs + 1</code></span>
-      <p>ASHA stops any trial that has reported <code>max_t</code> times. Every <code>tune.report()</code>
-      increments the counter — and the deployment result is one <em>extra</em> report after the last
-      epoch. Set <code>max_t = epochs</code> and ASHA kills each trial at its final epoch, the
-      deploy report never lands, <code>hw_val_accuracy</code> is NaN for every trial, "and selection
-      quietly falls back to float accuracy — i.e. exactly the behaviour this whole rework exists to
-      remove." The symptom is silent. The fix is <code>+ 1</code>.</p>
+
+  <ol class="steps">
+    <li><span class="s-title">Feasibility, microseconds</span> The check from section 4.1. Earlier versions raised an exception when a feature map collapsed; the planner now returns that as data, so the trial records a score instead of crashing.</li>
+    <li><span class="s-title">Training, minutes to hours</span> The schedule from section 5.6, reporting validation accuracy every epoch. These reports exist to support early stopping and are not the objective.</li>
+    <li><span class="s-title">Conversion, one measurement</span> Fold, quantise, export and evaluate. A configuration that <code>deployment_report</code> marks undeployable scores zero regardless of its training accuracy.</li>
+  </ol>
+</section>
+
+<section id="metrics" class="reveal">
+  <h2><span class="sec-num">6.3</span>Two metrics with different jobs</h2>
+
+  <div class="motiv">
+    <div class="m-row">
+      <span class="m-label">Observation</span>
+      <p>
+        Early stopping needs a value reported every epoch, which only floating-point training
+        provides. Selection needs the converted accuracy, which exists once per trial. A single
+        metric cannot serve both without comparing quantities that are not alike.
+      </p>
     </div>
+    <div class="m-row">
+      <span class="m-label">Consequence</span>
+      <p>
+        The two roles need separate keys, and the scheduler and the sampler must be pointed at
+        different ones. The final report of a trial has to be the converted measurement, so that a
+        sampler reading the last report reads the right number.
+      </p>
+    </div>
+    <div class="m-row code">
+      <span class="m-label">In code</span>
+      <p>
+        ASHA prunes on <code>float_val_accuracy</code>, reported each epoch. Optuna selects on
+        <code>val_accuracy</code> with <code>scope="last"</code>, and the last report of every trial
+        carries the converted figure. Ray's shared configuration is left without a metric, because
+        the searcher and the scheduler deliberately use different ones.
+      </p>
+    </div>
+  </div>
+
+  <div class="callout warn">
+    <span class="callout-title">A failure this wiring caused</span>
+    <p>
+      ASHA stops a trial once it has reported <code>max_t</code> times, and every report counts.
+      The conversion result is one extra report after the final epoch. With
+      <code>max_t = epochs</code> the trial was stopped on its last epoch and that extra report
+      never arrived, so <code>hw_val_accuracy</code> was missing for every trial and selection fell
+      back to floating-point accuracy. Nothing failed visibly. The setting is now
+      <code>max_t = epochs + 1</code>.
+    </p>
   </div>
 </section>
 
 <section id="asha" class="reveal">
-  <h2><span class="sec-num">6.3</span>ASHA, hands-on</h2>
-  <p class="lead">The rules:</p>
-  <ul>
-    <li>Every trial is guaranteed <code>grace_period</code> epochs (default 8).</li>
-    <li>Rungs sit at grace × rf<sup>k</sup> epochs (rf = <code>reduction_factor</code>, default 3).</li>
-    <li>At each rung, a trial survives only if it's in the <strong>top 1/rf</strong> of trials that reached it.</li>
-  </ul>
-  <p>Why grace must stay &gt; 1 (two design notes from the comments):</p>
-  <ul>
-    <li>Cosine/onecycle schedules "do their work late — early judging favours flat-LR configs."</li>
-    <li>Instantly-rejected infeasible trials (one report at epoch 0) must never form a rung, or they'd drag the promotion cutoff down.</li>
-  </ul>
+  <h2><span class="sec-num">6.4</span>Early stopping</h2>
+  <p>
+    Every trial is guaranteed <code>grace_period</code> epochs, eight by default. After that, at
+    checkpoints placed at grace &#215; rf<sup>k</sup> epochs, a trial continues only if it ranks in
+    the top 1/rf of the trials that reached the same checkpoint.
+  </p>
+  <p>
+    The grace period is kept above one for two reasons recorded in the comments. Section 5.5 noted
+    that cosine and onecycle schedules improve late, so judging too early favours configurations
+    with a flat learning rate. Infeasible trials also report once at epoch zero, and a grace period
+    above one keeps them from forming a checkpoint and lowering the bar for everything else.
+  </p>
+
   <div class="demo">
     <div class="demo-head">
       <span class="demo-tag">INTERACTIVE</span>
-      <span class="demo-title">ASHA simulator — 24 trials enter, few finish</span>
-      <span class="demo-sub">Simulated learning curves (saturating + noise, late-blooming schedules included). At each dashed rung, the bottom (1 − 1/rf) of arrivals are killed (curves go gray). Numbers update live.</span>
+      <span class="demo-title">Early stopping on a cohort of 24 trials</span>
+      <span class="demo-sub">Simulated learning curves, including some that improve late. At each dashed checkpoint the lower-ranked trials stop and their curves grey out.</span>
     </div>
     <div class="demo-body">
       <div class="controls">
@@ -99,116 +157,149 @@
       </div>
       <canvas id="as-canvas" height="280"></canvas>
       <div class="stats">
-        <div class="stat"><div class="k">rungs (cull points)</div><div class="val" id="as-rungs" style="font-size:15px;">8, 24</div></div>
-        <div class="stat"><div class="k">trials finishing</div><div class="val" id="as-fin">—</div></div>
-        <div class="stat"><div class="k">GPU-epochs spent</div><div class="val acc" id="as-cost">—</div><div class="sub" id="as-save">vs. — without ASHA</div></div>
+        <div class="stat"><div class="k">checkpoints</div><div class="val" id="as-rungs" style="font-size:18px;">8, 24</div></div>
+        <div class="stat"><div class="k">trials completing</div><div class="val" id="as-fin">&#8212;</div></div>
+        <div class="stat"><div class="k">GPU-epochs spent</div><div class="val acc" id="as-cost">&#8212;</div><div class="sub" id="as-save"></div></div>
       </div>
     </div>
-    <div class="demo-note">Set grace period to 1 and watch late bloomers get murdered before their schedule kicks in — the exact failure the default guards against. The CLI exposes all three knobs (<code>--grace-period, --reduction-factor, --scheduler none</code> to disable entirely).</div>
+    <div class="demo-note">
+      Setting the grace period to 1 stops the late-improving trials before their schedule has taken
+      effect, which is the behaviour the default guards against.
+    </div>
   </div>
 </section>
 
 <section id="dbr" class="reveal">
-  <h2><span class="sec-num">6.4</span>Define-by-run: a search space with an if-statement in it</h2>
-  <p class="lead">Most tools take a flat dictionary of ranges. This space is <em>conditional</em>:</p>
-  <ul>
-    <li>A 4-layer network has a kernel size for layer 3. A 2-layer one doesn't.</li>
-    <li>Flat-space failure mode: Optuna's model sees a <code>k_3</code> value on <em>every</em> trial — including ones where it had no effect — and learns nonsense correlations.</li>
-    <li>The fix — <strong>define-by-run</strong>: the space is a <em>function</em> executed per trial, calling <code>trial.suggest_*</code> only for parameters on this trial's path, "so Optuna's surrogate never sees a dimension that had no effect on that trial's score."</li>
-  </ul>
+  <h2><span class="sec-num">6.5</span>A conditional search space</h2>
+
+  <div class="motiv">
+    <div class="m-row">
+      <span class="m-label">Observation</span>
+      <p>
+        Some parameters exist only for some configurations. A four-layer network has a kernel size
+        for its fourth layer; a two-layer network does not. A flat parameter dictionary would
+        supply a value for that parameter on every trial, including those where it had no effect.
+      </p>
+    </div>
+    <div class="m-row">
+      <span class="m-label">Consequence</span>
+      <p>
+        The sampler would then model a relationship between a parameter and a score in trials where
+        the parameter did nothing, which corrupts its estimate. Parameters need to be sampled only
+        along the path a trial actually takes.
+      </p>
+    </div>
+    <div class="m-row code">
+      <span class="m-label">In code</span>
+      <p>
+        The space is a function executed per trial, calling <code>trial.suggest_*</code> only for
+        parameters that apply. It is defined as <code>DefineByRunSpace</code>, a class rather than a
+        nested function, because Ray checkpoints the sampler by pickling it and a nested function
+        cannot be pickled. The file pickles the space once at startup to verify this before any GPU
+        time is spent.
+      </p>
+    </div>
+  </div>
+
   <div class="demo">
     <div class="demo-head">
       <span class="demo-tag">INTERACTIVE</span>
-      <span class="demo-title">Walk the space — watch dimensions appear and vanish</span>
-      <span class="demo-sub">These are the real branches of <code>DefineByRunSpace.__call__</code>. Toggle the structural choices; the parameter list is what Optuna would sample for that trial.</span>
+      <span class="demo-title">Parameters sampled along one path</span>
+      <span class="demo-sub">The branches of <code>DefineByRunSpace.__call__</code>. Changing a structural choice changes which parameters exist for that trial.</span>
     </div>
     <div class="demo-body">
       <div class="controls">
-        <div class="ctl"><label>search space</label><div class="seg" id="db-space"><button class="on" data-v="per_layer">per_layer</button><button data-v="uniform">uniform</button></div></div>
+        <div class="ctl"><label>space</label><div class="seg" id="db-space"><button class="on" data-v="per_layer">per layer</button><button data-v="uniform">uniform</button></div></div>
         <div class="ctl"><label>depth <output id="db-d-out">3</output></label><input type="range" id="db-d" min="2" max="4" value="3"></div>
-        <div class="ctl"><label>fc_layers <output id="db-fc-out">0</output></label><input type="range" id="db-fc" min="0" max="1" value="0"></div>
-        <div class="ctl"><label>norm</label><div class="seg" id="db-norm"><button class="on" data-v="bn">bn</button><button data-v="tdbn">tdbn</button></div></div>
-        <div class="ctl"><label>optimizer</label><div class="seg" id="db-opt"><button class="on" data-v="adam">adam</button><button data-v="adamw">adamw</button></div></div>
+        <div class="ctl"><label>hidden layers <output id="db-fc-out">0</output></label><input type="range" id="db-fc" min="0" max="1" value="0"></div>
+        <div class="ctl"><label>normalisation</label><div class="seg" id="db-norm"><button class="on" data-v="bn">bn</button><button data-v="tdbn">tdbn</button></div></div>
+        <div class="ctl"><label>optimiser</label><div class="seg" id="db-opt"><button class="on" data-v="adam">adam</button><button data-v="adamw">adamw</button></div></div>
         <div class="ctl"><label>scheduler</label><div class="seg" id="db-sch"><button class="on" data-v="cosine">cosine</button><button data-v="onecycle">onecycle</button><button data-v="step">step</button><button data-v="none">none</button></div></div>
       </div>
       <div class="pill-row" id="db-params"></div>
       <div class="stats">
-        <div class="stat"><div class="k">dimensions sampled this trial</div><div class="val acc" id="db-count">—</div><div class="sub">what Optuna's model actually sees</div></div>
+        <div class="stat"><div class="k">parameters sampled this trial</div><div class="val acc" id="db-count">&#8212;</div></div>
       </div>
     </div>
-    <div class="demo-note">Implementation war story: this space is a <em>class instance</em>, not a nested function — because Ray periodically pickles the searcher to checkpoint it, and Python can't pickle closures. The code even round-trips the space through pickle <em>before</em> starting, so a 30-hour search can't die at its first checkpoint. (It also shortens Ray's trial folder names, which otherwise blow past Windows' 260-character path limit.)</div>
   </div>
 </section>
 
 <section id="narrow" class="reveal">
-  <h2><span class="sec-num">6.5</span>A search space with citations: what 65 trials taught it</h2>
+  <h2><span class="sec-num">6.6</span>What the first study changed</h2>
   <p>
-    The ranges aren't guesses — the space was <em>narrowed by statistics</em> from a previous
-    65-trial study, and every narrowing is annotated with its evidence in the comments. A tour of
-    the receipts:
+    The sampled ranges were narrowed using results from an earlier 65-trial study, and each
+    narrowing carries its evidence in a comment.
   </p>
   <div class="tbl-wrap">
     <table class="tbl">
-      <thead><tr><th>Knob</th><th>Now</th><th>The evidence in the comments</th></tr></thead>
+      <thead><tr><th>Parameter</th><th>Now</th><th>Reason recorded in the file</th></tr></thead>
       <tbody>
-        <tr><td class="layer-name">channels</td><td class="num">{32, 64}</td><td>128/256 were "the dominant INFEASIBILITY driver (chi-square p=6e-4, Cramér's V=0.59: 32ch 88% feasible, 128ch 14%) and never beat 32/64 on accuracy. Dropped."</td></tr>
-        <tr><td class="layer-name">kernel</td><td class="num">{5, 7}</td><td>"every top-10 model used k5 or k7; k3 dropped."</td></tr>
-        <tr><td class="layer-name">depth</td><td class="num">2–4</td><td>"winners are depth 2-3 (Kruskal-Wallis favoured shallow, q=0.08); depth 5 only ever reached 0.77."</td></tr>
-        <tr><td class="layer-name">hidden FC layers</td><td class="num">0–1</td><td>"every top-10 model had 0 hidden FC (q=0.04), so 2-3 hidden layers are pure waste."</td></tr>
-        <tr><td class="layer-name">norm</td><td class="num">{bn, tdbn}</td><td>"norm=none is GONE: it produced every dead (below-chance) network (p=0.0015; learned-vs-dead odds ratio 21.8)." Keeping bn vs tdbn makes them a clean A/B on the good backbone.</td></tr>
-        <tr><td class="layer-name">resize_to</td><td class="num">{32, 64}</td><td>Native 128 "is omitted: 128·128·2 = 32,768 axons is over the 16,383 limit, so it could never pass feasibility."</td></tr>
-        <tr><td class="layer-name">lr</td><td class="num">5e-4 – 5e-3 (log)</td><td>"positive correlation (Spearman q=0.04); winners are 1.6e-3..3.5e-3, so drop the under-converging low end."</td></tr>
-        <tr><td class="layer-name">τ (leak)</td><td class="num">{2,3,4,6,8,16,32,63}</td><td><strong>Re-opened</strong>, not narrowed: the old float τ∈[1.5,2.5] finding (ρ=−0.60) was "a correlation with a coordinate the hardware cannot represent — it does not carry over."</td></tr>
-        <tr><td class="layer-name">weight decay</td><td class="num">floors raised</td><td>"the main lever on whether FOLDED weights fit inside [−1,1] … old floors (1e-8) were fitted against a float objective that could not see clipping."</td></tr>
+        <tr><td class="layer-name">channels</td><td class="num">32, 64</td><td>Wider layers drove infeasibility (chi-square p=6e-4, Cramér's V=0.59) and never scored better.</td></tr>
+        <tr><td class="layer-name">kernel</td><td class="num">5, 7</td><td>Every configuration in the top ten used one of these.</td></tr>
+        <tr><td class="layer-name">depth</td><td class="num">2 to 4</td><td>Shallow networks were favoured (Kruskal-Wallis q=0.08). Depth 5 never exceeded 0.77.</td></tr>
+        <tr><td class="layer-name">hidden layers</td><td class="num">0 or 1</td><td>Every configuration in the top ten used none (q=0.04).</td></tr>
+        <tr><td class="layer-name">normalisation</td><td class="num">bn, tdbn</td><td>Removing normalisation produced every network that failed to learn (p=0.0015).</td></tr>
+        <tr><td class="layer-name">resize_to</td><td class="num">32, 64</td><td>Native resolution needs 32,768 axons against a limit of 16,383, so it can never pass.</td></tr>
+        <tr><td class="layer-name">learning rate</td><td class="num">5e-4 to 5e-3</td><td>Positive correlation with accuracy (Spearman q=0.04); the lower end under-converged.</td></tr>
+        <tr><td class="layer-name">&#964;</td><td class="num">reopened</td><td>The previous result described continuous values that all deploy as the same integer, so it does not transfer.</td></tr>
+        <tr><td class="layer-name">weight decay</td><td class="num">floors raised</td><td>Fitted under an objective that could not observe weight clipping, which section 4.3 showed it controls.</td></tr>
       </tbody>
     </table>
   </div>
-  <div class="callout key">
-    <div>
-      <span class="callout-title">Two kinds of decision — spot the difference</span>
-      <ul>
-        <li><strong>Narrowed:</strong> knobs whose evidence transfers to the new objective (geometry: depth, kernels, channels).</li>
-        <li><strong>Re-opened:</strong> knobs whose evidence was an artifact of measuring the wrong thing (τ, weight decay).</li>
-        <li>Distinguishing them = learning from data vs. overfitting to a broken metric.</li>
-      </ul>
-    </div>
-  </div>
+  <p>
+    Two of these entries are reopenings rather than narrowings. A result that describes a
+    coordinate the hardware cannot represent, or that was measured under an objective now known to
+    be wrong, carries no information about the current objective.
+  </p>
 </section>
 
 <section id="results" class="reveal">
-  <h2><span class="sec-num">6.6</span>Crash-proof bookkeeping: the results directory</h2>
-  <p class="lead">Ray's own export only materializes <em>after</em> the search returns — "a crash or Ctrl-C 30 hours in leaves you nothing." <code>ResultsWriter</code> fixes that:</p>
-  <ul>
-    <li><strong>Streamed:</strong> every result hits disk the moment it happens — append a line, flush, <code>fsync</code>. Files are complete between writes; watchable live with <code>tail</code>.</li>
-    <li><strong>Atomic:</strong> multi-line files write to a temp name, then rename — never a half-written <code>best.json</code>.</li>
-    <li><strong>Single writer:</strong> Ray trials are separate processes, so all writing happens in one driver-side callback. No interleaved garbage.</li>
-  </ul>
+  <h2><span class="sec-num">6.7</span>Recording results as they happen</h2>
+
+  <div class="motiv">
+    <div class="m-row">
+      <span class="m-label">Observation</span>
+      <p>
+        Ray writes its consolidated export after the search returns. A search that runs for thirty
+        hours and is then interrupted leaves nothing behind.
+      </p>
+    </div>
+    <div class="m-row">
+      <span class="m-label">Consequence</span>
+      <p>
+        Results have to reach disk as they are produced, in a form that stays valid between writes.
+        Trials run in separate processes, so writing from inside a trial would interleave output
+        from several at once.
+      </p>
+    </div>
+    <div class="m-row code">
+      <span class="m-label">In code</span>
+      <p>
+        <code>ResultsWriter</code> appends one line per record and calls <code>fsync</code>, so the
+        file can be followed live. Multi-line files are written to a temporary name and renamed
+        atomically. All writing happens in a single callback in the driver process.
+      </p>
+    </div>
+  </div>
+
   <div class="tbl-wrap">
     <table class="tbl">
-      <thead><tr><th>File</th><th>Updated</th><th>Contains</th></tr></thead>
+      <thead><tr><th>File</th><th>Written</th><th>Contents</th></tr></thead>
       <tbody>
-        <tr><td class="layer-name">trial_progress.jsonl</td><td>every epoch, every trial</td><td>The live pulse: epoch, val/train accuracy, loss, lr. The startup log even prints the <code>tail</code>-equivalent command to watch it.</td></tr>
-        <tr><td class="layer-name">best.json / best_summary.txt</td><td>on every new best</td><td>Current champion — <em>ranked by hardware accuracy, deploy-phase reports only</em> — with full config, quant gap, clip fraction, and the human-readable architecture table.</td></tr>
-        <tr><td class="layer-name">leaderboard.csv</td><td>per finished trial</td><td>One row per trial: status (<code>deployed</code> vs <code>pruned_before_deploy</code> — a pruned trial's hardware column stays empty rather than lying with a 0), all metrics, all config columns.</td></tr>
-        <tr><td class="layer-name">infeasible.jsonl / undeployable.jsonl</td><td>as rejected</td><td>The failures, with their violation strings — the raw material for the kind of statistical analysis that narrowed this space (§6.5).</td></tr>
-        <tr><td class="layer-name">progress.json</td><td>per finished trial</td><td>Counters: completed, infeasible, pruned, best-so-far, target reached?</td></tr>
-        <tr><td class="layer-name">trial_records.jsonl/.csv</td><td>at the end</td><td><code>export_trial_records</code>: the flat {config × metrics × architecture counts} table "you actually load into pandas" — with feasibility recomputed even for trials that never trained.</td></tr>
+        <tr><td class="layer-name">trial_progress.jsonl</td><td>every epoch</td><td>Epoch, training and validation accuracy, loss, learning rate.</td></tr>
+        <tr><td class="layer-name">best.json</td><td>on improvement</td><td>The best configuration by converted accuracy, with its quantisation gap and clip fraction.</td></tr>
+        <tr><td class="layer-name">leaderboard.csv</td><td>per trial</td><td>One row per trial. A pruned trial is recorded as pruned rather than as zero, which would be indistinguishable from a configuration that converted badly.</td></tr>
+        <tr><td class="layer-name">infeasible.jsonl</td><td>on rejection</td><td>Configurations that failed the routing check, with the violated limits.</td></tr>
+        <tr><td class="layer-name">undeployable.jsonl</td><td>on rejection</td><td>Configurations that trained but could not be represented on chip.</td></tr>
+        <tr><td class="layer-name">trial_records.csv</td><td>at the end</td><td>Configuration, metrics and architecture counts for every trial, including those that never trained.</td></tr>
       </tbody>
     </table>
   </div>
-  <p>One more piece — <code>TargetAccuracyStopper</code>:</p>
-  <ul>
-    <li>Ray's built-in stop condition only stops <em>the trial that hit the target</em>; ending the whole study needs <code>stop_all()</code>.</li>
-    <li>It only triggers on a <strong>deploy-phase, deployable</strong> report ≥ target — "a float epoch that crosses the target says nothing about what runs on chip."</li>
-  </ul>
-  <div class="callout key">
-    <div>
-      <span class="callout-title">The chapter — and really the whole file — in one rule</span>
-      <p>Prune on the cheap signal, select on the true one, and make the true one the accuracy of
-      the exact artifact that ships. Every engineering choice here (metric split, funnel tiers,
-      deploy-only stopping, hardware-ranked leaderboard) is that one rule applied somewhere new.</p>
-    </div>
-  </div>
+  <p>
+    A stopping condition ends the study once a trial reaches the target. It triggers only on a
+    deploy-phase report from a deployable configuration, since an epoch of floating-point training
+    that crosses the target says nothing about the converted network.
+  </p>
 </section>
 
 </div>
@@ -216,165 +307,18 @@
 </main>
 
 <nav class="foot-nav">
-  <a class="prev" href="training.html"><span class="dir">← Previous</span><span class="pg">05 · Data & training</span></a>
-  <a class="next" href="reference.html"><span class="dir">Next →</span><span class="pg">07 · Code reference</span></a>
+  <a class="prev" href="training.html"><span class="dir">Previous</span><span class="pg">05 &#183; Training</span></a>
+  <a class="next" href="reference.html"><span class="dir">Next</span><span class="pg">07 &#183; Reference</span></a>
 </nav>
 <footer class="site-foot">
-  <span>An interactive explainer for <a href="https://github.com/purujain2006/configurable-snn-classifier">configurable-snn-classifier</a></span>
-  <span>All demo math is ported from <code>Practice2.py</code> and verified against it.</span>
+  <span>Documentation for <a href="https://github.com/purujain2006/configurable-snn-classifier">configurable-snn-classifier</a></span>
+  <span>Interactive demonstrations use the same arithmetic as <code>Practice2.py</code>, verified against it.</span>
 </footer>
 
 <script src="assets/snn.js"></script>
 <script src="assets/site.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-python.min.js"></script>
-<script>
-(function () {
-  "use strict";
-  const $ = id => document.getElementById(id);
-
-  /* ---------- 6.3 ASHA simulator ---------- */
-  (function asha() {
-    const cv = $("as-canvas");
-    if (!cv) return;
-    const NT = 24;
-    let seed = 5;
-
-    function rungsFor(grace, rf, epochs) {
-      const out = [];
-      let r = Math.min(grace, epochs);
-      while (r < epochs) { out.push(r); r *= rf; }
-      return out;
-    }
-
-    function simulate() {
-      const grace = +$("as-g").value, rf = +$("as-rf").value, epochs = +$("as-ep").value;
-      const rand = SNN.rng(seed);
-      // trial curves: saturating exponentials; some "late bloomers" (cosine-ish)
-      const trials = [];
-      for (let i = 0; i < NT; i++) {
-        const cap = 0.45 + rand() * 0.5;             // final accuracy
-        const speed = 0.06 + rand() * 0.25;          // convergence rate
-        const late = rand() < 0.3;                   // late-blooming schedule
-        const ys = [];
-        for (let e = 0; e < epochs; e++) {
-          let frac = 1 - Math.exp(-speed * (e + 1));
-          if (late) frac = Math.pow((e + 1) / epochs, 1.6); // slow start, strong finish
-          ys.push(Math.max(0.05, cap * frac + (rand() - 0.5) * 0.04));
-        }
-        trials.push({ ys, aliveUntil: epochs, cap });
-      }
-      // apply ASHA
-      const rungs = rungsFor(grace, rf, epochs);
-      for (const rung of rungs) {
-        const arrived = trials.filter(t => t.aliveUntil >= rung);
-        if (!arrived.length) continue;
-        const scored = arrived.map(t => ({ t, s: t.ys[rung - 1] })).sort((a, b) => b.s - a.s);
-        const keep = Math.max(1, Math.floor(scored.length / rf));
-        scored.forEach((o, idx) => { if (idx >= keep && o.t.aliveUntil > rung) o.t.aliveUntil = rung; });
-      }
-      return { trials, rungs, epochs };
-    }
-
-    function draw() {
-      const { trials, rungs, epochs } = simulate();
-      const r = window.Site.setupCanvas(cv, 325);
-      const ctx = r.ctx, W = r.w, H = r.h;
-      ctx.fillStyle = window.Site.PALETTE.bg; ctx.fillRect(0, 0, W, H);
-      const padL = 40, padB = 26, padT = 12;
-      const X = e => padL + e / (epochs - 1) * (W - padL - 12);
-      const Y = a => padT + (1 - a) * (H - padT - padB);
-      // axes
-      ctx.strokeStyle = "#2a272455"; ctx.fillStyle = "#a7a29a";
-      ctx.font = "12.5px 'JetBrains Mono', monospace";
-      [0, 0.25, 0.5, 0.75, 1].forEach(t => {
-        ctx.beginPath(); ctx.moveTo(padL, Y(t)); ctx.lineTo(W - 12, Y(t)); ctx.stroke();
-        ctx.textAlign = "right"; ctx.textBaseline = "middle"; ctx.fillText(t.toFixed(2), padL - 6, Y(t));
-      });
-      // rungs
-      rungs.forEach(rg => {
-        ctx.strokeStyle = "#e0a94f"; ctx.setLineDash([5, 4]);
-        ctx.beginPath(); ctx.moveTo(X(rg - 1), padT); ctx.lineTo(X(rg - 1), H - padB); ctx.stroke();
-        ctx.setLineDash([]);
-        ctx.fillStyle = "#e0a94f"; ctx.textAlign = "center"; ctx.textBaseline = "top";
-        ctx.fillText("rung@" + rg, X(rg - 1), H - padB + 6);
-      });
-      // curves
-      let cost = 0, finished = 0;
-      trials.forEach(t => {
-        cost += t.aliveUntil;
-        const dead = t.aliveUntil < epochs;
-        if (!dead) finished++;
-        ctx.strokeStyle = dead ? "#33302c55" : (t.cap > 0.85 ? "#9bb17a" : "#ece7de");
-        ctx.lineWidth = dead ? 1 : 1.6;
-        ctx.beginPath();
-        for (let e = 0; e < t.aliveUntil; e++) {
-          const x = X(e), y = Y(t.ys[e]);
-          e === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
-        }
-        ctx.stroke();
-        if (dead) {
-          ctx.fillStyle = "#cf6b58";
-          ctx.beginPath(); ctx.arc(X(t.aliveUntil - 1), Y(t.ys[t.aliveUntil - 1]), 2.6, 0, Math.PI * 2); ctx.fill();
-        }
-      });
-      $("as-rungs").textContent = rungs.length ? rungs.join(", ") : "(none)";
-      $("as-fin").textContent = finished + " / " + NT;
-      $("as-cost").textContent = SNN.fmt(cost);
-      $("as-save").textContent = "vs. " + SNN.fmt(NT * epochs) + " without ASHA (" + Math.round((1 - cost / (NT * epochs)) * 100) + "% saved)";
-      $("as-g-out").textContent = $("as-g").value;
-      $("as-rf-out").textContent = $("as-rf").value;
-      $("as-ep-out").textContent = $("as-ep").value;
-    }
-    ["as-g", "as-rf", "as-ep"].forEach(id => $(id).addEventListener("input", draw));
-    $("as-run").addEventListener("click", () => { seed = Math.floor(Math.random() * 1e9); draw(); });
-    window.addEventListener("resize", draw);
-    draw();
-  })();
-
-  /* ---------- 6.4 define-by-run ---------- */
-  (function dbr() {
-    if (!$("db-params")) return;
-    const state = { space: "per_layer", norm: "bn", opt: "adam", sch: "cosine" };
-    function segWire(id, key) {
-      document.querySelectorAll("#" + id + " button").forEach(b => b.addEventListener("click", () => {
-        document.querySelectorAll("#" + id + " button").forEach(x => x.classList.remove("on"));
-        b.classList.add("on");
-        state[key] = b.dataset.v;
-        update();
-      }));
-    }
-    segWire("db-space", "space"); segWire("db-norm", "norm");
-    segWire("db-opt", "opt"); segWire("db-sch", "sch");
-
-    function update() {
-      const depth = +$("db-d").value, nfc = +$("db-fc").value;
-      $("db-d-out").textContent = depth;
-      $("db-fc-out").textContent = nfc;
-      const params = [["depth", "2–4"]];
-      if (state.space === "per_layer") {
-        for (let i = 0; i < depth; i++) {
-          params.push([`k_${i}`, "{5,7}"], [`ch_${i}`, "{32,64}"], [`ds_${i}`, "{stride,pool,none}"]);
-        }
-      } else {
-        params.push(["channels", "{32,64}"], ["kernel_size", "{5,7}"], ["downsample_mode", "{stride,pool}"]);
-      }
-      params.push(["resize_to", "{32,64}"], ["T", "{8,16}"], ["fc_layers", "0–1"]);
-      for (let i = 0; i < nfc; i++) params.push([`fc_width_${i}`, "{128,256,512}"]);
-      params.push(["tau", "{2,3,4,6,8,16,32,63}"], ["trainable_tau", "{F,T}"], ["trainable_threshold", "{F,T}"],
-                  ["dropout_rate", "0.1–0.45"], ["norm", "{bn,tdbn}"]);
-      if (state.norm === "tdbn") params.push(["tdbn_alpha", "0.5–2.0"]);
-      params.push(["label_smoothing", "0–0.2"], ["grad_clip", "{0,1,5}"], ["optimizer", "{adam,adamw}"]);
-      params.push(state.opt === "adamw" ? ["weight_decay", "1e-5–1e-2 log"] : ["weight_decay", "1e-7–1e-3 log"]);
-      params.push(["lr", "5e-4–5e-3 log"], ["scheduler", "{cos,1cyc,step,none}"]);
-      if (state.sch === "cosine" || state.sch === "step") params.push(["warmup_epochs", "0–3"]);
-      $("db-params").innerHTML = params.map(([n, r]) => `<span class="pill"><b>${n}</b> ${r}</span>`).join("");
-      $("db-count").textContent = params.length;
-    }
-    ["db-d", "db-fc"].forEach(id => $(id).addEventListener("input", update));
-    update();
-  })();
-})();
-</script>
+<script src="assets/demo-search.js"></script>
 </body>
 </html>

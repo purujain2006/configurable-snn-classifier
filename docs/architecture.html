@@ -3,8 +3,8 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>The Configurable Architecture — Configurable SNN Classifier, Explained</title>
-<meta name="description" content="How the network is specified, planned on paper, and costed — with a live network builder using the file's exact math.">
+<title>The Architecture — Configurable SNN Classifier</title>
+<meta name="description" content="Expressing a network as configuration, planning layer shapes once, and counting what a configuration would occupy on chip.">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' fill='%23000'/><path d='M3 22h5l3-13 4 19 3-11h4l2 5h5' fill='none' stroke='%23e0a94f' stroke-width='2.4' stroke-linejoin='round'/></svg>">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -15,12 +15,13 @@
 
 <header class="hero">
   <div class="hero-inner">
-    <p class="kicker">Chapter 3 · Architecture & Configuration</p>
-    <h1>A network you describe,<br>not hard-code</h1>
+    <p class="kicker">Page 3</p>
+    <h1>The architecture</h1>
     <p class="lede">
-      Most research code hard-wires its network. This file treats the <em>entire architecture as
-      data</em>: config → plan → network → exact bill of materials. This chapter walks that chain,
-      then hands you the builder.
+      The goal in section 1.6 is to search over network designs. A search can only vary what the
+      program treats as data, and it can only reject a design cheaply if the layer shapes are known
+      before anything is built. This page covers how a configuration is described, how its shapes
+      are derived, and how its size on chip is counted.
     </p>
   </div>
 </header>
@@ -29,49 +30,71 @@
 <div class="wrap">
 
 <section id="configs" class="reveal">
-  <h2><span class="sec-num">3.1</span>Seven dataclasses describe everything</h2>
-  <p class="lead">
-    A <span class="term">dataclass</span> = a named bundle of typed, defaulted fields. Seven of
-    them — one per concern — are the complete genome of an experiment:
-  </p>
+  <h2><span class="sec-num">3.1</span>The network as configuration</h2>
+
+  <div class="motiv">
+    <div class="m-row">
+      <span class="m-label">Observation</span>
+      <p>
+        Research code usually hard-codes its architecture. Changing the depth or the kernel size
+        then means editing the model class, which a search process cannot do.
+      </p>
+    </div>
+    <div class="m-row">
+      <span class="m-label">Consequence</span>
+      <p>
+        Every property the search may vary has to live in a data structure that can be constructed,
+        serialised and compared. Properties that affect the shape of the network should be
+        separated from properties that affect only training, so the feasibility check can run
+        without knowing the optimiser.
+      </p>
+    </div>
+    <div class="m-row code">
+      <span class="m-label">In code</span>
+      <p>
+        Seven dataclasses hold the shape-determining settings, and an eighth,
+        <code>TrainSpec</code>, holds the optimisation recipe. A dataclass is a Python structure of
+        named fields with types and defaults.
+      </p>
+    </div>
+  </div>
+
   <div class="tbl-wrap">
     <table class="tbl">
-      <thead><tr><th>Dataclass</th><th>Owns</th><th>Example fields (defaults)</th></tr></thead>
+      <thead><tr><th>Dataclass</th><th>Holds</th><th>Fields, with defaults</th></tr></thead>
       <tbody>
-        <tr><td class="layer-name">InputSpec</td><td>What goes in</td><td><code>C=2</code> polarity channels, <code>H=W=128</code> sensor size, <code>T=16</code> timesteps, <code>resize_to=0</code> (0 = keep native), batch <code>N=16</code></td></tr>
-        <tr><td class="layer-name">ConvLayerSpec</td><td>One conv layer</td><td><code>out_channels=128, kernel_size=3, stride=2, padding=0, dilation=1, pool=False</code> + optional per-layer <code>tau</code>/<code>v_threshold</code> overrides</td></tr>
-        <tr><td class="layer-name">EncoderSpec</td><td>The conv stack</td><td>Either uniform (<code>depth=3, channels=128, …</code> — every layer identical) or per-layer via <code>layers_json</code>; plus <code>bias</code>, <code>norm</code> ∈ {none, bn, tdbn}</td></tr>
-        <tr><td class="layer-name">OutputSpec</td><td>What comes out</td><td><code>num_classes=11</code> gestures</td></tr>
-        <tr><td class="layer-name">DownsampleSpec</td><td>How maps shrink</td><td><code>mode</code> ∈ {stride, pool}, <code>pool_type</code> ∈ {avg, max}, pool kernel/stride = 2</td></tr>
-        <tr><td class="layer-name">HeadSpec</td><td>The classifier</td><td><code>final_reduction</code> ∈ {flatten, gap}, <code>fc_widths="512"</code> (comma list; "" = none), <code>dropout_rate=0.5</code></td></tr>
-        <tr><td class="layer-name">NeuronSpec</td><td>The neuron (ch. 2)</td><td><code>neuron_type="LIF", tau=2</code> (integer!), <code>v_threshold=1.0</code>, <code>trainable_tau/threshold=False</code></td></tr>
+        <tr><td class="layer-name">InputSpec</td><td>The input tensor</td><td><code>C=2</code> polarity channels, <code>H=W=128</code> sensor size, <code>T=16</code> timesteps, <code>resize_to=0</code>, batch <code>N=16</code></td></tr>
+        <tr><td class="layer-name">ConvLayerSpec</td><td>One convolution</td><td><code>out_channels</code>, <code>kernel_size</code>, <code>stride</code>, <code>padding</code>, <code>dilation</code>, <code>pool</code>, and optional per-layer <code>tau</code> and <code>v_threshold</code></td></tr>
+        <tr><td class="layer-name">EncoderSpec</td><td>The convolution stack</td><td>Uniform fields (<code>depth</code>, <code>channels</code>, <code>kernel_size</code>) or a per-layer <code>layers_json</code>, plus <code>bias</code> and <code>norm</code></td></tr>
+        <tr><td class="layer-name">OutputSpec</td><td>The classifier width</td><td><code>num_classes=11</code></td></tr>
+        <tr><td class="layer-name">DownsampleSpec</td><td>Resolution reduction</td><td><code>mode</code> of stride or pool, <code>pool_type</code>, pool kernel and stride</td></tr>
+        <tr><td class="layer-name">HeadSpec</td><td>The classifier head</td><td><code>final_reduction</code> of flatten or gap, <code>fc_widths</code>, <code>dropout_rate</code></td></tr>
+        <tr><td class="layer-name">NeuronSpec</td><td>The neuron of page 2</td><td><code>tau</code> as an integer, <code>v_threshold</code>, <code>v_reset</code>, <code>trainable_tau</code>, <code>trainable_threshold</code></td></tr>
       </tbody>
     </table>
   </div>
-  <ul>
-    <li>An eighth, <code>TrainSpec</code>, holds the optimization recipe — <em>"everything that affects training but not shape"</em> (optimizer, lr, scheduler, epochs, the QAT knobs from <a href="hardware.html#qat">chapter 4</a>).</li>
-    <li>Shape-things vs. training-things stay separate — so the feasibility checker never needs to care how you'll train.</li>
-  </ul>
-  <h3>Setting fields from the command line</h3>
-  <ul>
-    <li>Each group gets a CLI flag taking <code>key=value</code> pairs.</li>
-    <li>One generic function, <code>fill_from_kv</code>, reads the dataclass's own field list for legal keys and type casts.</li>
-    <li>Net effect: <strong>adding a config field automatically adds its CLI support</strong> — no argparse surgery.</li>
-  </ul>
+
+  <h3>Reaching the fields from a command line</h3>
+  <p>
+    Each group is exposed as a flag that accepts <code>key=value</code> pairs. One function,
+    <code>fill_from_kv</code>, reads the dataclass's own field list to decide which keys are valid
+    and what type each value should become. Adding a field to a dataclass therefore adds its
+    command-line option without further work.
+  </p>
   <div class="code-block">
-    <div class="code-head"><span class="dot"></span><span class="dot"></span><span class="file">terminal</span><span class="loc">a fully-specified run</span></div>
-    <pre><code class="language-bash">python Practice.py summary \
+    <div class="code-head"><span class="file">terminal</span><span class="loc">a fully specified configuration</span></div>
+    <pre><code class="language-bash">python Practice2.py summary \
   --input   resize_to=64 T=16 \
   --encoder depth=2 channels=32 kernel_size=7 stride=2 norm=bn \
   --head    fc_widths= dropout_rate=0.28 \
   --neuron  tau=2</code></pre>
   </div>
   <div class="code-block">
-    <div class="code-head"><span class="dot"></span><span class="dot"></span><span class="file">Practice2.py · fill_from_kv</span><span class="loc">§1</span></div>
+    <div class="code-head"><span class="file">Practice2.py &#183; fill_from_kv</span><span class="loc">&#167;1</span></div>
     <pre><code class="language-python">def fill_from_kv(schema_cls, values: list[str]):
     obj = schema_cls()                                    # start from defaults
     field_types = {f.name: f.type for f in fields(schema_cls)}
-    aliases = _FIELD_ALIASES.get(schema_cls.__name__, {}) # e.g. old batchnorm=true still works
+    aliases = _FIELD_ALIASES.get(schema_cls.__name__, {})
     for item in values:
         if "=" not in item:
             raise ValueError(f"Expected key=value (e.g. 'N=16'), got: {item!r}")
@@ -84,195 +107,92 @@
     return obj</code></pre>
   </div>
   <p class="footnote">
-    Note the error messages: a typo'd key doesn't crash cryptically — it lists the valid field
-    names. This file consistently spends effort on <em>failing legibly</em>.
+    An unrecognised key raises with the list of valid field names rather than failing further down
+    the call stack.
   </p>
 </section>
 
 <section id="planning" class="reveal">
-  <h2><span class="sec-num">3.2</span>Shape planning: the network on paper, one source of truth</h2>
-  <p class="lead">
-    Before any real network is built, <code>plan_network()</code> walks the whole architecture
-    <em>arithmetically</em>: what does each layer receive and emit? The core formula:
-  </p>
+  <h2><span class="sec-num">3.2</span>Deriving layer shapes once</h2>
+
+  <div class="motiv">
+    <div class="m-row">
+      <span class="m-label">Observation</span>
+      <p>
+        Three parts of the program need the spatial size of every layer: the module that builds the
+        network, the check against the routing limits, and the count of neurons and synapses. An
+        earlier version derived shapes separately in each place. The derivations drifted, and the
+        classifier head ended up excluded from the feasibility check entirely, which allowed
+        configurations that could not be wired to pass.
+      </p>
+    </div>
+    <div class="m-row">
+      <span class="m-label">Consequence</span>
+      <p>
+        The shapes need to be computed once, stored, and read by all three consumers. Doing so also
+        makes the geometry testable without a GPU, since the computation is ordinary arithmetic.
+      </p>
+    </div>
+    <div class="m-row code">
+      <span class="m-label">In code</span>
+      <p>
+        <code>plan_network()</code> returns a <code>NetPlan</code> listing every convolution block
+        and linear layer with its input size, output size, channel counts and effective stride. The
+        model builder, <code>check_feasibility</code> and <code>count_neurons_and_synapses</code>
+        all take that object as their input.
+      </p>
+    </div>
+  </div>
+
+  <p>The per-layer size comes from the standard convolution formula:</p>
   <div class="formula">
-    out = ⌊( in + 2·<span class="v">padding</span> − <span class="v">dilation</span>·(<span class="v">kernel</span> − 1) − 1 ) / <span class="v">stride</span>⌋ + 1
-    <span class="note">A 64×64 map through a k=7, s=2, p=0 conv → ⌊(64 − 7 + 0 − 1)/2⌋ + 1 = 29×29. Fractions are floored: pixels that don't fit a full kernel placement are dropped.</span>
+    out = &#8970;( in + 2&#183;<span class="v">padding</span> &#8722; <span class="v">dilation</span>&#183;(<span class="v">kernel</span> &#8722; 1) &#8722; 1 ) / <span class="v">stride</span>&#8971; + 1
+    <span class="note">A 64&#215;64 map through a kernel of 7 at stride 2 with no padding gives &#8970;(64 &#8722; 7 &#8722; 1)/2&#8971; + 1 = 29&#215;29. The floor discards positions where the kernel would not fit.</span>
   </div>
-  <p>Around that formula, <code>plan_encoder()</code> makes three quietly important decisions per layer:</p>
+
+  <p><code>plan_encoder()</code> applies three rules while walking the stack:</p>
   <ol class="steps">
-    <li><span class="s-title">"Still big enough to shrink?"</span> If the map is already ≤ 3×3, the layer is forced to stride 1 with size-preserving padding — no matter what the config asked for. This guard stops a deep config from grinding the image to nothing (and if the kernel outright exceeds the map, planning raises <code>InfeasibleConfig</code> with a precise message).</li>
-    <li><span class="s-title">Where does downsampling come from?</span> Priority order: a per-layer <code>pool=True</code> flag wins (stride-1 conv, then a pooling layer); else global <code>mode="stride"</code> uses the layer's conv stride; else (global pool mode) stride-1 conv + pool. One rule, applied identically everywhere.</li>
-    <li><span class="s-title">Record everything.</span> Each layer's plan stores input size, post-conv size (where the LIF neurons live), post-pool size, channels, and effective stride/padding — a <code>ConvBlockPlan</code>.</li>
+    <li><span class="s-title">Stop shrinking small maps</span> If a feature map has reached 3&#215;3 or smaller, the layer is forced to stride 1 with size-preserving padding whatever the configuration requested. A kernel larger than the remaining map raises <code>InfeasibleConfig</code> with the sizes involved.</li>
+    <li><span class="s-title">Resolve where downsampling comes from</span> A per-layer <code>pool</code> flag takes precedence and produces a stride-1 convolution followed by pooling. Otherwise the global mode decides between a strided convolution and a pooling layer.</li>
+    <li><span class="s-title">Record the result</span> Each block stores its input size, its post-convolution size, which is where the neurons sit, and its post-pooling size, which feeds the next block.</li>
   </ol>
-  <div class="callout key">
-    <div>
-      <span class="callout-title">Why "one source of truth" is a headline feature</span>
-      <ul>
-        <li>The model builder, the feasibility checker, and the cost model <strong>all read this same plan object</strong>.</li>
-        <li>The scar tissue behind the rule: previously the model and checker each re-derived shapes with duplicated loops — "which is exactly how the head came to be unchecked." Infeasible networks sailed through.</li>
-        <li>Duplicate a computation and the copies <em>will</em> drift. Compute it once and disagreement is impossible.</li>
-      </ul>
-    </div>
-  </div>
-</section>
-
-<section id="builder" class="reveal">
-  <h2><span class="sec-num">3.3</span>Build your own network</h2>
-  <p class="lead">
-    Everything below runs the file's <em>actual</em> planning / costing / feasibility math, ported
-    line-for-line and verified to produce identical numbers. Ways to break things:
-  </p>
-  <ul>
-    <li>Set channels to <strong>128</strong> → watch feasibility die (chapter 4 explains why).</li>
-    <li>Switch the head to <strong>GAP</strong> → watch the parameter count collapse.</li>
-    <li>Keep adding layers → the spatial guard kicks in, then the plan collapses entirely.</li>
-  </ul>
-  <div class="demo">
-    <div class="demo-head">
-      <span class="demo-tag">INTERACTIVE</span>
-      <span class="demo-title">Network builder — plan · cost · feasibility, live</span>
-      <span class="demo-sub">Exactly what <code>python Practice.py summary</code> computes, but with sliders. The verdict at the bottom is the real HiAER-Spike check from §3 of the file (full explanation of the limits in chapter 4).</span>
-    </div>
-    <div class="demo-body">
-      <div class="controls">
-        <div class="ctl">
-          <label>preset</label>
-          <select id="nb-preset">
-            <option value="seed1">winner: depth-2, k7, 32ch (seed #1)</option>
-            <option value="seed3">winner: depth-3, k7, 32ch (seed #3)</option>
-            <option value="default">file defaults (spoiler: infeasible)</option>
-            <option value="perlayer">per-layer mix with pooling</option>
-            <option value="gap">GAP head + hidden FC 512</option>
-            <option value="collapse">too deep — spatial collapse</option>
-          </select>
-        </div>
-        <div class="ctl">
-          <label>input resolution</label>
-          <select id="nb-resize">
-            <option value="32">resize to 32×32</option>
-            <option value="64" selected>resize to 64×64</option>
-            <option value="0">native 128×128</option>
-          </select>
-        </div>
-        <div class="ctl">
-          <label>timesteps T</label>
-          <select id="nb-T"><option>8</option><option selected>16</option></select>
-        </div>
-        <div class="ctl">
-          <label>downsample mode</label>
-          <select id="nb-ds"><option value="stride" selected>stride</option><option value="pool">pool</option></select>
-        </div>
-        <div class="ctl">
-          <label>norm</label>
-          <select id="nb-norm"><option value="bn" selected>bn</option><option value="tdbn">tdbn</option><option value="none">none</option></select>
-        </div>
-      </div>
-
-      <div class="tbl-wrap">
-        <table class="tbl" id="nb-layers">
-          <thead><tr><th>conv layer</th><th>out channels</th><th>kernel</th><th>stride</th><th>pool?</th><th></th></tr></thead>
-          <tbody></tbody>
-        </table>
-      </div>
-      <div class="controls" style="margin-top:4px;">
-        <button class="btn small" id="nb-add">+ add layer</button>
-        <div class="ctl">
-          <label>head reduction</label>
-          <select id="nb-red"><option value="flatten" selected>flatten</option><option value="gap">GAP</option></select>
-        </div>
-        <div class="ctl">
-          <label>hidden FC widths (comma list, blank = none)</label>
-          <input type="text" id="nb-fc" value="" placeholder="e.g. 512 or 512,256" style="width:150px;">
-        </div>
-      </div>
-
-      <h4 style="margin-top:22px;">Shape flow</h4>
-      <div class="flow" id="nb-flow"></div>
-
-      <h4>Cost table (the real <code>format_summary</code> math)</h4>
-      <div class="tbl-wrap">
-        <table class="tbl">
-          <thead><tr><th>layer</th><th>shape / detail</th><th class="num">neurons</th><th class="num">connections</th><th class="num">params</th></tr></thead>
-          <tbody id="nb-cost"></tbody>
-        </table>
-      </div>
-
-      <div class="stats">
-        <div class="stat"><div class="k">input axons</div><div class="val" id="nb-axons">—</div><div class="sub">limit 16,383</div></div>
-        <div class="stat"><div class="k">spiking neurons</div><div class="val" id="nb-neurons">—</div></div>
-        <div class="stat"><div class="k">synaptic connections</div><div class="val" id="nb-conns">—</div></div>
-        <div class="stat"><div class="k">trainable params</div><div class="val" id="nb-params">—</div></div>
-        <div class="stat"><div class="k">neuron updates / sample</div><div class="val" id="nb-updates">—</div><div class="sub">neurons × T</div></div>
-        <div class="stat"><div class="k">pipeline flush steps</div><div class="val" id="nb-flush">—</div><div class="sub">1 per spiking layer (ch. 2 & 5)</div></div>
-      </div>
-      <div id="nb-verdict"></div>
-
-      <h4 style="margin-top:22px;">Equivalent command</h4>
-      <div class="term-block"><div class="term-head">reproduce this config from a terminal (no GPU needed)</div><pre id="nb-cli"></pre></div>
-    </div>
-  </div>
-</section>
-
-<section id="head" class="reveal">
-  <h2><span class="sec-num">3.4</span>The head: flatten vs. GAP, and why it matters so much</h2>
-  <p>
-    After the conv stack, a 3-D block of spiking activity (channels × height × width) must
-    become 11 class scores. Two strategies, both configurable:
-  </p>
-  <div class="two-up">
-    <div class="panel">
-      <div class="p-title"><span class="chip blue">flatten</span> keep every pixel</div>
-      <ul>
-        <li>Unroll the whole block into one vector: 32×12×12 → <strong>4,608 features</strong>.</li>
-        <li>First linear layer then needs 4,608 × width weights — and every neuron in it has <strong>fan-in 4,608</strong> (chapter 4 cares a lot).</li>
-        <li>Preserves <em>where</em> activity happened. This gesture task rewards that: <strong>every top model used flatten</strong>.</li>
-      </ul>
-    </div>
-    <div class="panel">
-      <div class="p-title"><span class="chip violet">gap</span> average each channel</div>
-      <ul>
-        <li>Global Average Pooling collapses each channel's map to its mean: 32×12×12 → <strong>32 numbers</strong>.</li>
-        <li>Far fewer params · less overfitting · tiny fan-in (many more configs pass feasibility).</li>
-        <li>Deployable on-chip: an average is just a fixed-weight linear map.</li>
-        <li>The cost: discards <em>where</em>, keeps only <em>how much</em> — historically ~40 accuracy points on this task. Kept as an option; not used by winners.</li>
-      </ul>
-    </div>
-  </div>
-  <p>Between reduction and classifier: zero or more hidden FC layers (<code>fc_widths</code>).</p>
-  <ul>
-    <li><strong>The winners used none.</strong> The 65-trial analysis found conv features already linearly separable, so the search caps hidden FC layers at one.</li>
-    <li>Every linear layer is <code>bias=False</code> — the chip's linear maps carry no bias field.</li>
-    <li>During training: dropout before each linear; and, like every layer here, a spiking neuron after it.</li>
-  </ul>
 </section>
 
 <section id="cost" class="reveal">
-  <h2><span class="sec-num">3.5</span>The cost model: three different ways to count "size"</h2>
-  <p class="lead">
-    "How big is this network?" has three genuinely different answers — the code refuses to
-    conflate them. For a conv layer (kernel k, C<sub>in</sub> in, C<sub>out</sub> out,
-    H<sub>out</sub>×W<sub>out</sub> map):
+  <h2><span class="sec-num">3.3</span>Three different measures of size</h2>
+  <p>
+    Asking how large a network is has three answers here, and they differ by orders of magnitude.
+    For a convolution with kernel k, C<sub>in</sub> input channels, C<sub>out</sub> output channels
+    and an H&#215;W output map:
   </p>
   <div class="tbl-wrap">
     <table class="tbl">
-      <thead><tr><th>Count</th><th>Formula (conv layer)</th><th>What it measures</th><th>Who cares</th></tr></thead>
+      <thead><tr><th>Measure</th><th>Formula</th><th>Meaning</th></tr></thead>
       <tbody>
-        <tr><td class="layer-name">neurons</td><td class="num">C<sub>out</sub> · H<sub>out</sub> · W<sub>out</sub></td><td>Spiking LIF units — one per output pixel per channel. Counted once, <em>not</em> per timestep.</td><td>The chip's neuron budget; energy (each neuron updates T times per sample)</td></tr>
-        <tr><td class="layer-name">connections</td><td class="num">neurons · (k² · C<sub>in</sub>)</td><td>Physical synapses realized on hardware. Each output neuron listens to a k×k×C<sub>in</sub> window.</td><td>The chip's wiring; this is what "10 million synapses" means</td></tr>
-        <tr><td class="layer-name">params</td><td class="num">k² · C<sub>in</sub> · C<sub>out</sub> (+C<sub>out</sub> if bias)</td><td>Trainable floats in PyTorch. Far smaller than connections because of <strong>weight sharing</strong>: one k×k filter is reused at every image position.</td><td>Training, memory, overfitting risk</td></tr>
+        <tr>
+          <td class="layer-name">neurons</td><td class="num">C<sub>out</sub> &#183; H &#183; W</td>
+          <td>Spiking units, one per output position per channel, counted once rather than per timestep.</td>
+        </tr>
+        <tr>
+          <td class="layer-name">connections</td><td class="num">neurons &#183; k&#178; &#183; C<sub>in</sub></td>
+          <td>Synapses the chip must route, since each output neuron reads its own window.</td>
+        </tr>
+        <tr>
+          <td class="layer-name">parameters</td><td class="num">k&#178; &#183; C<sub>in</sub> &#183; C<sub>out</sub></td>
+          <td>Trainable values in PyTorch. One filter is reused at every position, so this is far smaller than the connection count.</td>
+        </tr>
       </tbody>
     </table>
   </div>
-  <p><strong>Weight sharing is the punchline:</strong></p>
-  <ul>
-    <li>In the depth-2 winner, conv1 has just <strong>50,176 parameters</strong> but realizes <strong>7.2 million synapses</strong> on chip — one small filter stamped across 144 positions.</li>
-    <li>GPUs exploit the sharing. A neuromorphic chip must <em>physically wire every synapse</em>.</li>
-    <li>Hence the hardware's constraint language — fan-in/fan-out — instead of deep learning's usual "parameter count".</li>
-  </ul>
-  <p>The real thing — actual <code>summary</code> output for the depth-2 seed config, which the builder above reproduces number-for-number:</p>
+  <p>
+    In the two-layer configuration below, the second convolution holds 50,176 parameters and
+    realises 7.2 million connections, because the same filter is applied at 144 positions. Weight
+    reuse costs a GPU nothing. The chip has to route each connection individually, which is why its
+    limits are expressed as fan-in and fan-out rather than as a parameter budget.
+  </p>
+
   <div class="term-block">
-    <div class="term-head">$ python Practice.py summary --input resize_to=64 T=16 --encoder depth=2 channels=32 kernel_size=7 stride=2 --head fc_widths= dropout_rate=0.28</div>
+    <div class="term-head">python Practice2.py summary --input resize_to=64 T=16 --encoder depth=2 channels=32 kernel_size=7 stride=2 --head fc_widths=</div>
     <pre>==============================================================================
 DVS Gesture SNN -- architecture summary
 ==============================================================================
@@ -281,7 +201,7 @@ encoder      : uniform, depth=2 bias=False norm=bn
 downsample   : mode=stride pool=avg k=2 s=2
 head         : reduction=flatten fc_widths=[] dropout=0.28
 neuron       : LIF leak=2 v_th=1.0 v_reset=0.0
-  -> hardware: LIF_neuron(threshold=32767, shift=0, leak=2)   [w_alpha=1, w_bits=16, weights clamped to +/-1]
+  -> hardware: LIF_neuron(threshold=32767, shift=0, leak=2)
 
 layer        shape / detail                                    neurons    connections       params
 --------------------------------------------------------------------------------------------------
@@ -295,27 +215,156 @@ TOTAL                                                           31,531      9,91
 
 input axons             : 8,192  (limit 16,383)
 neuron updates / sample : 504,496  (31,531 x T=16)
-pipeline flush steps    : 3  (1 per spiking layer)
+pipeline flush steps    : 3
 
 <span class="ok">HiAER-Spike feasibility : PASS</span>
 ==============================================================================</pre>
   </div>
   <p class="footnote">
-    Also visible here: BatchNorm rows cost 64 params (a scale γ and shift β per channel) but zero
-    neurons and zero synapses — they're bookkeeping that will be <em>folded away</em> before
-    deployment (chapter 4). And "flush steps: 3" = three spiking layers (two conv + classifier).
+    The batch normalisation rows carry parameters but no neurons and no connections. Section 4.3
+    removes them before deployment. The flush step count is the number of spiking layers, for the
+    reason given in section 2.1.
+  </p>
+</section>
+
+<section id="builder" class="reveal">
+  <h2><span class="sec-num">3.4</span>Building a configuration</h2>
+  <p>
+    The panel below runs the planning, costing and feasibility code from the file, ported to
+    JavaScript and checked against the Python implementation. Raising the channel count to 128
+    breaks the routing limits. Switching the head to GAP changes the parameter count sharply.
+    Adding layers eventually triggers the guard in section 3.2.
+  </p>
+
+  <div class="demo">
+    <div class="demo-head">
+      <span class="demo-tag">INTERACTIVE</span>
+      <span class="demo-title">Configuration builder</span>
+      <span class="demo-sub">Equivalent to <code>summary</code> mode. The verdict at the bottom is the same check the search applies before allocating a GPU.</span>
+    </div>
+    <div class="demo-body">
+      <div class="controls">
+        <div class="ctl">
+          <label>preset</label>
+          <select id="nb-preset">
+            <option value="seed1">two layers, kernel 7, 32 channels</option>
+            <option value="seed3">three layers, kernel 7, 32 channels</option>
+            <option value="default">file defaults</option>
+            <option value="perlayer">per-layer geometry with pooling</option>
+            <option value="gap">GAP head with a hidden layer</option>
+            <option value="collapse">too deep for the input size</option>
+          </select>
+        </div>
+        <div class="ctl">
+          <label>input resolution</label>
+          <select id="nb-resize">
+            <option value="32">32 &#215; 32</option>
+            <option value="64" selected>64 &#215; 64</option>
+            <option value="0">128 &#215; 128</option>
+          </select>
+        </div>
+        <div class="ctl">
+          <label>timesteps T</label>
+          <select id="nb-T"><option>8</option><option selected>16</option></select>
+        </div>
+        <div class="ctl">
+          <label>downsampling</label>
+          <select id="nb-ds"><option value="stride" selected>stride</option><option value="pool">pool</option></select>
+        </div>
+        <div class="ctl">
+          <label>normalisation</label>
+          <select id="nb-norm"><option value="bn" selected>bn</option><option value="tdbn">tdbn</option><option value="none">none</option></select>
+        </div>
+      </div>
+
+      <div class="tbl-wrap">
+        <table class="tbl" id="nb-layers">
+          <thead><tr><th>layer</th><th>channels</th><th>kernel</th><th>stride</th><th>pool</th><th></th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <div class="controls" style="margin-top:4px;">
+        <button class="btn small" id="nb-add">Add layer</button>
+        <div class="ctl">
+          <label>head reduction</label>
+          <select id="nb-red"><option value="flatten" selected>flatten</option><option value="gap">GAP</option></select>
+        </div>
+        <div class="ctl">
+          <label>hidden widths</label>
+          <input type="text" id="nb-fc" value="" placeholder="blank, or 512" style="width:150px;">
+        </div>
+      </div>
+
+      <h4>Shape flow</h4>
+      <div class="flow" id="nb-flow"></div>
+
+      <h4>Cost</h4>
+      <div class="tbl-wrap">
+        <table class="tbl">
+          <thead><tr><th>layer</th><th>detail</th><th class="num">neurons</th><th class="num">connections</th><th class="num">params</th></tr></thead>
+          <tbody id="nb-cost"></tbody>
+        </table>
+      </div>
+
+      <div class="stats">
+        <div class="stat"><div class="k">input axons</div><div class="val" id="nb-axons">&#8212;</div><div class="sub">limit 16,383</div></div>
+        <div class="stat"><div class="k">neurons</div><div class="val" id="nb-neurons">&#8212;</div></div>
+        <div class="stat"><div class="k">connections</div><div class="val" id="nb-conns">&#8212;</div></div>
+        <div class="stat"><div class="k">parameters</div><div class="val" id="nb-params">&#8212;</div></div>
+        <div class="stat"><div class="k">neuron updates per sample</div><div class="val" id="nb-updates">&#8212;</div></div>
+        <div class="stat"><div class="k">flush steps</div><div class="val" id="nb-flush">&#8212;</div></div>
+      </div>
+      <div id="nb-verdict"></div>
+
+      <h4>Equivalent command</h4>
+      <div class="term-block"><div class="term-head">reproduce this configuration</div><pre id="nb-cli"></pre></div>
+    </div>
+  </div>
+</section>
+
+<section id="head" class="reveal">
+  <h2><span class="sec-num">3.5</span>The classifier head</h2>
+  <p>
+    After the convolution stack, a block of shape channels &#215; height &#215; width has to become
+    11 class scores. The two available reductions differ in how much fan-in they demand from the
+    first linear layer, which section 1.1 limits to 8,159.
+  </p>
+  <div class="two-up">
+    <div class="panel">
+      <div class="p-title"><span class="chip blue">flatten</span></div>
+      <ul>
+        <li>Unrolls the block into one vector, so 32&#215;12&#215;12 becomes 4,608 features.</li>
+        <li>Every neuron in the following linear layer then has a fan-in of 4,608.</li>
+        <li>Spatial position is preserved, which this dataset rewards. Every strong configuration found by the search used it.</li>
+      </ul>
+    </div>
+    <div class="panel">
+      <div class="p-title"><span class="chip violet">gap</span></div>
+      <ul>
+        <li>Global average pooling reduces each channel to its mean, so 32&#215;12&#215;12 becomes 32 features.</li>
+        <li>Fan-in drops to the channel count, and many more configurations pass the feasibility check.</li>
+        <li>An average is a fixed-weight linear map, so the chip can absorb it into the following layer.</li>
+        <li>Spatial position is discarded, which cost roughly 40 accuracy points on this task.</li>
+      </ul>
+    </div>
+  </div>
+  <p>
+    Between the reduction and the classifier the configuration may place hidden linear layers. The
+    65-trial study described in section 6.6 found that the best configurations used none, so the
+    search now allows at most one. Linear layers are built without bias, since the chip provides no
+    bias term.
   </p>
 </section>
 
 <section id="perlayer" class="reveal">
-  <h2><span class="sec-num">3.6</span>Uniform vs. per-layer: two ways to write the same encoder</h2>
-  <p class="lead"><code>EncoderSpec</code> accepts two styles:</p>
-  <ul>
-    <li><strong>Uniform</strong> — <code>depth=3, channels=32, kernel_size=7</code>: every layer a copy. Simple; what the original code did.</li>
-    <li><strong>Per-layer</strong> — hand <code>layers_json</code> a JSON list of <code>ConvLayerSpec</code> dicts: each layer gets its own kernels, channels, pooling, even neuron overrides (<code>tau</code>, <code>v_threshold</code>):</li>
-  </ul>
+  <h2><span class="sec-num">3.6</span>Uniform and per-layer encoders</h2>
+  <p>
+    <code>EncoderSpec</code> accepts two forms. The uniform form takes a depth, a channel count and
+    a kernel size, and repeats them. The per-layer form takes a JSON list of layer dictionaries and
+    gives each layer its own geometry, including per-layer neuron overrides.
+  </p>
   <div class="code-block">
-    <div class="code-head"><span class="dot"></span><span class="dot"></span><span class="file">per-layer encoder spec</span><span class="loc">what the per-layer search emits</span></div>
+    <div class="code-head"><span class="file">per-layer encoder</span><span class="loc">emitted by the per-layer search space</span></div>
     <pre><code class="language-python">--encoder layers_json='[
   {"out_channels": 32, "kernel_size": 7, "stride": 2},
   {"out_channels": 64, "kernel_size": 5, "stride": 1, "pool": true},
@@ -323,18 +372,10 @@ pipeline flush steps    : 3  (1 per spiking layer)
 ]'</code></pre>
   </div>
   <ul>
-    <li>When <code>layers_json</code> is present, it <em>wins</em> — uniform fields are ignored for shape.</li>
-    <li><code>resolve_conv_layers()</code> collapses either style into one canonical <code>list[ConvLayerSpec]</code>, so planner, checker, cost model, and builder handle exactly one representation.</li>
-    <li>Per-<em>layer</em> neuron overrides are free on chip (it reads a neuron model per neuron anyway). Per-<em>channel</em> τ/θ were "considered and rejected as too many degrees of freedom for this dataset."</li>
+    <li>When <code>layers_json</code> is present it determines the shape and the uniform fields are ignored.</li>
+    <li><code>resolve_conv_layers()</code> reduces either form to one list, so the planner, the checker, the cost model and the builder each handle a single representation.</li>
+    <li>Per-layer neuron parameters cost nothing on chip, which reads a neuron model per neuron. Per-channel parameters were considered and rejected as too many degrees of freedom for a dataset of this size.</li>
   </ul>
-  <div class="callout aside">
-    <div>
-      <span class="callout-title">Try it above</span>
-      <p>The "per-layer mix with pooling" preset in the builder is this exact config. Note how
-      layer 1 does stride-1 conv + pool (its <code>pool=true</code> overrides the global stride
-      mode) while its neighbors downsample by stride.</p>
-    </div>
-  </div>
 </section>
 
 </div>
@@ -342,12 +383,12 @@ pipeline flush steps    : 3  (1 per spiking layer)
 </main>
 
 <nav class="foot-nav">
-  <a class="prev" href="neurons.html"><span class="dir">← Previous</span><span class="pg">02 · Spiking neurons</span></a>
-  <a class="next" href="hardware.html"><span class="dir">Next →</span><span class="pg">04 · Hardware rules & quantization</span></a>
+  <a class="prev" href="neurons.html"><span class="dir">Previous</span><span class="pg">02 &#183; The neuron</span></a>
+  <a class="next" href="hardware.html"><span class="dir">Next</span><span class="pg">04 &#183; Fitting the chip</span></a>
 </nav>
 <footer class="site-foot">
-  <span>An interactive explainer for <a href="https://github.com/purujain2006/configurable-snn-classifier">configurable-snn-classifier</a></span>
-  <span>All demo math is ported from <code>Practice2.py</code> and verified against it.</span>
+  <span>Documentation for <a href="https://github.com/purujain2006/configurable-snn-classifier">configurable-snn-classifier</a></span>
+  <span>Interactive demonstrations use the same arithmetic as <code>Practice2.py</code>, verified against it.</span>
 </footer>
 
 <script src="assets/snn.js"></script>
@@ -355,168 +396,6 @@ pipeline flush steps    : 3  (1 per spiking layer)
 <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-python.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-bash.min.js"></script>
-<script>
-(function () {
-  "use strict";
-  const $ = id => document.getElementById(id);
-  const fmt = SNN.fmt;
-
-  /* ---------------- network builder ---------------- */
-  const PRESETS = {
-    seed1: { resize: 64, T: 16, ds: "stride", norm: "bn", red: "flatten", fc: "",
-             layers: [{ ch: 32, k: 7, s: 2, pool: false }, { ch: 32, k: 7, s: 2, pool: false }] },
-    seed3: { resize: 64, T: 16, ds: "stride", norm: "bn", red: "flatten", fc: "",
-             layers: [{ ch: 32, k: 7, s: 2, pool: false }, { ch: 32, k: 7, s: 2, pool: false }, { ch: 32, k: 7, s: 2, pool: false }] },
-    default: { resize: 0, T: 16, ds: "stride", norm: "bn", red: "flatten", fc: "512",
-             layers: [{ ch: 128, k: 3, s: 2, pool: false }, { ch: 128, k: 3, s: 2, pool: false }, { ch: 128, k: 3, s: 2, pool: false }] },
-    perlayer: { resize: 64, T: 16, ds: "stride", norm: "bn", red: "flatten", fc: "256",
-             layers: [{ ch: 32, k: 7, s: 2, pool: false }, { ch: 64, k: 5, s: 1, pool: true }, { ch: 32, k: 5, s: 2, pool: false }] },
-    gap: { resize: 64, T: 16, ds: "stride", norm: "bn", red: "gap", fc: "512",
-             layers: [{ ch: 64, k: 5, s: 2, pool: false }, { ch: 64, k: 5, s: 2, pool: false }, { ch: 64, k: 5, s: 2, pool: false }] },
-    collapse: { resize: 32, T: 8, ds: "stride", norm: "bn", red: "flatten", fc: "",
-             layers: [{ ch: 32, k: 7, s: 2, pool: false }, { ch: 32, k: 7, s: 2, pool: false }, { ch: 32, k: 7, s: 2, pool: false }, { ch: 32, k: 7, s: 2, pool: false }, { ch: 32, k: 7, s: 2, pool: false }] }
-  };
-  let layers = JSON.parse(JSON.stringify(PRESETS.seed1.layers));
-
-  const CH_OPTS = [16, 32, 64, 128, 256];
-  const K_OPTS = [3, 5, 7];
-  const S_OPTS = [1, 2];
-
-  function renderLayerTable() {
-    const tb = $("nb-layers").querySelector("tbody");
-    tb.innerHTML = layers.map((L, i) => `
-      <tr>
-        <td class="layer-name">conv${i}</td>
-        <td><select data-i="${i}" data-f="ch">${CH_OPTS.map(c => `<option ${c === L.ch ? "selected" : ""}>${c}</option>`).join("")}</select></td>
-        <td><select data-i="${i}" data-f="k">${K_OPTS.map(c => `<option ${c === L.k ? "selected" : ""}>${c}</option>`).join("")}</select></td>
-        <td><select data-i="${i}" data-f="s">${S_OPTS.map(c => `<option ${c === L.s ? "selected" : ""}>${c}</option>`).join("")}</select></td>
-        <td><input type="checkbox" data-i="${i}" data-f="pool" ${L.pool ? "checked" : ""} style="accent-color:var(--accent);width:15px;height:15px;"></td>
-        <td>${layers.length > 1 ? `<button class="btn small" data-del="${i}">×</button>` : ""}</td>
-      </tr>`).join("");
-    tb.querySelectorAll("select,input").forEach(el => {
-      el.addEventListener("change", () => {
-        const i = +el.dataset.i, f = el.dataset.f;
-        if (f === "pool") layers[i].pool = el.checked;
-        else layers[i][f] = parseInt(el.value, 10);
-        update();
-      });
-      // style the inline selects
-      if (el.tagName === "SELECT") {
-        el.style.cssText = "background:var(--bg-3);color:var(--text);border:1px solid var(--border-2);border-radius:6px;padding:4px 7px;font-family:var(--mono);font-size:12px;";
-      }
-    });
-    tb.querySelectorAll("[data-del]").forEach(b => b.addEventListener("click", () => {
-      layers.splice(+b.dataset.del, 1); renderLayerTable(); update();
-    }));
-  }
-
-  function currentCfg() {
-    const resize = parseInt($("nb-resize").value, 10);
-    return {
-      input: SNN.inputSpec({ resize_to: resize, T: parseInt($("nb-T").value, 10) }),
-      encoder: SNN.encoderSpec({
-        layers: layers.map(L => ({ out_channels: L.ch, kernel_size: L.k, stride: L.s, pool: L.pool })),
-        norm: $("nb-norm").value, bias: $("nb-norm").value === "none"
-      }),
-      output: SNN.outputSpec(),
-      downsample: SNN.downsampleSpec({ mode: $("nb-ds").value }),
-      head: SNN.headSpec({ final_reduction: $("nb-red").value, fc_widths: $("nb-fc").value }),
-      neuron: SNN.neuronSpec()
-    };
-  }
-
-  function update() {
-    const cfg = currentCfg();
-    const [feasible, violations] = SNN.checkFeasibility(cfg.input, cfg.encoder, cfg.downsample, cfg.head, cfg.output);
-
-    let counts = null, planErr = null;
-    try { counts = SNN.countNeuronsAndSynapses(cfg); }
-    catch (e) { planErr = e.message; }
-
-    // ---- flow diagram ----
-    const flow = $("nb-flow");
-    const [ih, iw] = SNN.effectiveHW(cfg.input);
-    let fhtml = `<div class="flow-box input"><div class="fb-kind">input</div><div class="fb-shape">${cfg.input.C}×${ih}×${iw}</div><div class="fb-meta">T=${cfg.input.T} · ${fmt(ih * iw * cfg.input.C)} axons</div></div>`;
-    if (counts) {
-      for (const b of counts.plan.blocks) {
-        fhtml += `<div class="flow-arrow">→</div>
-          <div class="flow-box"><div class="fb-kind">conv${b.index}${b.pool ? "+pool" : ""}</div>
-          <div class="fb-shape">${b.out_channels}×${b.out_hw[0]}×${b.out_hw[1]}</div>
-          <div class="fb-meta">k=${b.kernel_size} s=${b.stride}${b.pool ? " → pool/2" : ""}</div></div>`;
-      }
-      fhtml += `<div class="flow-arrow">→</div>
-        <div class="flow-box head"><div class="fb-kind">${counts.plan.reduction}</div>
-        <div class="fb-shape">${fmt(counts.plan.fc_in_features)}</div><div class="fb-meta">features to head</div></div>`;
-      for (const l of counts.plan.linears) {
-        fhtml += `<div class="flow-arrow">→</div>
-          <div class="flow-box head"><div class="fb-kind">${l.is_classifier ? "classifier" : "fc" + l.index}</div>
-          <div class="fb-shape">${fmt(l.out_features)}</div><div class="fb-meta">${l.is_classifier ? "gesture scores" : "hidden"}</div></div>`;
-      }
-    } else {
-      fhtml += `<div class="flow-arrow">→</div><div class="flow-box" style="border-color:var(--bad);"><div class="fb-kind" style="color:var(--bad);">plan failed</div><div class="fb-meta">${planErr}</div></div>`;
-    }
-    flow.innerHTML = fhtml;
-
-    // ---- cost table ----
-    const tb = $("nb-cost");
-    if (counts) {
-      tb.innerHTML = counts.rows.map(r =>
-        `<tr><td class="layer-name">${r.layer}</td><td style="font-family:var(--mono);font-size:12px;">${r.detail}</td>
-         <td class="num">${fmt(r.neurons)}</td><td class="num">${fmt(r.connections)}</td><td class="num">${fmt(r.params)}</td></tr>`).join("") +
-        `<tr class="total"><td>TOTAL</td><td></td><td class="num">${fmt(counts.totals.neurons)}</td><td class="num">${fmt(counts.totals.connections)}</td><td class="num">${fmt(counts.totals.params)}</td></tr>`;
-      $("nb-axons").textContent = fmt(counts.input_axons);
-      $("nb-axons").className = "val " + (counts.input_axons > SNN.AXON_LIMITS.total_axons ? "bad" : "good");
-      $("nb-neurons").textContent = fmt(counts.totals.neurons);
-      $("nb-conns").textContent = fmt(counts.totals.connections);
-      $("nb-params").textContent = fmt(counts.totals.params);
-      $("nb-updates").textContent = fmt(counts.neuron_updates_per_sample);
-      $("nb-flush").textContent = SNN.flushSteps(counts.plan);
-    } else {
-      tb.innerHTML = `<tr><td colspan="5" style="color:var(--bad);font-family:var(--mono);font-size:12.5px;">${planErr}</td></tr>`;
-      ["nb-axons", "nb-neurons", "nb-conns", "nb-params", "nb-updates", "nb-flush"].forEach(id => { $(id).textContent = "—"; $(id).className = "val"; });
-    }
-
-    // ---- verdict ----
-    $("nb-verdict").innerHTML = feasible
-      ? `<div class="verdict pass">PASS &nbsp;·&nbsp; HiAER-Spike feasibility <span class="why">every layer fits the chip's wiring budgets</span></div>`
-      : `<div class="verdict fail">FAIL &nbsp;·&nbsp; HiAER-Spike feasibility</div>
-         <ul class="violations">${violations.map(v => `<li>${v}</li>`).join("")}</ul>`;
-
-    // ---- CLI ----
-    const enc = layers.every(L => L.ch === layers[0].ch && L.k === layers[0].k && L.s === layers[0].s && !L.pool)
-      ? `--encoder depth=${layers.length} channels=${layers[0].ch} kernel_size=${layers[0].k} stride=${layers[0].s} norm=${$("nb-norm").value}`
-      : `--encoder norm=${$("nb-norm").value} layers_json='${JSON.stringify(layers.map(L => {
-          const d = { out_channels: L.ch, kernel_size: L.k, stride: L.s };
-          if (L.pool) d.pool = true;
-          return d;
-        }))}'`;
-    $("nb-cli").textContent =
-      `python Practice.py summary \\\n  --input resize_to=${$("nb-resize").value} T=${$("nb-T").value} \\\n  ${enc} \\\n  --downsample mode=${$("nb-ds").value} \\\n  --head final_reduction=${$("nb-red").value} fc_widths=${$("nb-fc").value || ""}`;
-  }
-
-  function loadPreset(name) {
-    const p = PRESETS[name];
-    $("nb-resize").value = String(p.resize);
-    $("nb-T").value = String(p.T);
-    $("nb-ds").value = p.ds;
-    $("nb-norm").value = p.norm;
-    $("nb-red").value = p.red;
-    $("nb-fc").value = p.fc;
-    layers = JSON.parse(JSON.stringify(p.layers));
-    renderLayerTable();
-    update();
-  }
-
-  $("nb-preset").addEventListener("change", e => loadPreset(e.target.value));
-  ["nb-resize", "nb-T", "nb-ds", "nb-norm", "nb-red"].forEach(id => $(id).addEventListener("change", update));
-  $("nb-fc").addEventListener("input", update);
-  $("nb-add").addEventListener("click", () => {
-    if (layers.length >= 6) return;
-    layers.push({ ch: 32, k: 5, s: 2, pool: false });
-    renderLayerTable(); update();
-  });
-  loadPreset("seed1");
-})();
-</script>
+<script src="assets/demo-architecture.js"></script>
 </body>
 </html>

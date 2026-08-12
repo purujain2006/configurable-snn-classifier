@@ -5,13 +5,13 @@
 
   /* ---------- navigation ---------- */
   const PAGES = [
-    ["index.html", "01", "Big picture"],
-    ["neurons.html", "02", "Spiking neurons"],
-    ["architecture.html", "03", "Architecture"],
-    ["hardware.html", "04", "Hardware & quantization"],
-    ["training.html", "05", "Data & training"],
+    ["index.html", "01", "The problem"],
+    ["neurons.html", "02", "The neuron"],
+    ["architecture.html", "03", "The architecture"],
+    ["hardware.html", "04", "Fitting the chip"],
+    ["training.html", "05", "Training"],
     ["search.html", "06", "The search"],
-    ["reference.html", "07", "Code reference"]
+    ["reference.html", "07", "Reference"]
   ];
 
   function currentPage() {

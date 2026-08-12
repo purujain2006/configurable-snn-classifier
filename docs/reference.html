@@ -3,8 +3,8 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Code Reference — Configurable SNN Classifier, Explained</title>
-<meta name="description" content="Every class and function in Practice2.py, grouped by section, explained in plain English. Searchable.">
+<title>Reference — Configurable SNN Classifier</title>
+<meta name="description" content="Every class and function in Practice2.py, grouped by section, with its signature and the reason it exists.">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' fill='%23000'/><path d='M3 22h5l3-13 4 19 3-11h4l2 5h5' fill='none' stroke='%23e0a94f' stroke-width='2.4' stroke-linejoin='round'/></svg>">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -15,227 +15,36 @@
 
 <header class="hero">
   <div class="hero-inner">
-    <p class="kicker">Chapter 7 · Reference</p>
-    <h1>Every function,<br>explained in one place</h1>
+    <p class="kicker">Page 7</p>
+    <h1>Reference</h1>
     <p class="lede">
-      A guided index of <code>Practice2.py</code>, grouped by the file's own sections — what each
-      thing does, why it exists, which traps its docstring warns about. Try searching
-      "fold", "flush", "pickle", or "threshold".
+      An index of <code>Practice2.py</code> grouped by the file's own numbered sections. Each entry
+      gives the signature, what the code does, and the reason it exists. Links point back to the
+      page that covers the surrounding decision.
     </p>
   </div>
 </header>
 
 <main>
 <div class="wrap">
-  <input type="text" class="search-box" id="ref-search" placeholder="Filter by name or keyword… (e.g. fold, flush, tau, pickle, feasib)">
+  <input type="text" class="search-box" id="ref-search" placeholder="Filter by name or keyword, for example fold, flush, tau, pickle">
   <div id="ref-list"></div>
-  <p class="footnote" style="margin-top:30px;">Naming note: private helpers are prefixed <code>_</code> per Python convention. Entries here follow the file's order. For the interactive versions of the math functions, see the chapters linked inline.</p>
+  <p class="footnote" style="margin-top:34px;">
+    Names beginning with an underscore are internal helpers. Entries follow the order of the file.
+  </p>
 </div>
 </main>
 
 <nav class="foot-nav">
-  <a class="prev" href="search.html"><span class="dir">← Previous</span><span class="pg">06 · The hyperparameter search</span></a>
-  <a class="next" href="index.html"><span class="dir">Back to start</span><span class="pg">01 · The big picture</span></a>
+  <a class="prev" href="search.html"><span class="dir">Previous</span><span class="pg">06 &#183; The search</span></a>
+  <a class="next" href="index.html"><span class="dir">Return to</span><span class="pg">01 &#183; The problem</span></a>
 </nav>
 <footer class="site-foot">
-  <span>An interactive explainer for <a href="https://github.com/purujain2006/configurable-snn-classifier">configurable-snn-classifier</a></span>
-  <span>All demo math is ported from <code>Practice2.py</code> and verified against it.</span>
+  <span>Documentation for <a href="https://github.com/purujain2006/configurable-snn-classifier">configurable-snn-classifier</a></span>
+  <span>Interactive demonstrations use the same arithmetic as <code>Practice2.py</code>, verified against it.</span>
 </footer>
 
 <script src="assets/site.js"></script>
-<script>
-(function () {
-"use strict";
-const R = [
-{g:"§1 · Configuration dataclasses"},
-{n:"InputSpec", k:"dataclass", s:"N=16, C=2, H=128, W=128, T=16, resize_to=0", o:"The input's shape contract: batch size, polarity channels, sensor resolution, timesteps, optional square resize.",
- b:"resize_to=0 means feed the native 128×128 straight through — which can never pass feasibility (32,768 axons > 16,383), so real configs use 32 or 64. T is the number of time-slices each gesture clip is chopped into. <a href='architecture.html#configs'>Ch. 3.1</a>."},
-{n:"effective_hw", k:"function", s:"effective_hw(input_cfg) -> (H, W)", o:"The one place that resolves 'native or resized?' into concrete height/width.",
- b:"Tiny, but it prevents the classic bug of half the code using H,W and the other half using resize_to. Everything downstream calls this."},
-{n:"ConvLayerSpec", k:"dataclass", s:"out_channels, kernel_size, stride, padding, dilation, pool, tau, v_threshold", o:"One conv layer's complete geometry — every knob per-layer, plus optional per-layer neuron overrides.",
- b:"tau/v_threshold default to None = 'use the global NeuronSpec'. Per-LAYER neuron settings are supported (and deploy for free, since the chip reads a neuron model per neuron); per-CHANNEL was 'deliberately not offered — usually too many degrees of freedom for this dataset.'"},
-{n:"EncoderSpec", k:"dataclass", s:"depth, channels, kernel_size, stride, … layers_json, bias, norm, tdbn_alpha", o:"The conv stack, specifiable two ways: uniform fields (every layer identical) or a per-layer JSON list that wins when present.",
- b:"norm ∈ {none, bn, tdbn}. bias is encoder-wide; the model forces bias on when norm='none' (a conv with no normalization and no bias would have every output channel locked to zero mean). <a href='architecture.html#perlayer'>Ch. 3.6</a>."},
-{n:"resolve_conv_layers", k:"function", s:"resolve_conv_layers(encoder_cfg) -> list[ConvLayerSpec]", o:"Collapses either encoder style into one canonical per-layer list.",
- b:"Validates layers_json strictly — unknown keys raise with the list of valid ones. Downstream code (planner, checker, cost model, model builder) only ever sees the canonical form."},
-{n:"OutputSpec", k:"dataclass", s:"num_classes=11", o:"How many gestures to distinguish.", b:"Eleven classes in DVS128 Gesture, including the 'other' category."},
-{n:"DownsampleSpec", k:"dataclass", s:"mode='stride'|'pool', pool_type, pool_kernel_size=2, pool_stride=2", o:"The global policy for how feature maps shrink between layers.",
- b:"mode='stride' downsamples inside the conv (stride 2); mode='pool' uses stride-1 convs followed by 2×2 pooling. Individual layers can override with their own pool=True flag. <a href='architecture.html#planning'>Ch. 3.2</a>."},
-{n:"HeadSpec", k:"dataclass", s:"final_reduction='flatten'|'gap', fc_widths='512', dropout_rate=0.5", o:"The classifier head: how conv output becomes a vector, and any hidden FC layers before the 11-way classifier.",
- b:"fc_widths is a comma string ('512,256'); empty means straight to the classifier — which is what every winning config did. <a href='architecture.html#head'>Ch. 3.4</a>."},
-{n:"NeuronSpec", k:"dataclass", s:"neuron_type='LIF', tau=2 (int!), v_threshold=1.0, v_reset=0.0, trainable_tau, trainable_threshold", o:"The global neuron recipe.",
- b:"The comment on tau is load-bearing: it's an INTEGER because HiAER-Spike's leak register is an integer — 'a continuous tau in [1.5, 2.5] deploys as leak=2 for EVERY value in the range: the dimension exists in training and vanishes on chip.' <a href='neurons.html#intleak'>Ch. 2.4</a>."},
-{n:"TrainSpec", k:"dataclass", s:"epochs, optimizer, lr, weight_decay, scheduler, warmup_epochs, label_smoothing, grad_clip, qat_mode, qat_warmup_frac, qat_epochs, qat_lr_scale, fold_bias_mode", o:"The optimization recipe — 'everything that affects training but not shape.'",
- b:"qat_mode ∈ {inline (default), tail, ptq} picks how the run reaches the INT16 grid; fold_bias_mode='threshold' is the only mode the current converter deploys. <a href='hardware.html#qat'>Ch. 4.5</a>."},
-{n:"parse_fc_widths", k:"function", s:"parse_fc_widths('512,256') -> [512, 256]", o:"Comma string → validated list of positive ints; ''/'none'/'0' → [].", b:"Rejects non-positive widths with a clear message."},
-{n:"fill_from_kv", k:"function", s:"fill_from_kv(schema_cls, ['T=16', 'resize_to=64']) -> instance", o:"Generic key=value → dataclass filler that powers the whole CLI.",
- b:"Reads the dataclass's own field list for validity and types, supports aliases (old batchnorm=true still works via _FIELD_ALIASES), and fails legibly on unknown keys. Adding a config field automatically adds its CLI flag. <a href='architecture.html#configs'>Ch. 3.1</a>."},
-{n:"build_config_parser / parse_config", k:"function", s:"parse_config(argv) -> {'input': InputSpec, 'encoder': …, …}", o:"Defines the seven --group flags and assembles the full config dict used everywhere.",
- b:"parse_known_args ignores unrelated argv entries so the config parser can be a parent of each subcommand's parser."},
-
-{g:"§2 · Shape planning — one source of truth"},
-{n:"InfeasibleConfig", k:"exception", s:"class InfeasibleConfig(ValueError)", o:"Raised when a config cannot be built at all (feature map collapses below the kernel).",
- b:"Turning 'impossible network' into a typed exception is what lets the search treat it as data (score 0) instead of a crash."},
-{n:"conv_out_size", k:"function", s:"conv_out_size(size, k, s, p, d=1) -> int", o:"The standard conv output-size formula: ⌊(size + 2p − d(k−1) − 1)/s⌋ + 1.",
- b:"Interactive in <a href='architecture.html#builder'>chapter 3's builder</a>."},
-{n:"ConvBlockPlan / LinearPlan / NetPlan", k:"dataclass", s:"NetPlan(blocks, linears, reduction, encoder_out_c, encoder_out_hw, fc_in_features)", o:"The network 'on paper': every layer's exact in/out geometry, before anything real is built.",
- b:"conv_out_hw is 'where the LIF neurons live' (post-conv); out_hw is post-pool and feeds the next block. The plan is consumed by the model builder, the feasibility checker, and the cost model — the trio can't disagree because they share it."},
-{n:"plan_encoder", k:"function", s:"plan_encoder(input, encoder, downsample) -> list[ConvBlockPlan]", o:"Walks the conv stack computing shapes, with the can-shrink guard and per-layer downsample priority.",
- b:"Three rules per layer: (1) if the map is ≤3×3, force stride 1 + size-preserving padding; (2) downsample source priority: per-layer pool=True → global stride mode → stride-1; (3) raise InfeasibleConfig with a precise message if the spatial size would collapse. <a href='architecture.html#planning'>Ch. 3.2</a>."},
-{n:"plan_network", k:"function", s:"plan_network(input, encoder, output, downsample, head) -> NetPlan", o:"plan_encoder + the head: computes flatten/GAP feature count and the FC chain dims.",
- b:"fc_in = C×H×W for flatten, just C for GAP — the single number that decides most feasibility outcomes."},
-
-{g:"§3 · HiAER-Spike feasibility"},
-{n:"AXON_LIMITS / NEURON_LIMITS", k:"constant", s:"total_axons=16383 · axon fan_out=4096 / fan_in=8191 · neuron fan_out=4095 / fan_in=8159", o:"The chip's wiring budgets, transcribed as dictionaries.",
- b:"Block 0 consumes axon budgets (raw input lines); every later layer uses neuron budgets. <a href='hardware.html#limits'>Ch. 4.1</a>."},
-{n:"check_feasibility", k:"function", s:"check_feasibility(input, encoder, downsample, head, output) -> (bool, [violations])", o:"Walks the whole plan — conv encoder AND FC head — applying the wiring formulas per layer.",
- b:"fan_in = k²·C_in; fan_out = ⌈k/s⌉²·C_out, except the LAST conv block whose fan-out is the first FC layer's width ('there is no next conv for it to feed'). Both corrections vs. the original version are documented: the head used to be unchecked entirely. Runs in microseconds, gates the search for free. Live in <a href='architecture.html#builder'>ch. 3's builder</a>."},
-
-{g:"§4 · Cost model & summary"},
-{n:"count_neurons_and_synapses", k:"function", s:"count_neurons_and_synapses(cfg) -> {rows, totals, input_axons, neuron_updates_per_sample, plan}", o:"Per-layer and total counts of the three different 'sizes': spiking neurons, realized synapses, trainable parameters.",
- b:"The docstring pins the definitions: neurons counted once (not per timestep); connections = out_C·H_out·W_out·(k²·in_C), much larger than params because of weight sharing; params = trainable floats. Also notes tdBN costs the same 2 params/channel as BN. <a href='architecture.html#cost'>Ch. 3.5</a>."},
-{n:"format_summary", k:"function", s:"format_summary(cfg) -> str", o:"The human-readable architecture + feasibility + cost table — 'the thing to paste into a write-up.'",
- b:"Includes the exact hardware neuron line (LIF_neuron(threshold=…, shift=0, leak=…)), pipeline flush steps, and the PASS/FAIL verdict with violations. This is what summary mode prints."},
-
-{g:"§4b · The INT16 deployment grid"},
-{n:"W_BITS / W_ALPHA / INT16_MAX / W_DELTA", k:"constant", s:"16 · 1.0 · 32767 · 1/32767", o:"The chip's numeric grid, 'read off hs_api, not chosen.'",
- b:"Three documented consequences: weights hard-clamped to [−1,1] (the dominant source of float-to-chip loss, and nothing warns); thresholds must sit in (0,1] to quantize legally; the leak is an integer. <a href='hardware.html#int16'>Ch. 4.2</a>."},
-{n:"HW_TAU_CHOICES", k:"constant", s:"[2, 3, 4, 6, 8, 16, 32, 63]", o:"The integer leaks worth searching.",
- b:"Coarse at the small end 'because the hardware register is coarse there — tau 2 and tau 3 are genuinely different networks, tau 2.1 and 2.4 are the same network.' 63 matches the known-working DVS conversion. <a href='neurons.html#intleak'>Ch. 2.4</a>."},
-{n:"_ste", k:"function", s:"_ste(quantized, original) = original + (quantized − original).detach()", o:"The straight-through estimator in one line: forward = quantized value, backward = gradient flows to the float.",
- b:"Used by weight quantization, threshold quantization, and the learnable integer τ. <a href='hardware.html#ste'>Ch. 4.4</a>."},
-{n:"fake_quantize_weight", k:"function", s:"fake_quantize_weight(w) -> tensor", o:"Bit-exact differentiable mirror of the converter's weight quantizer: clamp to ±1, round to 32,767 levels per side, STE backward.",
- b:"'The clamp is the part that matters: it makes an out-of-range folded weight visible to the loss instead of a surprise after conversion.' Interactive in <a href='hardware.html#int16'>ch. 4.2</a>."},
-{n:"fake_quantize_threshold / quantized_threshold_int", k:"function", s:"θ → grid float in (0,1] · θ → int in [1, 32767]", o:"The threshold's two representations: the float the chip's integer actually encodes, and that integer itself.",
- b:"Clamped so int(θ/w_delta) is always a legal INT16 threshold."},
-{n:"weight_clip_fraction", k:"function", s:"weight_clip_fraction(net) -> float", o:"Share of conv/linear weights outside the representable [−1, 1].",
- b:"Docstring: 'Call on the FOLDED net — pre-fold numbers are meaningless.' Compared against the 2% budget in deployment_report."},
-
-{g:"§5 · The model"},
-{n:"TdBatchNorm2d", k:"class", s:"TdBatchNorm2d(num_features, alpha, v_threshold)", o:"tdBN (Zheng et al.): BatchNorm whose statistics span (T, N, H, W) — one normalization for the whole time sequence — with γ initialized to α·θ.",
- b:"Cleverly implemented as a nearly-empty subclass: SpikingJelly's multi-step mode already flattens (T,N) into one batch axis before BatchNorm2d, which IS tdBN's reduction — so only the initialization needs overriding. Foldable at inference like ordinary BN. Requires the whole net to run in multi-step mode, which is why norm='tdbn' flips step_mode='m'."},
-{n:"HardwareLIFNode", k:"class", s:"HardwareLIFNode(tau=2, v_threshold=1.0, v_reset=0.0, learn_tau, learn_threshold, …)", o:"THE neuron of this codebase: the chip's exact dynamics (fire→reset→leak→integrate, integer leak, raw undecayed input, grid-quantized threshold), trained directly.",
- b:"Replaces LIFNode/ParametricLIFNode/LearnableThresholdLIF on every path; the docstring enumerates the three differences that 'change the answer.' hw_tau rounds with STE when learned; v_threshold is sigmoid-parametrized into (0,1] when learned; raw_v_threshold() exposes the UNclamped value so the legality check can't be fooled by the safety clamp; hw_leak()/hw_threshold_int() report the exact integers the chip gets. The whole of <a href='neurons.html'>chapter 2</a> is about this class."},
-{n:"_WeightFakeQuant", k:"class", s:"parametrization: module.weight reads back INT16-quantized", o:"PyTorch parametrization wrapper so every use of .weight sees the quantized value while gradients hit the float.",
- b:"Registered by enable_weight_fake_quant on every conv/linear."},
-{n:"ConvBNFoldQuant", k:"class", s:"ConvBNFoldQuant(conv, bn, bias_mode='threshold', quantize=True)", o:"Inline QAT: one module replacing a (Conv, BN) pair, whose every forward folds from BN's RUNNING stats, fake-quantizes W′, and routes b′ to the downstream neuron's threshold.",
- b:"Why running (not batch) stats: 'the chip folds the running statistics — that is the number that deploys'; batch stats would make the deployed weight flicker per-minibatch. BN's γ/β/stats still update via a cheap statistics-only pass, so the fold tracks the data. export_folded_conv() freezes it into a plain conv at the end. <a href='hardware.html#qat'>Ch. 4.5</a>."},
-{n:"_LegacyLearnableThresholdLIF", k:"class", s:"(kept for old checkpoints only)", o:"The previous trainable-threshold neuron — explicitly NOT deployable (continuous τ, wrong operation order).",
- b:"Its docstring is a mini-essay on learnable thresholds: gradient reaches θ only through the surrogate; softplus keeps θ > 0; weight/threshold scale coupling means it's most stable WITH BatchNorm; per-layer only. New runs use HardwareLIFNode."},
-{n:"build_neuron", k:"function", s:"build_neuron(neuron_cfg, tau, v_threshold) -> HardwareLIFNode", o:"One neuron group, always the deployable neuron — trainability is a flag, not a different class.",
- b:"Rejects neuron_type ≠ 'LIF' with a NotImplementedError explaining what the converter would need first. The 'no nice-neuron-then-convert path' manifesto lives here."},
-{n:"DVSGesturePuru", k:"class", s:"DVSGesturePuru(input, encoder, output, downsample, head, neuron)", o:"The network itself — built directly from the §2 plan 'so it cannot drift from the checker.'",
- b:"Per plan block: Conv2d (bias only if norm='none' or requested) → BN/tdBN → HardwareLIFNode → optional pool. Then flatten or GAP+flatten, then [dropout → bias-free Linear → neuron] per FC layer. step_mode='m' iff tdbn (statistics must span T). Also carries to_qat_folded() (swap pairs for ConvBNFoldQuant, wire bias sinks — idempotent) and export_deployed() (freeze to the BN-free INT16 network, bake b′ into per-channel thresholds)."},
-
-{g:"§5b · BatchNorm folding"},
-{n:"_fold_conv_bn_params", k:"function", s:"(W, b, γ, β, μ, σ², ε) -> (W′, b′)", o:"The pure-math fold: W′ = W·γ/√(σ²+ε), b′ = β + (b − μ)·γ/√(σ²+ε).",
- b:"Written array-library-agnostic (numpy or torch) so tests can verify it without a GPU stack. Interactive in <a href='hardware.html#folding'>ch. 4.3</a>."},
-{n:"fold_bn", k:"function", s:"fold_bn(net, bias_mode='conv'|'threshold') -> folded deep copy", o:"Returns a BN-free twin of the network, with b′ either kept on the conv (exact) or moved into per-channel neuron thresholds θ′ = θ − b′ (the deployment route).",
- b:"Refuses to run in train mode ('fold from running stats, not batch stats — the single most common cause of a folding-lost-accuracy report'). Freezes learned thresholds after folding (the fold would otherwise be silently discarded), and hand-moves per-channel threshold tensors to the right device since they're not registered buffers."},
-{n:"fold_bias_report", k:"function", s:"fold_bias_report(net) -> [{conv_index, mean/max |b′|/θ}]", o:"The safety metric for threshold-mode folding: how big is the manufactured bias relative to the threshold?",
- b:"'|b′| ~ 0.1·θ folds cleanly; ~0.5·θ does not.' Call before folding, on the trained eval-mode net."},
-{n:"verify_fold", k:"function", s:"verify_fold(bn_net, folded_net, loader, device) -> {pred_agreement, max_abs_logit_diff, acc_bn, acc_folded, acc_delta}", o:"Three-level fold verification, ordered to localize bugs: prediction agreement (must be 1.0 for exact fold) → max logit diff (~1e-5 fp32) → accuracies.",
- b:"'Test accuracy alone is too coarse to catch a subtly wrong fold.' <a href='hardware.html#verify'>Ch. 4.6</a>."},
-
-{g:"§5c · Deployment gating"},
-{n:"DEPLOY_LIMITS", k:"constant", s:"min_threshold=0.0 (blocking) · max_weight_clip_frac=0.02 (warning)", o:"The two deployment thresholds: an illegal folded threshold blocks; heavy clipping only warns.",
- b:"The asymmetry is deliberate: a θ′ ≤ 0 neuron fires unconditionally (network unrepresentable → score 0), while clipping is damage QAT can train against and the hardware metric already prices in."},
-{n:"enable_weight_fake_quant / bake_weight_fake_quant", k:"function", s:"register / collapse the weight parametrization", o:"Turn INT16 weight emulation on for training, then bake the quantized values into the state_dict for export.",
- b:"Built on torch.nn.utils.parametrize; baking uses leave_parametrized=True so saved checkpoints hold the chip's numbers."},
-{n:"deployment_report", k:"function", s:"deployment_report(net) -> {neurons, weight_clip_frac, min_threshold, deployable, blocking_reasons, warnings}", o:"The legality audit of the folded/quantized net: per-layer integer leaks and threshold ranges, clip fraction, and the deployable verdict.",
- b:"Reads raw_v_threshold() — the UNclamped threshold — because 'the clamp must never be what the deployment check looks at, or a fold that drove θ negative would be reported as fine and then fire unconditionally on chip.'"},
-{n:"hardware_export", k:"function", s:"hardware_export(net) -> {w_alpha, w_bits, w_delta, int16_max, flush_steps, neuron_layers: […]}", o:"Everything the converter needs, per spiking layer: integer threshold(s), integer leak, shift — 'with nothing left to hardcode.'",
- b:"Exists to delete two pasted lines (threshold=32767, leak_lif=63) from the conversion script — 'those two lines are why per-layer neurons were impossible.' <a href='hardware.html#qat'>Ch. 4.5</a>."},
-{n:"deploy_and_measure", k:"function", s:"deploy_and_measure(net, cfg, train_loader, val_loader, device) -> (hw_net, metrics)", o:"The tail/ptq path: fold → measure → quantize → measure → optional QAT fine-tune (best epoch kept) → bake → final hardware accuracy + deployment report.",
- b:"Returns the metric dict whose hw_val_accuracy 'is the number the search optimizes.' The inline path achieves the same endpoint inside run_training instead."},
-
-{g:"§6–7 · Data, optimizers"},
-{n:"DVSResizeAndBinarize", k:"class", s:"transform: (T,C,H,W) frames -> resized, binarized {0,1}", o:"Bilinear-resize each frame then threshold at zero — deliberately OR-pooling, not averaging.",
- b:"'No events are lost, but event density per pixel rises at low resolutions.' Interactive in <a href='training.html#binarize'>ch. 5.2</a>."},
-{n:"build_dataloaders", k:"function", s:"build_dataloaders(cfg, data_dir, val_fraction=0.15) -> (train, val, test)", o:"DVS128Gesture in frame mode (split_by='number'), seeded 85/15 train/val split, padded-batch collate.",
- b:"Three documented traps avoided: seeded split (comparable trials), drop_last only on train (unbiased eval), num_workers=0 (no nested multiprocessing under Ray, especially on Windows). <a href='training.html#dataset'>Ch. 5.1</a>."},
-{n:"build_optimizer", k:"function", s:"build_optimizer(net, train_cfg) -> Adam | AdamW | SGD(nesterov)", o:"Optimizer factory with the classic-Adam-vs-AdamW weight-decay caveat in a comment.",
- b:"Decay matters more than usual here — it's the lever keeping folded weights inside [−1,1] (ch. 4.3)."},
-{n:"build_scheduler", k:"function", s:"build_scheduler(optimizer, train_cfg, steps_per_epoch) -> (scheduler, step_per_batch)", o:"Cosine / step / onecycle / none, with optional linear warmup composed via SequentialLR.",
- b:"Returns whether to step per-batch (onecycle) or per-epoch. Interactive shapes in <a href='training.html#loop'>ch. 5.5</a>."},
-
-{g:"§8 · Train / evaluate"},
-{n:"hardware_flush_steps", k:"function", s:"hardware_flush_steps(net) -> int  (= number of spiking layers)", o:"How many zero-input timesteps drain the pipeline after the clip ends.",
- b:"Because the hardware neuron fires on the previous step's membrane, each layer delays output by one tick. 'Without the flush, the last frames' evidence never reaches the classifier and deployed accuracy is lower — for no reason visible in the config.' Animated in <a href='training.html#flush'>ch. 5.4</a>."},
-{n:"forward_over_time", k:"function", s:"forward_over_time(net, x, flush_steps=None) -> rates", o:"THE forward pass: run T input steps + flush steps of zeros, accumulate output spikes, divide by T (not T+flush), reset all neuron state.",
- b:"'Mirrors the conversion script's measurement exactly.' Single-step nets loop explicitly; tdBN nets get the whole (T,N,…) tensor at once because their statistics span T."},
-{n:"train_one_epoch / evaluate", k:"function", s:"one epoch of BPTT-through-spikes / accuracy over a loader", o:"The standard loops: forward_over_time → cross-entropy → backward → (clip) → step; eval under no_grad.",
- b:"The collate's lengths output is safely ignored (split_by='number' makes every sample exactly T frames — the comment explains why). <a href='training.html#loop'>Ch. 5.5</a>."},
-{n:"run_training", k:"function", s:"run_training(cfg, data_dir, device, report_fn, ckpt_path) -> {float_val_accuracy, hw_val_accuracy, quant_gap, …}", o:"The shared full-run engine used by single mode and every search trial: float warmup → inline fold → on-grid training → export_deployed → hardware measurement.",
- b:"Splits the epoch budget by qat_warmup_frac (clamped so both phases exist), keeps best-epoch weights per phase, reports every epoch into a continuous trajectory (so ASHA sees warmup + grid as one curve), and saves a checkpoint containing both networks, the config, metrics, and the hardware_export table. <a href='training.html#loop'>Ch. 5.5</a>."},
-
-{g:"§9 · Dataset cache warmup"},
-{n:"_quiet_with_heartbeat", k:"context manager", s:"with _quiet_with_heartbeat('building cache…'):", o:"Captures SpikingJelly's hundreds of extraction print lines, emitting one calm heartbeat every 20 s instead — and dumps the full captured log if the block fails.",
- b:"'Diagnostics are never lost.' Careful detail: it grabs the real stdout BEFORE redirecting, so the heartbeat thread can still print."},
-{n:"_class_dirs_have_npz (+ _extract/_events_np/_frame_cache_is_complete)", k:"function", s:"cache completeness probes", o:"Tell a genuinely finished cache apart from one that is 'merely present-but-half-built' — every class folder must exist and contain samples.",
- b:"Half-built caches (from a crash or a race) are detected and rebuilt rather than trusted."},
-{n:"warmup_dataset_cache", k:"function", s:"warmup_dataset_cache(data_dir, T_values)", o:"Sequentially pre-builds the frame cache for every T the search will sample, BEFORE parallel trials start.",
- b:"'Parallel trials sampling the same T race to build the same shared folder and can leave it corrupted.' Caching depends only on (frames_number, split_by), so warming T alone suffices. <a href='training.html#dataset'>Ch. 5.1</a>."},
-
-{g:"§10 · The search"},
-{n:"config_to_specs", k:"function", s:"config_to_specs(flat_config) -> structured cfg dict", o:"Bridges the two config worlds: Optuna/Ray's flat dict (k_0, ch_1, fc_width_0, …) → the structured dataclass dict everything else consumes.",
- b:"Assembles a per-layer encoder when per-layer keys are present, else uniform. Also where search-time invariants live: v_threshold starts at 1.0 (= exactly INT16_MAX), τ rounds to int."},
-{n:"CHANNEL_CHOICES / KERNEL_CHOICES / FC_WIDTH_CHOICES", k:"constant", s:"[32, 64] · [5, 7] · [128, 256, 512]", o:"The statistically-narrowed menus.",
- b:"Each carries its evidence in a comment — see the receipts table in <a href='search.html#narrow'>ch. 6.5</a>."},
-{n:"DefineByRunSpace", k:"class", s:"DefineByRunSpace(batch_size, epochs, data_dir, t_choices, per_layer)(trial) -> constants", o:"The Optuna define-by-run search space as a picklable, module-level callable object.",
- b:"Why a class: Ray checkpoints the searcher and pickle can't serialize closures — 'the study dies at the first checkpoint, minutes or hours in.' Why define-by-run: conditional dimensions (k_3 only exists at depth ≥ 4) so 'Optuna's surrogate never sees a dimension that had no effect on that trial's score.' Interactive in <a href='search.html#dbr'>ch. 6.4</a>."},
-{n:"SEED_CONFIGS", k:"constant", s:"3 known-good uniform configs, evaluated first", o:"Geometry priors from previous winners (depth 2–3, 32ch, k5/k7, resize 64, no hidden FC) so TPE 'branches out from the winners instead of rediscovering them.'",
- b:"With the honest caveat: their old scores were measured under the old float objective — neuron/regularization fields were moved onto the legal grid, 'so treat these as geometry seeds whose scores will not reproduce.'"},
-{n:"ResultsWriter", k:"class", s:"append_jsonl / write_json / write_text / append_csv / log", o:"Crash-proof streaming results: flush + fsync per record, atomic tmp-then-rename for JSON files, tail-able live.",
- b:"'A crash or Ctrl-C 30 hours into a search leaves you nothing' — this is the fix. <a href='search.html#results'>Ch. 6.6</a>."},
-{n:"validate_data_dir", k:"function", s:"validate_data_dir(path) -> abs path, or SystemExit with a real explanation", o:"Fails early and legibly on a bad --data-dir, instead of SpikingJelly's cryptic deep-stack FileNotFoundError.",
- b:"Explains the exact expected layout (download/DvsGesture.tar.gz …) and even diagnoses the 'root one level deeper' mistake."},
-{n:"export_trial_records", k:"function", s:"export_trial_records(results, out_dir) -> csv path", o:"Flattens every trial into {config × metrics × architecture counts} — jsonl (lossless) + csv (convenient) — 'what you actually load into pandas.'",
- b:"Recomputes feasibility/counts even for trials that never trained, so feasibility analysis covers the whole sample."},
-{n:"trainable", k:"function", s:"trainable(config)  — what each Ray process runs", o:"The three-tier funnel: instant feasibility rejection (score 0) → per-epoch float reports for ASHA → the final deploy-phase report carrying hw_val_accuracy as the selection metric.",
- b:"An undeployable config also scores 0 'regardless of how good its float accuracy looked.' <a href='search.html#funnel'>Ch. 6.2</a>."},
-{n:"_make_streaming_callback", k:"function", s:"driver-side tune.Callback wired to a ResultsWriter", o:"The single process that writes all shared files: per-epoch progress, new-best tracking (deploy-phase reports only), leaderboard rows, failure logs, progress counters.",
- b:"Pruned trials are recorded as 'pruned_before_deploy', never as 0.0 — 'which would be indistinguishable from a config that deployed and failed.' Logging failures are swallowed ('never let logging kill a search')."},
-{n:"run_search", k:"function", s:"run_search(args)  — the orchestra conductor", o:"Validates the data dir, warms caches, boots Ray, pickle-checks the space up front, wires OptunaSearch (metric=val_accuracy) + ASHA (metric=float_val_accuracy, max_t=epochs+1) + TargetAccuracyStopper, runs, exports, and reports the best by scope='last'.",
- b:"The metric/mode wiring comment is a defensive essay 'verified against ray 2.56, do not simplify' — TuneConfig must NOT get metric/mode because searcher and scheduler deliberately use different ones. scope='last' ranks by the deploy-phase report; the default scope would return a config's best FLOAT epoch, 'a config that never had that accuracy on hardware.' <a href='search.html'>Ch. 6</a>."},
-
-{g:"§11 · CLI entry points"},
-{n:"run_fold", k:"function", s:"python Practice.py fold --ckpt … --data-dir … [--bias-mode conv|threshold]", o:"Loads a trained checkpoint, prints the fold-bias safety report, folds, verifies (agreement/logit-diff/accuracies), quantizes, and exports the deployable artifacts.",
- b:"Saves: folded weights (.pth), plain-numpy per-layer arrays (.npz — 'what a hardware/converter pipeline usually wants, no torch needed to read'), and the per-layer neuron table (.json) with the printed reminder of how many flush steps the converter must run."},
-{n:"main", k:"function", s:"summary | single | fold | search", o:"Argument wiring for the four run modes, plus the single-mode console experience (streamed history, feasibility warning, the DEPLOYMENT scoreboard).",
- b:"Includes a targeted warnings filter for a noisy-but-harmless SequentialLR deprecation message, with a comment justifying why it's safe to silence."}
-];
-
-/* render */
-const list = document.getElementById("ref-list");
-let html = "";
-for (const e of R) {
-  if (e.g) { html += `<div class="ref-group-title">${e.g}</div>`; continue; }
-  html += `<details class="ref" data-search="${(e.n + " " + e.o + " " + e.b).toLowerCase().replace(/<[^>]+>/g, "")}">
-    <summary><span class="ref-name">${e.n}</span><span class="ref-kind">${e.k}</span><span class="ref-one">${e.o}</span></summary>
-    <div class="ref-body"><div class="ref-sig">${e.s}</div><p>${e.b}</p></div>
-  </details>`;
-}
-list.innerHTML = html;
-
-/* search */
-const box = document.getElementById("ref-search");
-box.addEventListener("input", () => {
-  const q = box.value.trim().toLowerCase();
-  document.querySelectorAll("#ref-list .ref").forEach(d => {
-    d.style.display = !q || d.dataset.search.includes(q) ? "" : "none";
-    if (q && d.dataset.search.includes(q)) d.open = q.length > 2;
-  });
-  document.querySelectorAll("#ref-list .ref-group-title").forEach(t => {
-    let el = t.nextElementSibling, any = false;
-    while (el && !el.classList.contains("ref-group-title")) {
-      if (el.classList.contains("ref") && el.style.display !== "none") { any = true; break; }
-      el = el.nextElementSibling;
-    }
-    t.style.display = any || !q ? "" : "none";
-  });
-});
-})();
-</script>
+<script src="assets/demo-reference.js"></script>
 </body>
 </html>
