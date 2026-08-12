@@ -1,0 +1,1046 @@
+{
+ "seed_d2_k7": {
+  "feasible": true,
+  "violations": [],
+  "rows": [
+   {
+    "layer": "conv0",
+    "detail": "2x64x64 -> 32x29x29  k=7 s=2 p=0",
+    "neurons": 26912,
+    "connections": 2637376,
+    "params": 3136
+   },
+   {
+    "layer": "bn0",
+    "detail": "BatchNorm2d(32)",
+    "neurons": 0,
+    "connections": 0,
+    "params": 64
+   },
+   {
+    "layer": "conv1",
+    "detail": "32x29x29 -> 32x12x12  k=7 s=2 p=0",
+    "neurons": 4608,
+    "connections": 7225344,
+    "params": 50176
+   },
+   {
+    "layer": "bn1",
+    "detail": "BatchNorm2d(32)",
+    "neurons": 0,
+    "connections": 0,
+    "params": 64
+   },
+   {
+    "layer": "classifier",
+    "detail": "4608 -> 11",
+    "neurons": 11,
+    "connections": 50688,
+    "params": 50688
+   }
+  ],
+  "totals": {
+   "neurons": 31531,
+   "connections": 9913408,
+   "params": 104128
+  },
+  "input_axons": 8192,
+  "neuron_updates_per_sample": 504496,
+  "blocks": [
+   {
+    "index": 0,
+    "in_channels": 2,
+    "out_channels": 32,
+    "kernel_size": 7,
+    "stride": 2,
+    "padding": 0,
+    "in_hw": [
+     64,
+     64
+    ],
+    "conv_out_hw": [
+     29,
+     29
+    ],
+    "pool": false,
+    "out_hw": [
+     29,
+     29
+    ]
+   },
+   {
+    "index": 1,
+    "in_channels": 32,
+    "out_channels": 32,
+    "kernel_size": 7,
+    "stride": 2,
+    "padding": 0,
+    "in_hw": [
+     29,
+     29
+    ],
+    "conv_out_hw": [
+     12,
+     12
+    ],
+    "pool": false,
+    "out_hw": [
+     12,
+     12
+    ]
+   }
+  ],
+  "linears": [
+   {
+    "index": 0,
+    "in_features": 4608,
+    "out_features": 11,
+    "is_classifier": true
+   }
+  ],
+  "fc_in_features": 4608
+ },
+ "seed_d3_k7": {
+  "feasible": true,
+  "violations": [],
+  "rows": [
+   {
+    "layer": "conv0",
+    "detail": "2x64x64 -> 32x29x29  k=7 s=2 p=0",
+    "neurons": 26912,
+    "connections": 2637376,
+    "params": 3136
+   },
+   {
+    "layer": "bn0",
+    "detail": "BatchNorm2d(32)",
+    "neurons": 0,
+    "connections": 0,
+    "params": 64
+   },
+   {
+    "layer": "conv1",
+    "detail": "32x29x29 -> 32x12x12  k=7 s=2 p=0",
+    "neurons": 4608,
+    "connections": 7225344,
+    "params": 50176
+   },
+   {
+    "layer": "bn1",
+    "detail": "BatchNorm2d(32)",
+    "neurons": 0,
+    "connections": 0,
+    "params": 64
+   },
+   {
+    "layer": "conv2",
+    "detail": "32x12x12 -> 32x3x3  k=7 s=2 p=0",
+    "neurons": 288,
+    "connections": 451584,
+    "params": 50176
+   },
+   {
+    "layer": "bn2",
+    "detail": "BatchNorm2d(32)",
+    "neurons": 0,
+    "connections": 0,
+    "params": 64
+   },
+   {
+    "layer": "classifier",
+    "detail": "288 -> 11",
+    "neurons": 11,
+    "connections": 3168,
+    "params": 3168
+   }
+  ],
+  "totals": {
+   "neurons": 31819,
+   "connections": 10317472,
+   "params": 106848
+  },
+  "input_axons": 8192,
+  "neuron_updates_per_sample": 509104,
+  "blocks": [
+   {
+    "index": 0,
+    "in_channels": 2,
+    "out_channels": 32,
+    "kernel_size": 7,
+    "stride": 2,
+    "padding": 0,
+    "in_hw": [
+     64,
+     64
+    ],
+    "conv_out_hw": [
+     29,
+     29
+    ],
+    "pool": false,
+    "out_hw": [
+     29,
+     29
+    ]
+   },
+   {
+    "index": 1,
+    "in_channels": 32,
+    "out_channels": 32,
+    "kernel_size": 7,
+    "stride": 2,
+    "padding": 0,
+    "in_hw": [
+     29,
+     29
+    ],
+    "conv_out_hw": [
+     12,
+     12
+    ],
+    "pool": false,
+    "out_hw": [
+     12,
+     12
+    ]
+   },
+   {
+    "index": 2,
+    "in_channels": 32,
+    "out_channels": 32,
+    "kernel_size": 7,
+    "stride": 2,
+    "padding": 0,
+    "in_hw": [
+     12,
+     12
+    ],
+    "conv_out_hw": [
+     3,
+     3
+    ],
+    "pool": false,
+    "out_hw": [
+     3,
+     3
+    ]
+   }
+  ],
+  "linears": [
+   {
+    "index": 0,
+    "in_features": 288,
+    "out_features": 11,
+    "is_classifier": true
+   }
+  ],
+  "fc_in_features": 288
+ },
+ "default_fail": {
+  "feasible": false,
+  "violations": [
+   "block0: total_axons 32768 > 16383",
+   "fc0: neuron_fan_in 28800 > 8159"
+  ],
+  "rows": [
+   {
+    "layer": "conv0",
+    "detail": "2x128x128 -> 128x63x63  k=3 s=2 p=0",
+    "neurons": 508032,
+    "connections": 9144576,
+    "params": 2304
+   },
+   {
+    "layer": "bn0",
+    "detail": "BatchNorm2d(128)",
+    "neurons": 0,
+    "connections": 0,
+    "params": 256
+   },
+   {
+    "layer": "conv1",
+    "detail": "128x63x63 -> 128x31x31  k=3 s=2 p=0",
+    "neurons": 123008,
+    "connections": 141705216,
+    "params": 147456
+   },
+   {
+    "layer": "bn1",
+    "detail": "BatchNorm2d(128)",
+    "neurons": 0,
+    "connections": 0,
+    "params": 256
+   },
+   {
+    "layer": "conv2",
+    "detail": "128x31x31 -> 128x15x15  k=3 s=2 p=0",
+    "neurons": 28800,
+    "connections": 33177600,
+    "params": 147456
+   },
+   {
+    "layer": "bn2",
+    "detail": "BatchNorm2d(128)",
+    "neurons": 0,
+    "connections": 0,
+    "params": 256
+   },
+   {
+    "layer": "fc0",
+    "detail": "28800 -> 512",
+    "neurons": 512,
+    "connections": 14745600,
+    "params": 14745600
+   },
+   {
+    "layer": "classifier",
+    "detail": "512 -> 11",
+    "neurons": 11,
+    "connections": 5632,
+    "params": 5632
+   }
+  ],
+  "totals": {
+   "neurons": 660363,
+   "connections": 198778624,
+   "params": 15049216
+  },
+  "input_axons": 32768,
+  "neuron_updates_per_sample": 10565808,
+  "blocks": [
+   {
+    "index": 0,
+    "in_channels": 2,
+    "out_channels": 128,
+    "kernel_size": 3,
+    "stride": 2,
+    "padding": 0,
+    "in_hw": [
+     128,
+     128
+    ],
+    "conv_out_hw": [
+     63,
+     63
+    ],
+    "pool": false,
+    "out_hw": [
+     63,
+     63
+    ]
+   },
+   {
+    "index": 1,
+    "in_channels": 128,
+    "out_channels": 128,
+    "kernel_size": 3,
+    "stride": 2,
+    "padding": 0,
+    "in_hw": [
+     63,
+     63
+    ],
+    "conv_out_hw": [
+     31,
+     31
+    ],
+    "pool": false,
+    "out_hw": [
+     31,
+     31
+    ]
+   },
+   {
+    "index": 2,
+    "in_channels": 128,
+    "out_channels": 128,
+    "kernel_size": 3,
+    "stride": 2,
+    "padding": 0,
+    "in_hw": [
+     31,
+     31
+    ],
+    "conv_out_hw": [
+     15,
+     15
+    ],
+    "pool": false,
+    "out_hw": [
+     15,
+     15
+    ]
+   }
+  ],
+  "linears": [
+   {
+    "index": 0,
+    "in_features": 28800,
+    "out_features": 512,
+    "is_classifier": false
+   },
+   {
+    "index": 1,
+    "in_features": 512,
+    "out_features": 11,
+    "is_classifier": true
+   }
+  ],
+  "fc_in_features": 28800
+ },
+ "gap_fc512": {
+  "feasible": true,
+  "violations": [],
+  "rows": [
+   {
+    "layer": "conv0",
+    "detail": "2x64x64 -> 64x30x30  k=5 s=2 p=0",
+    "neurons": 57600,
+    "connections": 2880000,
+    "params": 3200
+   },
+   {
+    "layer": "bn0",
+    "detail": "BatchNorm2d(64)",
+    "neurons": 0,
+    "connections": 0,
+    "params": 128
+   },
+   {
+    "layer": "conv1",
+    "detail": "64x30x30 -> 64x13x13  k=5 s=2 p=0",
+    "neurons": 10816,
+    "connections": 17305600,
+    "params": 102400
+   },
+   {
+    "layer": "bn1",
+    "detail": "BatchNorm2d(64)",
+    "neurons": 0,
+    "connections": 0,
+    "params": 128
+   },
+   {
+    "layer": "conv2",
+    "detail": "64x13x13 -> 64x5x5  k=5 s=2 p=0",
+    "neurons": 1600,
+    "connections": 2560000,
+    "params": 102400
+   },
+   {
+    "layer": "bn2",
+    "detail": "BatchNorm2d(64)",
+    "neurons": 0,
+    "connections": 0,
+    "params": 128
+   },
+   {
+    "layer": "gap",
+    "detail": "64x5x5 -> 64",
+    "neurons": 0,
+    "connections": 1600,
+    "params": 0
+   },
+   {
+    "layer": "fc0",
+    "detail": "64 -> 512",
+    "neurons": 512,
+    "connections": 32768,
+    "params": 32768
+   },
+   {
+    "layer": "classifier",
+    "detail": "512 -> 11",
+    "neurons": 11,
+    "connections": 5632,
+    "params": 5632
+   }
+  ],
+  "totals": {
+   "neurons": 70539,
+   "connections": 22785600,
+   "params": 246784
+  },
+  "input_axons": 8192,
+  "neuron_updates_per_sample": 1128624,
+  "blocks": [
+   {
+    "index": 0,
+    "in_channels": 2,
+    "out_channels": 64,
+    "kernel_size": 5,
+    "stride": 2,
+    "padding": 0,
+    "in_hw": [
+     64,
+     64
+    ],
+    "conv_out_hw": [
+     30,
+     30
+    ],
+    "pool": false,
+    "out_hw": [
+     30,
+     30
+    ]
+   },
+   {
+    "index": 1,
+    "in_channels": 64,
+    "out_channels": 64,
+    "kernel_size": 5,
+    "stride": 2,
+    "padding": 0,
+    "in_hw": [
+     30,
+     30
+    ],
+    "conv_out_hw": [
+     13,
+     13
+    ],
+    "pool": false,
+    "out_hw": [
+     13,
+     13
+    ]
+   },
+   {
+    "index": 2,
+    "in_channels": 64,
+    "out_channels": 64,
+    "kernel_size": 5,
+    "stride": 2,
+    "padding": 0,
+    "in_hw": [
+     13,
+     13
+    ],
+    "conv_out_hw": [
+     5,
+     5
+    ],
+    "pool": false,
+    "out_hw": [
+     5,
+     5
+    ]
+   }
+  ],
+  "linears": [
+   {
+    "index": 0,
+    "in_features": 64,
+    "out_features": 512,
+    "is_classifier": false
+   },
+   {
+    "index": 1,
+    "in_features": 512,
+    "out_features": 11,
+    "is_classifier": true
+   }
+  ],
+  "fc_in_features": 64
+ },
+ "pool_mode": {
+  "feasible": false,
+  "violations": [
+   "fc0: neuron_fan_in 8192 > 8159"
+  ],
+  "rows": [
+   {
+    "layer": "conv0",
+    "detail": "2x64x64 -> 32x64x64  k=5 s=1 p=2",
+    "neurons": 131072,
+    "connections": 6553600,
+    "params": 1600
+   },
+   {
+    "layer": "bn0",
+    "detail": "BatchNorm2d(32)",
+    "neurons": 0,
+    "connections": 0,
+    "params": 64
+   },
+   {
+    "layer": "pool0",
+    "detail": "avg k=2 s=2 -> 32x32x32",
+    "neurons": 0,
+    "connections": 131072,
+    "params": 0
+   },
+   {
+    "layer": "conv1",
+    "detail": "32x32x32 -> 32x32x32  k=5 s=1 p=2",
+    "neurons": 32768,
+    "connections": 26214400,
+    "params": 25600
+   },
+   {
+    "layer": "bn1",
+    "detail": "BatchNorm2d(32)",
+    "neurons": 0,
+    "connections": 0,
+    "params": 64
+   },
+   {
+    "layer": "pool1",
+    "detail": "avg k=2 s=2 -> 32x16x16",
+    "neurons": 0,
+    "connections": 32768,
+    "params": 0
+   },
+   {
+    "layer": "fc0",
+    "detail": "8192 -> 512",
+    "neurons": 512,
+    "connections": 4194304,
+    "params": 4194304
+   },
+   {
+    "layer": "classifier",
+    "detail": "512 -> 11",
+    "neurons": 11,
+    "connections": 5632,
+    "params": 5632
+   }
+  ],
+  "totals": {
+   "neurons": 164363,
+   "connections": 37131776,
+   "params": 4227264
+  },
+  "input_axons": 8192,
+  "neuron_updates_per_sample": 1314904,
+  "blocks": [
+   {
+    "index": 0,
+    "in_channels": 2,
+    "out_channels": 32,
+    "kernel_size": 5,
+    "stride": 1,
+    "padding": 2,
+    "in_hw": [
+     64,
+     64
+    ],
+    "conv_out_hw": [
+     64,
+     64
+    ],
+    "pool": true,
+    "out_hw": [
+     32,
+     32
+    ]
+   },
+   {
+    "index": 1,
+    "in_channels": 32,
+    "out_channels": 32,
+    "kernel_size": 5,
+    "stride": 1,
+    "padding": 2,
+    "in_hw": [
+     32,
+     32
+    ],
+    "conv_out_hw": [
+     32,
+     32
+    ],
+    "pool": true,
+    "out_hw": [
+     16,
+     16
+    ]
+   }
+  ],
+  "linears": [
+   {
+    "index": 0,
+    "in_features": 8192,
+    "out_features": 512,
+    "is_classifier": false
+   },
+   {
+    "index": 1,
+    "in_features": 512,
+    "out_features": 11,
+    "is_classifier": true
+   }
+  ],
+  "fc_in_features": 8192
+ },
+ "per_layer": {
+  "feasible": true,
+  "violations": [],
+  "rows": [
+   {
+    "layer": "conv0",
+    "detail": "2x64x64 -> 32x29x29  k=7 s=2 p=0",
+    "neurons": 26912,
+    "connections": 2637376,
+    "params": 3136
+   },
+   {
+    "layer": "bn0",
+    "detail": "BatchNorm2d(32)",
+    "neurons": 0,
+    "connections": 0,
+    "params": 64
+   },
+   {
+    "layer": "conv1",
+    "detail": "32x29x29 -> 64x29x29  k=5 s=1 p=2",
+    "neurons": 53824,
+    "connections": 43059200,
+    "params": 51200
+   },
+   {
+    "layer": "bn1",
+    "detail": "BatchNorm2d(64)",
+    "neurons": 0,
+    "connections": 0,
+    "params": 128
+   },
+   {
+    "layer": "pool1",
+    "detail": "avg k=2 s=2 -> 64x14x14",
+    "neurons": 0,
+    "connections": 50176,
+    "params": 0
+   },
+   {
+    "layer": "conv2",
+    "detail": "64x14x14 -> 32x5x5  k=5 s=2 p=0",
+    "neurons": 800,
+    "connections": 1280000,
+    "params": 51200
+   },
+   {
+    "layer": "bn2",
+    "detail": "BatchNorm2d(32)",
+    "neurons": 0,
+    "connections": 0,
+    "params": 64
+   },
+   {
+    "layer": "fc0",
+    "detail": "800 -> 256",
+    "neurons": 256,
+    "connections": 204800,
+    "params": 204800
+   },
+   {
+    "layer": "classifier",
+    "detail": "256 -> 11",
+    "neurons": 11,
+    "connections": 2816,
+    "params": 2816
+   }
+  ],
+  "totals": {
+   "neurons": 81803,
+   "connections": 47234368,
+   "params": 313408
+  },
+  "input_axons": 8192,
+  "neuron_updates_per_sample": 1308848,
+  "blocks": [
+   {
+    "index": 0,
+    "in_channels": 2,
+    "out_channels": 32,
+    "kernel_size": 7,
+    "stride": 2,
+    "padding": 0,
+    "in_hw": [
+     64,
+     64
+    ],
+    "conv_out_hw": [
+     29,
+     29
+    ],
+    "pool": false,
+    "out_hw": [
+     29,
+     29
+    ]
+   },
+   {
+    "index": 1,
+    "in_channels": 32,
+    "out_channels": 64,
+    "kernel_size": 5,
+    "stride": 1,
+    "padding": 2,
+    "in_hw": [
+     29,
+     29
+    ],
+    "conv_out_hw": [
+     29,
+     29
+    ],
+    "pool": true,
+    "out_hw": [
+     14,
+     14
+    ]
+   },
+   {
+    "index": 2,
+    "in_channels": 64,
+    "out_channels": 32,
+    "kernel_size": 5,
+    "stride": 2,
+    "padding": 0,
+    "in_hw": [
+     14,
+     14
+    ],
+    "conv_out_hw": [
+     5,
+     5
+    ],
+    "pool": false,
+    "out_hw": [
+     5,
+     5
+    ]
+   }
+  ],
+  "linears": [
+   {
+    "index": 0,
+    "in_features": 800,
+    "out_features": 256,
+    "is_classifier": false
+   },
+   {
+    "index": 1,
+    "in_features": 256,
+    "out_features": 11,
+    "is_classifier": true
+   }
+  ],
+  "fc_in_features": 800
+ },
+ "tiny_maps": {
+  "feasible": true,
+  "violations": [],
+  "rows": [
+   {
+    "layer": "conv0",
+    "detail": "2x32x32 -> 32x14x14  k=5 s=2 p=0",
+    "neurons": 6272,
+    "connections": 313600,
+    "params": 1600
+   },
+   {
+    "layer": "bn0",
+    "detail": "BatchNorm2d(32)",
+    "neurons": 0,
+    "connections": 0,
+    "params": 64
+   },
+   {
+    "layer": "conv1",
+    "detail": "32x14x14 -> 32x5x5  k=5 s=2 p=0",
+    "neurons": 800,
+    "connections": 640000,
+    "params": 25600
+   },
+   {
+    "layer": "bn1",
+    "detail": "BatchNorm2d(32)",
+    "neurons": 0,
+    "connections": 0,
+    "params": 64
+   },
+   {
+    "layer": "conv2",
+    "detail": "32x5x5 -> 32x1x1  k=5 s=2 p=0",
+    "neurons": 32,
+    "connections": 25600,
+    "params": 25600
+   },
+   {
+    "layer": "bn2",
+    "detail": "BatchNorm2d(32)",
+    "neurons": 0,
+    "connections": 0,
+    "params": 64
+   },
+   {
+    "layer": "conv3",
+    "detail": "32x1x1 -> 32x1x1  k=5 s=1 p=2",
+    "neurons": 32,
+    "connections": 25600,
+    "params": 25600
+   },
+   {
+    "layer": "bn3",
+    "detail": "BatchNorm2d(32)",
+    "neurons": 0,
+    "connections": 0,
+    "params": 64
+   },
+   {
+    "layer": "classifier",
+    "detail": "32 -> 11",
+    "neurons": 11,
+    "connections": 352,
+    "params": 352
+   }
+  ],
+  "totals": {
+   "neurons": 7147,
+   "connections": 1005152,
+   "params": 79008
+  },
+  "input_axons": 2048,
+  "neuron_updates_per_sample": 57176,
+  "blocks": [
+   {
+    "index": 0,
+    "in_channels": 2,
+    "out_channels": 32,
+    "kernel_size": 5,
+    "stride": 2,
+    "padding": 0,
+    "in_hw": [
+     32,
+     32
+    ],
+    "conv_out_hw": [
+     14,
+     14
+    ],
+    "pool": false,
+    "out_hw": [
+     14,
+     14
+    ]
+   },
+   {
+    "index": 1,
+    "in_channels": 32,
+    "out_channels": 32,
+    "kernel_size": 5,
+    "stride": 2,
+    "padding": 0,
+    "in_hw": [
+     14,
+     14
+    ],
+    "conv_out_hw": [
+     5,
+     5
+    ],
+    "pool": false,
+    "out_hw": [
+     5,
+     5
+    ]
+   },
+   {
+    "index": 2,
+    "in_channels": 32,
+    "out_channels": 32,
+    "kernel_size": 5,
+    "stride": 2,
+    "padding": 0,
+    "in_hw": [
+     5,
+     5
+    ],
+    "conv_out_hw": [
+     1,
+     1
+    ],
+    "pool": false,
+    "out_hw": [
+     1,
+     1
+    ]
+   },
+   {
+    "index": 3,
+    "in_channels": 32,
+    "out_channels": 32,
+    "kernel_size": 5,
+    "stride": 1,
+    "padding": 2,
+    "in_hw": [
+     1,
+     1
+    ],
+    "conv_out_hw": [
+     1,
+     1
+    ],
+    "pool": false,
+    "out_hw": [
+     1,
+     1
+    ]
+   }
+  ],
+  "linears": [
+   {
+    "index": 0,
+    "in_features": 32,
+    "out_features": 11,
+    "is_classifier": true
+   }
+  ],
+  "fc_in_features": 32
+ },
+ "collapse": {
+  "feasible": false,
+  "violations": [
+   "block2: spatial size collapses to -1x-1 (in 4x4, k=7, s=2, p=0). Kernel is larger than the feature map."
+  ],
+  "infeasible_error": "block2: spatial size collapses to -1x-1 (in 4x4, k=7, s=2, p=0). Kernel is larger than the feature map."
+ },
+ "_constants": {
+  "W_BITS": 16,
+  "W_ALPHA": 1.0,
+  "INT16_MAX": 32767,
+  "W_DELTA": 3.051850947599719e-05,
+  "HW_TAU_CHOICES": [
+   2,
+   3,
+   4,
+   6,
+   8,
+   16,
+   32,
+   63
+  ],
+  "AXON_LIMITS": {
+   "total_axons": 16383,
+   "fan_out": 4096,
+   "fan_in": 8191
+  },
+  "NEURON_LIMITS": {
+   "fan_out": 4095,
+   "fan_in": 8159
+  }
+ },
+ "_threshold_int_examples": {
+  "1.0": 32767,
+  "0.5": 16384,
+  "0.25": 8192,
+  "0.1": 3277,
+  "0.01": 328,
+  "0.001": 33,
+  "3.0517578125e-05": 1,
+  "1e-06": 1
+ }
+}

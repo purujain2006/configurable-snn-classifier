@@ -1,0 +1,574 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Hardware Rules & Quantization — Configurable SNN Classifier, Explained</title>
+<meta name="description" content="HiAER-Spike's wiring budgets, the INT16 grid, BatchNorm folding, and quantization-aware training — interactively.">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚡</text></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:ital,wght@0,400;0,600;0,700;1,400&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+<header class="hero">
+  <div class="hero-inner">
+    <p class="kicker">Chapter 4 · Hardware & Quantization</p>
+    <h1>The chip's house rules<br>(and how training obeys them)</h1>
+    <p class="lede">
+      A GPU runs whatever math you write. HiAER-Spike runs only what it is: finite wiring, 16-bit
+      integers, weights that cannot leave [−1, 1], integer leaks. This chapter covers the two
+      halves of living with that — <strong>feasibility</strong> (can this network be wired at
+      all?) and <strong>quantization</strong> (will its numbers survive the integer grid?) — and
+      the training scheme that makes the answer "yes" <em>by construction</em>.
+    </p>
+  </div>
+</header>
+
+<main class="with-toc">
+<div class="wrap">
+
+<section id="limits" class="reveal">
+  <h2><span class="sec-num">4.1</span>Wiring budgets: fan-in, fan-out, axons</h2>
+  <p>
+    On a neuromorphic chip, a synapse is not a number in a matrix — it's a physical routing
+    entry. Routing tables have finite size, which becomes three hard limits, transcribed in the
+    code as plain dictionaries:
+  </p>
+  <div class="code-block">
+    <div class="code-head"><span class="dot"></span><span class="dot"></span><span class="file">Practice2.py</span><span class="loc">§3</span></div>
+    <pre><code class="language-python">AXON_LIMITS = {
+    "total_axons": 16_383,
+    "fan_out": 4_096,   # axonal fan-out: how many neurons one input axon feeds
+    "fan_in": 8_191,    # axonal fan-in: how many axons feed one neuron
+}
+NEURON_LIMITS = {
+    "fan_out": 4_095,   # neuron-to-neuron fan-out
+    "fan_in": 8_159,    # neuron-to-neuron fan-in
+}</code></pre>
+  </div>
+  <p>Vocabulary, with the picture to hold in your head:</p>
+  <ul>
+    <li><strong>Axon</strong> — an input line into the chip. The raw camera pixels enter on axons, so a 128×128×2 input needs 32,768 axons… and the budget is 16,383. <em>Native resolution cannot even enter the chip</em> — which is why every searched config resizes to 64 or 32 first.</li>
+    <li><strong>Fan-in</strong> of a neuron — how many sources feed it. For a conv neuron this is its receptive window: <strong>k² · C<sub>in</sub></strong>. For a fully-connected neuron it's the entire previous layer's size.</li>
+    <li><strong>Fan-out</strong> of a neuron — how many downstream neurons it feeds. For a conv feeding a stride-s conv with kernel k: each source pixel lands in about <strong>⌈k/s⌉² · C<sub>out</sub></strong> windows.</li>
+  </ul>
+  <div class="demo">
+    <div class="demo-head">
+      <span class="demo-tag">INTERACTIVE</span>
+      <span class="demo-title">Fan budget calculator — why 128 channels died in the search</span>
+      <span class="demo-sub">These are the exact formulas <code>check_feasibility</code> applies per layer. Bars show each quantity against its limit.</span>
+    </div>
+    <div class="demo-body">
+      <div class="controls">
+        <div class="ctl"><label>kernel k</label><select id="fb-k"><option>3</option><option selected>5</option><option>7</option></select></div>
+        <div class="ctl"><label>in channels C<sub>in</sub></label><select id="fb-cin"><option>2</option><option selected>32</option><option>64</option><option>128</option><option>256</option></select></div>
+        <div class="ctl"><label>out channels C<sub>out</sub></label><select id="fb-cout"><option>2</option><option selected>32</option><option>64</option><option>128</option><option>256</option></select></div>
+        <div class="ctl"><label>stride s</label><select id="fb-s"><option>1</option><option selected>2</option></select></div>
+        <div class="ctl"><label>flatten size feeding an FC layer (C×H×W)</label><select id="fb-fc"><option value="352">32×?  → e.g. 352</option><option value="4608" selected>32×12×12 = 4608</option><option value="6400">64×10×10 = 6400</option><option value="9216">64×12×12 = 9216</option><option value="18432">128×12×12 = 18432</option></select></div>
+      </div>
+      <div id="fb-bars"></div>
+      <div class="demo-note" id="fb-note"></div>
+    </div>
+  </div>
+  <p>
+    The empirical punchline, from the file's own comments after 65 real trials: channel count was
+    the dominant driver of infeasibility — <em>"32ch 88% feasible, 128ch 14%"</em> — and the big
+    channel counts never won on accuracy anyway. So the search space was narrowed to
+    {32, 64} channels. Hardware pressure quietly redesigns your networks: small kernels shrink
+    fan-in per layer, small channel counts shrink both fans, and flatten-into-FC is the most
+    dangerous move of all (a 9,216-wide flatten exceeds the 8,159 fan-in limit all by itself).
+  </p>
+  <h3>How the full check walks the network</h3>
+  <p><code>check_feasibility()</code> (used live in <a href="architecture.html#builder">chapter 3's builder</a>) applies those formulas everywhere, with two corrections the comment calls out — both bugs in the earlier version:</p>
+  <ul>
+    <li>Block 0 consumes <em>axon</em> budgets (it reads camera input); every later block uses the <em>neuron</em> budgets.</li>
+    <li>The <strong>last conv block's fan-out is the first FC layer's width</strong> — there is no next conv for the conv formula to describe.</li>
+    <li>The <strong>FC head is checked at all</strong> — previously it wasn't, and giant flattens sailed through unexamined.</li>
+  </ul>
+  <p class="footnote">Everything is arithmetic on the §2 plan — microseconds, no GPU — which is what makes it usable as a free gate in front of the hyperparameter search (chapter 6).</p>
+</section>
+
+<section id="int16" class="reveal">
+  <h2><span class="sec-num">4.2</span>The INT16 grid: what numbers survive on chip</h2>
+  <p>
+    Inside the chip there are no floats. The conversion library quantizes with fixed settings
+    that this file mirrors as constants — "every constant here is read off <code>hs_api</code>,
+    not chosen":
+  </p>
+  <div class="formula">
+    w_delta = <span class="c">w_alpha</span> / (2<sup><span class="c">w_bits</span>−1</sup> − 1) = 1 / 32767 ≈ 0.0000305
+    <span class="note">The grid step. Every weight becomes one of the 65,535 multiples of w_delta in [−1, +1]; every threshold becomes the integer round(θ / w_delta).</span>
+  </div>
+  <p>Three consequences, each of which the float world never shows you:</p>
+  <ol class="steps">
+    <li><span class="s-title">Weights are clamped to [−1, +1] — silently.</span> With w_alpha fixed at 1 there is no rescaling: a weight of 1.3 simply becomes 1.0. No error, no warning — "nothing in the stack warns about it." The file names this <em>the dominant source of float-to-chip accuracy loss</em>.</li>
+    <li><span class="s-title">Thresholds must live in (0, 1].</span> θ quantizes to int(θ·32767): θ=1.0 lands exactly on the max integer; above it the field overflows; at or below 0 the neuron fires every step (chapter 2).</li>
+    <li><span class="s-title">The leak is an integer.</span> τ deploys as round(τ) — chapter 2's plateau demo.</li>
+  </ol>
+  <div class="demo">
+    <div class="demo-head">
+      <span class="demo-tag">INTERACTIVE</span>
+      <span class="demo-title">INT16 playground — drag a weight onto the grid</span>
+      <span class="demo-sub">The exact forward math of <code>fake_quantize_weight</code>: clamp to [−1,1], then round to the nearest of 32,767 levels per side.</span>
+    </div>
+    <div class="demo-body">
+      <div class="controls">
+        <div class="ctl" style="flex:1;min-width:240px;">
+          <label>trained float weight w <output id="q-w-out">0.700</output></label>
+          <input type="range" id="q-w" min="-160" max="160" value="70">
+        </div>
+      </div>
+      <canvas id="q-canvas" height="150"></canvas>
+      <div class="stats">
+        <div class="stat"><div class="k">float weight</div><div class="val" id="q-float">0.700</div><div class="sub">what training produced</div></div>
+        <div class="stat"><div class="k">on-chip value</div><div class="val acc" id="q-quant">0.69999</div><div class="sub">after clamp + snap</div></div>
+        <div class="stat"><div class="k">stored integer</div><div class="val" id="q-int">22937</div><div class="sub">INT16 code = round(w·32767)</div></div>
+        <div class="stat"><div class="k">information lost</div><div class="val" id="q-loss">0.00001</div><div class="sub">|float − chip| (explodes past ±1)</div></div>
+      </div>
+    </div>
+    <div class="demo-note">Inside ±1 the grid is so fine the loss is ~10⁻⁵ — rounding is nearly harmless. The damage is <em>entirely</em> the clamp. Which raises the question this chapter turns on: what pushes trained weights past ±1 in the first place? Answer: the next section.</div>
+  </div>
+</section>
+
+<section id="folding" class="reveal">
+  <h2><span class="sec-num">4.3</span>BatchNorm folding — the step that breaks networks</h2>
+  <p>
+    <span class="term">BatchNorm</span> (BN) is a training stabilizer sitting after each conv: it
+    re-centers and re-scales every channel's activations (using running statistics μ, σ², plus a
+    learned scale γ and shift β per channel). Networks train dramatically better with it — the
+    file's search found <code>norm="none"</code> produced <em>every</em> dead network in the
+    study. But <strong>HiAER-Spike has no BatchNorm layer</strong>. Before deployment, BN must
+    disappear.
+  </p>
+  <p>
+    Luckily it can, <em>exactly</em>: conv followed by BN is just one linear operation followed
+    by another, and two linear operations compose into one. "Folding" bakes BN into the conv's
+    weights:
+  </p>
+  <div class="formula">
+    W′<sub>c</sub> = W<sub>c</sub> · <span class="v">γ<sub>c</sub></span> / √(<span class="v">σ²<sub>c</sub></span> + ε)
+    &nbsp;&nbsp;&nbsp;&nbsp;
+    b′<sub>c</sub> = <span class="v">β<sub>c</sub></span> − <span class="v">μ<sub>c</sub></span> · <span class="v">γ<sub>c</sub></span> / √(<span class="v">σ²<sub>c</sub></span> + ε)
+    <span class="note">Per output channel c. In floating point this is EXACT — the folded network computes bit-identical pre-neuron currents, hence identical spikes. (b′ is nonzero even though the convs are built bias-free.)</span>
+  </div>
+  <p>Two problems hide in that innocent formula, and they drive everything else in this chapter:</p>
+  <div class="two-up">
+    <div class="panel bad-b">
+      <div class="p-title"><span class="chip red">PROBLEM 1</span> The scale factor inflates weights</div>
+      <p>γ/√(σ²+ε) is often &gt; 1 — and folding multiplies <em>every weight in that channel</em> by it. A healthy trained weight of 0.6 with a channel scale of 2.1 folds to 1.26 … which the INT16 clamp then silently amputates to 1.0. Folding is <em>precisely the step</em> that pushes weights out of the representable range. Train float → fold → quantize, and accuracy falls off a cliff nobody can see in the float metrics.</p>
+    </div>
+    <div class="panel">
+      <div class="p-title"><span class="chip yellow">PROBLEM 2</span> Where does b′ go?</div>
+      <p>The fold manufactures a per-channel bias b′ — but the chip's neuron (<code>Custom_LIFNode</code>) has <em>no bias input</em>. Two routes, both implemented in <code>fold_bn</code>: <strong>bias_mode="conv"</strong> keeps b′ on the conv (exact, but needs on-chip conv bias support); <strong>bias_mode="threshold"</strong> — the deployment route — hides it in the neuron: adding b′ to the input every step is equivalent to lowering the threshold to <strong>θ′ = θ − b′</strong>, per channel. The chip natively supports per-neuron thresholds, so this costs nothing.</p>
+    </div>
+  </div>
+  <div class="demo">
+    <div class="demo-head">
+      <span class="demo-tag">INTERACTIVE</span>
+      <span class="demo-title">Fold one channel by hand</span>
+      <span class="demo-sub">The exact <code>_fold_conv_bn_params</code> math for a single channel. Watch W′ leave the representable band, and watch where b′ ends up in threshold mode.</span>
+    </div>
+    <div class="demo-body">
+      <div class="controls">
+        <div class="ctl"><label>conv weight w <output id="f-w-out">0.60</output></label><input type="range" id="f-w" min="-100" max="100" value="60"></div>
+        <div class="ctl"><label>BN scale γ <output id="f-g-out">1.50</output></label><input type="range" id="f-g" min="20" max="300" value="150"></div>
+        <div class="ctl"><label>BN running var σ² <output id="f-v-out">0.50</output></label><input type="range" id="f-v" min="5" max="400" value="50"></div>
+        <div class="ctl"><label>BN running mean μ <output id="f-m-out">0.20</output></label><input type="range" id="f-m" min="-100" max="100" value="20"></div>
+        <div class="ctl"><label>BN shift β <output id="f-b-out">0.10</output></label><input type="range" id="f-b" min="-100" max="100" value="10"></div>
+      </div>
+      <div class="stats">
+        <div class="stat"><div class="k">channel scale γ/√(σ²+ε)</div><div class="val" id="f-scale">2.12</div></div>
+        <div class="stat"><div class="k">folded weight W′</div><div class="val" id="f-wp">1.27</div><div class="sub">chip clamps to ±1 ⟶ <span id="f-clip">CLIPPED</span></div></div>
+        <div class="stat"><div class="k">folded bias b′</div><div class="val" id="f-bp">−0.32</div></div>
+        <div class="stat"><div class="k">threshold-mode θ′ = θ − b′</div><div class="val acc" id="f-thp">1.32</div><div class="sub" id="f-thnote">per-channel neuron threshold</div></div>
+      </div>
+      <div id="f-warn"></div>
+    </div>
+    <div class="demo-note">Note the failure mode the code guards hardest against: a large <em>positive</em> b′ can drive θ′ = θ − b′ to <strong>zero or below</strong> — a neuron that fires unconditionally forever. <code>deployment_report</code> treats that as BLOCKING: the config scores 0 in the search, no matter how good its float accuracy was. The safety metric |b′|/θ per conv is exactly what <code>fold_bias_report</code> prints (~0.1 folds cleanly, ~0.5 does not).</div>
+  </div>
+
+  <div class="demo">
+    <div class="demo-head">
+      <span class="demo-tag">INTERACTIVE</span>
+      <span class="demo-title">A whole layer's weights meeting the clamp</span>
+      <span class="demo-sub">4,000 simulated trained weights (bell curve), folded through per-channel BN scales. Red mass = weights the INT16 grid will amputate. The dashed marker is the file's 2% warning budget (<code>DEPLOY_LIMITS.max_weight_clip_frac</code>).</span>
+    </div>
+    <div class="demo-body">
+      <div class="controls">
+        <div class="ctl" style="min-width:210px;">
+          <label>weight spread before folding <output id="h-std-out">0.30</output></label>
+          <input type="range" id="h-std" min="10" max="60" value="30">
+        </div>
+        <div class="ctl" style="min-width:210px;">
+          <label>BN channel-scale spread <output id="h-sc-out">1.4×</output></label>
+          <input type="range" id="h-sc" min="100" max="300" value="140">
+        </div>
+        <label class="toggle"><input type="checkbox" id="h-fold" checked> apply the fold</label>
+      </div>
+      <canvas id="h-canvas" height="230"></canvas>
+      <div class="stats">
+        <div class="stat"><div class="k">weights clipped</div><div class="val" id="h-clip">0.0%</div><div class="sub">outside [−1, 1] after fold</div></div>
+        <div class="stat"><div class="k">2% warning budget</div><div class="val" id="h-budget">OK</div><div class="sub">deployment_report warns above this</div></div>
+        <div class="stat"><div class="k">max |W′|</div><div class="val" id="h-max">—</div></div>
+      </div>
+    </div>
+    <div class="demo-note">This is also why <strong>weight decay</strong> — normally a mild regularizer — becomes a deployment lever here: it shrinks the trained distribution so its <em>folded</em> version fits in [−1,1]. The search raised its weight-decay floors specifically for this reason ("negligible decay lets the folded distribution sprawl past the grid", §10).</div>
+  </div>
+</section>
+
+<section id="ste" class="reveal">
+  <h2><span class="sec-num">4.4</span>Fake quantization & the straight-through estimator</h2>
+  <p>
+    Knowing all this, how do you <em>train</em> a network whose weights will be clamped and
+    rounded? Rounding has zero gradient (flat steps again — same disease as the spike in chapter
+    2, same cure). The code wraps every conv/linear weight in a
+    <span class="term">fake quantization</span>:
+  </p>
+  <div class="code-block">
+    <div class="code-head"><span class="dot"></span><span class="dot"></span><span class="file">Practice2.py · fake_quantize_weight</span><span class="loc">§4b</span></div>
+    <pre><code class="language-python">def _ste(quantized, original):
+    """Straight-through estimator: forward uses `quantized`, backward passes
+    the gradient to `original` unchanged."""
+    return original + (quantized - original).detach()
+
+def fake_quantize_weight(w):
+    b = W_BITS - 1                                  # 15
+    levels = 2 ** b - 1                             # 32767
+    wc = torch.clamp(w / W_ALPHA, min=-1.0, max=1.0)
+    q = torch.round(wc.abs() * levels) / levels * torch.sign(wc) * W_ALPHA
+    return _ste(q, w)</code></pre>
+  </div>
+  <p>
+    Forward: the network computes with the <em>clamped, rounded</em> weight — bit-exactly what
+    the chip will store. Backward: the gradient flows to the underlying float as if nothing
+    happened. The <code>_ste</code> one-liner is the whole trick:
+    <code>original + (quantized − original).detach()</code> equals <code>quantized</code> in
+    value, but its derivative w.r.t. <code>original</code> is exactly 1.
+  </p>
+  <p>
+    "The clamp is the part that matters" (the code's words): once clamping happens <em>inside</em>
+    the forward pass, an out-of-range folded weight <strong>hurts the training loss
+    immediately</strong> — so the optimizer learns to route around it — instead of appearing as a
+    surprise after conversion. The same STE pattern quantizes thresholds
+    (<code>fake_quantize_threshold</code>) and rounds the learnable τ. And
+    <code>weight_clip_fraction()</code> measures the damage: the share of folded weights outside
+    ±1, with the docstring warning to call it on the <em>folded</em> net — "pre-fold numbers are
+    meaningless."
+  </p>
+</section>
+
+<section id="qat" class="reveal">
+  <h2><span class="sec-num">4.5</span>Quantization-aware training: three strategies, one winner</h2>
+  <p>
+    <code>TrainSpec.qat_mode</code> selects how a run reaches the deployable INT16 network.
+    From weakest to strongest:
+  </p>
+  <div class="tbl-wrap">
+    <table class="tbl">
+      <thead><tr><th>Mode</th><th>Recipe</th><th>Character</th></tr></thead>
+      <tbody>
+        <tr><td class="layer-name">"ptq"</td><td>Train fully in float → fold BN → quantize once → measure.</td><td>Post-training quantization. The honest baseline: measures how much damage fold+clamp does to a network that never saw them coming.</td></tr>
+        <tr><td class="layer-name">"tail"</td><td>Train fully in float → fold → quantize → a few fine-tune epochs on the grid (<code>qat_epochs</code>, at <code>qat_lr_scale</code>·lr).</td><td>The older approach: quantization as a repair job bolted on the end.</td></tr>
+        <tr><td class="layer-name">"inline"</td><td>Short float warmup (<code>qat_warmup_frac</code> ≈ 25% of epochs, so BN's running statistics become trustworthy) → <strong>fold inline</strong> → train the entire rest of the run on the folded, quantized grid.</td><td><strong>The default.</strong> "The network never gets to build the precise-weight balances that ordinary float training leans on and that post-hoc quantization then shatters."</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="demo">
+    <div class="demo-head">
+      <span class="demo-tag">INTERACTIVE</span>
+      <span class="demo-title">How the epoch budget splits (inline mode)</span>
+      <span class="demo-sub">The real formula from <code>run_training</code>: warmup = clamp(round(epochs × frac), 1, epochs−1); the rest trains on the grid.</span>
+    </div>
+    <div class="demo-body">
+      <div class="controls">
+        <div class="ctl"><label>total epochs <output id="qt-ep-out">40</output></label><input type="range" id="qt-ep" min="4" max="80" value="40"></div>
+        <div class="ctl"><label>qat_warmup_frac <output id="qt-fr-out">0.25</output></label><input type="range" id="qt-fr" min="5" max="60" value="25"></div>
+      </div>
+      <div id="qt-bar" style="display:flex;height:44px;border-radius:10px;overflow:hidden;border:1px solid var(--border-2);font-family:var(--mono);font-size:11.5px;"></div>
+      <div class="legend" style="margin-top:10px;">
+        <span><i style="background:#6ea8ff;"></i> float warmup — BN active, precise weights, statistics maturing</span>
+        <span><i style="background:#b78cff;"></i> on-grid — BN folded inline, weights INT16-clamped every step, lr × 0.5</span>
+      </div>
+    </div>
+    <div class="demo-note">At the fold point, every (Conv, BN) pair is physically replaced by one <code>ConvBNFoldQuant</code> module. Its forward pass re-folds from BN's <em>running</em> statistics every step (batch statistics would make the deployed weight flicker per-minibatch), fake-quantizes W′, and hands b′ to the downstream neuron as a per-channel threshold shift — the <code>_fold_bias</code> hook you saw in chapter 2's forward pass. BN's γ, β and running stats keep updating from a cheap statistics-only pass, so the fold tracks the data as training proceeds.</div>
+  </div>
+  <h3>Freezing the deployable artifact</h3>
+  <p>
+    After training, <code>export_deployed()</code> collapses each <code>ConvBNFoldQuant</code>
+    into a plain bias-free conv holding the final folded+quantized weights, and bakes b′
+    permanently into per-channel neuron thresholds. What remains is exactly the network the
+    converter consumes — with nothing left to fix up. Then two report functions gate and package it:
+  </p>
+  <ul>
+    <li><strong><code>deployment_report()</code></strong> — legality audit. BLOCKING (score 0, config rejected): any folded threshold ≤ 0. WARNING (allowed, surfaced): more than 2% of weights clipped. The warning is deliberately not a rejection — QAT trains against clipping, and the hardware-accuracy metric already prices in surviving damage.</li>
+    <li><strong><code>hardware_export()</code></strong> — emits per-layer integer thresholds and integer leaks as JSON. The comment records why this exists: the conversion script used to hardcode <code>threshold = 32767</code> and <code>leak_lif = 63</code> globally — "those two lines are why per-layer neurons were impossible."</li>
+  </ul>
+  <div class="code-block">
+    <div class="code-head"><span class="dot"></span><span class="dot"></span><span class="file">hardware export (what the converter receives)</span><span class="loc">emitted by fold mode</span></div>
+    <pre><code class="language-python">{ "w_alpha": 1.0, "w_bits": 16, "w_delta": 3.0518e-05, "int16_max": 32767,
+  "flush_steps": 3,
+  "neuron_layers": [
+    {"layer_index": 0, "threshold_int": [31554, 32101, ...], "per_channel_threshold": true,  "leak": 2, "shift": 0},
+    {"layer_index": 1, "threshold_int": [30988, 32767, ...], "per_channel_threshold": true,  "leak": 2, "shift": 0},
+    {"layer_index": 2, "threshold_int": 32767,               "per_channel_threshold": false, "leak": 2, "shift": 0} ] }</code></pre>
+  </div>
+</section>
+
+<section id="verify" class="reveal">
+  <h2><span class="sec-num">4.6</span>Trust, but verify the fold</h2>
+  <p>
+    Because a wrong fold looks like a mediocre model rather than a crash, the code ships
+    <code>verify_fold()</code> — a three-level comparison between the BN network and its folded
+    twin, ordered so failures localize the bug:
+  </p>
+  <ol class="steps">
+    <li><span class="s-title">Prediction agreement.</span> Fraction of samples where both networks pick the same class. For an exact (conv-bias) fold this must be 1.0 — anything less is a bug, not noise.</li>
+    <li><span class="s-title">Max |logit difference|.</span> ~10⁻⁵ for a correct fold in fp32. A large value with high agreement means "subtly wrong" — the most dangerous quadrant.</li>
+    <li><span class="s-title">Both accuracies.</span> Only now the headline number — because "test accuracy alone is too coarse to catch a subtly wrong fold."</li>
+  </ol>
+  <p>
+    A related guard lives at the top of <code>fold_bn</code>: it refuses to run on a network in
+    training mode, because BN would then supply <em>batch</em> statistics instead of running
+    ones — "the single most common cause of a 'folding lost accuracy' report."
+  </p>
+  <div class="callout key">
+    <div class="ico">🎯</div>
+    <div>
+      <span class="callout-title">This chapter in one sentence</span>
+      <p>Feasibility says <em>the wiring fits</em>; folding + fake quantization say <em>the numbers
+      fit</em>; inline QAT makes both true during training rather than checking them after; and the
+      reports turn "will it work on the chip?" from a hope into a boolean the search can optimize.</p>
+    </div>
+  </div>
+</section>
+
+</div>
+<aside class="toc"></aside>
+</main>
+
+<nav class="foot-nav">
+  <a class="prev" href="architecture.html"><span class="dir">← Previous</span><span class="pg">03 · The configurable architecture</span></a>
+  <a class="next" href="training.html"><span class="dir">Next →</span><span class="pg">05 · Data & training</span></a>
+</nav>
+<footer class="site-foot">
+  <span>An interactive explainer for <a href="https://github.com/purujain2006/configurable-snn-classifier">configurable-snn-classifier</a></span>
+  <span>All demo math is ported from <code>Practice2.py</code> and verified against it.</span>
+</footer>
+
+<script src="assets/snn.js"></script>
+<script src="assets/site.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-python.min.js"></script>
+<script>
+(function () {
+  "use strict";
+  const $ = id => document.getElementById(id);
+
+  /* ---------- 4.1 fan budget calculator ---------- */
+  (function fanCalc() {
+    if (!$("fb-bars")) return;
+    function update() {
+      const k = +$("fb-k").value, cin = +$("fb-cin").value, cout = +$("fb-cout").value, s = +$("fb-s").value;
+      const fcIn = +$("fb-fc").value;
+      const fanIn = k * k * cin;
+      const fanOut = Math.pow(Math.ceil(k / s), 2) * cout;
+      const L = SNN.NEURON_LIMITS;
+      const items = [
+        { label: `conv fan-in k²·Cin = ${SNN.fmt(fanIn)}`, value: fanIn, max: L.fan_in * 1.6,
+          display: `limit ${SNN.fmt(L.fan_in)}`, color: fanIn > L.fan_in ? "var(--bad)" : "var(--good)" },
+        { label: `conv fan-out ⌈k/s⌉²·Cout = ${SNN.fmt(fanOut)}`, value: fanOut, max: L.fan_in * 1.6,
+          display: `limit ${SNN.fmt(L.fan_out)}`, color: fanOut > L.fan_out ? "var(--bad)" : "var(--good)" },
+        { label: `FC fan-in (flatten) = ${SNN.fmt(fcIn)}`, value: fcIn, max: L.fan_in * 1.6,
+          display: `limit ${SNN.fmt(L.fan_in)}`, color: fcIn > L.fan_in ? "var(--bad)" : "var(--good)" }
+      ];
+      window.Site.barChart($("fb-bars"), items, { max: L.fan_in * 1.6, labelW: 250, valueW: 95 });
+      const bust = [];
+      if (fanIn > L.fan_in) bust.push(`fan-in busts the limit (${SNN.fmt(fanIn)} > ${SNN.fmt(L.fan_in)}) — exactly the “neuron_fan_in” violation string the checker emits`);
+      if (fanOut > L.fan_out) bust.push(`fan-out busts the limit`);
+      if (fcIn > L.fan_in) bust.push(`the flatten alone busts FC fan-in — this is why GAP rescues feasibility (ch. 3)`);
+      $("fb-note").innerHTML = bust.length
+        ? `⚠ ${bust.join("; ")}.`
+        : `✓ All within budget. Try k=7 with Cin=128: fan-in = 49·128 = 6,272 still fits — but k=3, Cin=128 into an FC via a big flatten is where 128-channel configs died.`;
+    }
+    ["fb-k", "fb-cin", "fb-cout", "fb-s", "fb-fc"].forEach(id => $(id).addEventListener("change", update));
+    update();
+  })();
+
+  /* ---------- 4.2 INT16 playground ---------- */
+  (function int16() {
+    const cv = $("q-canvas");
+    if (!cv) return;
+    function draw() {
+      const w = (+$("q-w").value) / 100;
+      const q = SNN.fakeQuantizeWeight(w);
+      const code = SNN.weightIntCode(w);
+      const { ctx, w: W, h } = window.Site.setupCanvas(cv, 150);
+      ctx.fillStyle = window.Site.PALETTE.bg; ctx.fillRect(0, 0, W, h);
+      const padL = 30, padR = 30, mid = h / 2 + 8;
+      const X = v => padL + (v + 1.7) / 3.4 * (W - padL - padR);
+      // representable band
+      ctx.fillStyle = "rgba(74,222,128,.08)";
+      ctx.fillRect(X(-1), mid - 34, X(1) - X(-1), 68);
+      // axis
+      ctx.strokeStyle = "#2a3854"; ctx.beginPath(); ctx.moveTo(X(-1.7), mid); ctx.lineTo(X(1.7), mid); ctx.stroke();
+      ctx.font = "10px 'JetBrains Mono', monospace"; ctx.fillStyle = "#7e8ca6";
+      ctx.textAlign = "center"; ctx.textBaseline = "top";
+      [-1.5, -1, -0.5, 0, 0.5, 1, 1.5].forEach(t => {
+        ctx.fillStyle = Math.abs(t) === 1 ? "#4ade80" : "#7e8ca6";
+        ctx.beginPath(); ctx.moveTo(X(t), mid - 5); ctx.lineTo(X(t), mid + 5);
+        ctx.strokeStyle = Math.abs(t) === 1 ? "#4ade80" : "#2a3854"; ctx.stroke();
+        ctx.fillText(t.toFixed(1), X(t), mid + 9);
+      });
+      ctx.fillStyle = "#4ade80"; ctx.textBaseline = "bottom";
+      ctx.fillText("representable [−1, +1]", X(0), mid - 38);
+      // float marker
+      ctx.fillStyle = "#b78cff";
+      ctx.beginPath(); ctx.arc(X(w), mid - 20, 6, 0, Math.PI * 2); ctx.fill();
+      ctx.textBaseline = "bottom"; ctx.fillText("float " + w.toFixed(2), X(w), mid - 30);
+      // arrow to quantized
+      ctx.strokeStyle = "#ffd166"; ctx.setLineDash([3, 3]);
+      ctx.beginPath(); ctx.moveTo(X(w), mid - 14); ctx.lineTo(X(q), mid + 18); ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.fillStyle = "#ffd166";
+      ctx.beginPath(); ctx.arc(X(q), mid + 22, 6, 0, Math.PI * 2); ctx.fill();
+      ctx.textBaseline = "top"; ctx.fillText("chip " + q.toFixed(3), X(q), mid + 32);
+
+      $("q-w-out").textContent = w.toFixed(3);
+      $("q-float").textContent = w.toFixed(3);
+      $("q-quant").textContent = q.toFixed(5);
+      $("q-int").textContent = code;
+      const loss = Math.abs(w - q);
+      $("q-loss").textContent = loss.toFixed(5);
+      $("q-loss").className = "val " + (loss > 0.01 ? "bad" : "good");
+    }
+    $("q-w").addEventListener("input", draw);
+    window.addEventListener("resize", draw);
+    draw();
+  })();
+
+  /* ---------- 4.3 fold one channel ---------- */
+  (function foldOne() {
+    if (!$("f-w")) return;
+    function update() {
+      const w = (+$("f-w").value) / 100, g = (+$("f-g").value) / 100, v = (+$("f-v").value) / 100;
+      const m = (+$("f-m").value) / 100, b = (+$("f-b").value) / 100;
+      const { wPrime, bPrime, scale } = SNN.foldConvBn(w, 0, g, b, m, v);
+      $("f-w-out").textContent = w.toFixed(2); $("f-g-out").textContent = g.toFixed(2);
+      $("f-v-out").textContent = v.toFixed(2); $("f-m-out").textContent = m.toFixed(2);
+      $("f-b-out").textContent = b.toFixed(2);
+      $("f-scale").textContent = scale.toFixed(3);
+      $("f-wp").textContent = wPrime.toFixed(3);
+      const clipped = Math.abs(wPrime) > 1;
+      $("f-wp").className = "val " + (clipped ? "bad" : "good");
+      $("f-clip").textContent = clipped ? "CLIPPED" : "fits";
+      $("f-bp").textContent = bPrime.toFixed(3);
+      const thp = 1.0 - bPrime;
+      $("f-thp").textContent = thp.toFixed(3);
+      let warn = "";
+      if (thp <= 0) {
+        $("f-thp").className = "val bad";
+        warn = `<div class="verdict fail">✗ BLOCKING: folded threshold θ′ = ${thp.toFixed(3)} ≤ 0 — this neuron would fire unconditionally on chip. deployment_report scores this config 0.</div>`;
+      } else if (thp > 1) {
+        $("f-thp").className = "val warn";
+        warn = `<div class="verdict pass" style="border-color:rgba(251,191,36,.4);color:var(--warn);">θ′ > 1 — legal to compute with, but note it exceeds the (0,1] grid the base θ obeys; the fold’s legality check watches the unclamped value.</div>`;
+      } else {
+        $("f-thp").className = "val acc";
+      }
+      if (clipped) warn += `<div class="verdict fail" style="margin-top:8px;">✗ |W′| > 1: the INT16 grid will silently truncate this weight. In a real layer this is counted by weight_clip_fraction.</div>`;
+      $("f-warn").innerHTML = warn;
+    }
+    ["f-w", "f-g", "f-v", "f-m", "f-b"].forEach(id => $(id).addEventListener("input", update));
+    update();
+  })();
+
+  /* ---------- 4.3b clip histogram ---------- */
+  (function clipHist() {
+    const cv = $("h-canvas");
+    if (!cv) return;
+    const N = 4000, CH = 16;
+    function update() {
+      const std = (+$("h-std").value) / 100;
+      const scSpread = (+$("h-sc").value) / 100;
+      const doFold = $("h-fold").checked;
+      $("h-std-out").textContent = std.toFixed(2);
+      $("h-sc-out").textContent = scSpread.toFixed(1) + "×";
+      const rand = SNN.rng(77);
+      // per-channel scales: log-uniform in [1/scSpread, scSpread]
+      const scales = Array.from({ length: CH }, () => Math.exp((rand() * 2 - 1) * Math.log(scSpread)));
+      const ws = [];
+      for (let i = 0; i < N; i++) {
+        let w = SNN.gaussian(rand) * std;
+        if (doFold) w *= scales[i % CH];
+        ws.push(w);
+      }
+      // histogram
+      const BINS = 80, lo = -2.2, hi = 2.2;
+      const bins = new Array(BINS).fill(0);
+      let clipped = 0, maxAbs = 0;
+      for (const w of ws) {
+        maxAbs = Math.max(maxAbs, Math.abs(w));
+        if (Math.abs(w) > 1) clipped++;
+        const bi = Math.floor((SNN.clamp(w, lo, hi - 1e-9) - lo) / (hi - lo) * BINS);
+        bins[SNN.clamp(bi, 0, BINS - 1)]++;
+      }
+      const { ctx, w: W, h } = window.Site.setupCanvas(cv, 230);
+      ctx.fillStyle = window.Site.PALETTE.bg; ctx.fillRect(0, 0, W, h);
+      const padL = 12, padB = 24, bw = (W - padL * 2) / BINS;
+      const peak = Math.max(...bins, 1);
+      const X = v => padL + (v - lo) / (hi - lo) * (W - padL * 2);
+      for (let i = 0; i < BINS; i++) {
+        const x0 = lo + (i + 0.5) / BINS * (hi - lo);
+        const bh = bins[i] / peak * (h - padB - 26);
+        ctx.fillStyle = Math.abs(x0) > 1 ? "#ff6b6b" : "#6ea8ff";
+        ctx.fillRect(padL + i * bw, h - padB - bh, Math.max(1, bw - 1), bh);
+      }
+      // ±1 markers
+      ctx.strokeStyle = "#4ade80"; ctx.setLineDash([5, 4]);
+      [-1, 1].forEach(t => { ctx.beginPath(); ctx.moveTo(X(t), 8); ctx.lineTo(X(t), h - padB); ctx.stroke(); });
+      ctx.setLineDash([]);
+      ctx.font = "10px 'JetBrains Mono', monospace"; ctx.fillStyle = "#4ade80";
+      ctx.textAlign = "center"; ctx.textBaseline = "top";
+      ctx.fillText("−1", X(-1), h - padB + 6); ctx.fillText("+1", X(1), h - padB + 6);
+      ctx.fillStyle = "#7e8ca6";
+      [-2, 0, 2].forEach(t => ctx.fillText(String(t), X(t), h - padB + 6));
+
+      const frac = clipped / N;
+      $("h-clip").textContent = (frac * 100).toFixed(1) + "%";
+      $("h-clip").className = "val " + (frac > 0.02 ? "bad" : "good");
+      $("h-budget").textContent = frac > 0.02 ? "EXCEEDED" : "OK";
+      $("h-budget").className = "val " + (frac > 0.02 ? "warn" : "good");
+      $("h-max").textContent = maxAbs.toFixed(2);
+    }
+    ["h-std", "h-sc"].forEach(id => $(id).addEventListener("input", update));
+    $("h-fold").addEventListener("change", update);
+    window.addEventListener("resize", update);
+    update();
+  })();
+
+  /* ---------- 4.5 QAT epoch split ---------- */
+  (function qatSplit() {
+    if (!$("qt-ep")) return;
+    function update() {
+      const epochs = +$("qt-ep").value;
+      const frac = (+$("qt-fr").value) / 100;
+      // exact formula from run_training (inline mode)
+      let warmup = Math.max(1, Math.round(epochs * frac));
+      warmup = epochs > 1 ? Math.min(warmup, epochs - 1) : 1;
+      const grid = epochs - warmup;
+      $("qt-ep-out").textContent = epochs;
+      $("qt-fr-out").textContent = frac.toFixed(2);
+      const wp = warmup / epochs * 100, gp = grid / epochs * 100;
+      $("qt-bar").innerHTML =
+        `<div style="width:${wp}%;background:#6ea8ff;display:grid;place-items:center;color:#0a0e17;font-weight:700;min-width:52px;">float ×${warmup}</div>` +
+        `<div style="width:${gp}%;background:#b78cff;display:grid;place-items:center;color:#0a0e17;font-weight:700;min-width:52px;">on-grid ×${grid}</div>`;
+    }
+    ["qt-ep", "qt-fr"].forEach(id => $(id).addEventListener("input", update));
+    update();
+  })();
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,668 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Spiking Neurons, Properly — Configurable SNN Classifier, Explained</title>
+<meta name="description" content="LIF neurons from scratch: an interactive simulator, the chip's order of operations, integer leaks, and surrogate gradients.">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚡</text></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:ital,wght@0,400;0,600;0,700;1,400&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+<header class="hero">
+  <div class="hero-inner">
+    <p class="kicker">Chapter 2 · Spiking Neurons</p>
+    <h1>The leaky bucket,<br>now with equations</h1>
+    <p class="lede">
+      Everything in this codebase reduces to one small machine repeated tens of thousands of
+      times: the <strong>Leaky Integrate-and-Fire (LIF)</strong> neuron. This chapter builds it
+      from scratch, hands you a full simulator, then explains the three subtle ways the
+      <em>chip's</em> neuron differs from the textbook one — differences the code refuses to
+      paper over, because each one silently changes what the network computes.
+    </p>
+  </div>
+</header>
+
+<main class="with-toc">
+<div class="wrap">
+
+<section id="anatomy" class="reveal">
+  <h2><span class="sec-num">2.1</span>Anatomy of a spiking neuron</h2>
+  <p>A LIF neuron owns exactly one number and three settings:</p>
+  <ul>
+    <li><strong>v — the membrane potential.</strong> The water level in the bucket. Starts at 0. This is the neuron's entire memory.</li>
+    <li><strong>τ (tau) — the leak constant.</strong> Each timestep, the level decays toward rest by a factor: <code>v ← v − v/τ</code>. τ=2 keeps half each step (fast forgetting); τ=63 keeps ~98.4% (long memory).</li>
+    <li><strong>θ (theta) — the firing threshold.</strong> When v exceeds θ, the neuron emits a spike.</li>
+    <li><strong>v_reset — where v lands after firing.</strong> Here always 0, and the reset is a <em>hard</em> reset: after a spike the bucket is emptied completely, regardless of how far above θ it was.</li>
+  </ul>
+  <p>
+    Input arrives as a single number x per timestep: the sum of (weight × spike) over all
+    upstream neurons that fired. Weights can be negative — an inhibitory connection scoops water
+    <em>out</em>. In the deployed network there is one more twist:
+    <strong>the neuron the chip runs performs its steps in this exact order</strong>, quoted
+    straight from the code:
+  </p>
+  <div class="code-block">
+    <div class="code-head"><span class="dot"></span><span class="dot"></span><span class="file">Practice2.py · HardwareLIFNode docstring</span><span class="loc">§5</span></div>
+    <pre><code class="language-python">#   spike = v > theta ;  v = reset ;  v -= (v - v_reset)/tau ;  v += x
+#
+# So every spiking layer adds one timestep of latency, which is exactly
+# why the conversion script runs `num_layers` extra zero-input steps to
+# flush the pipeline.</code></pre>
+  </div>
+  <p>In words, each timestep the hardware neuron does:</p>
+  <ol class="steps">
+    <li><span class="s-title">Fire — on <em>yesterday's</em> water level.</span> Compare the v carried in from the <em>previous</em> timestep against θ (strictly greater). If v &gt; θ: output a spike now.</li>
+    <li><span class="s-title">Reset.</span> If it fired, empty the bucket to v_reset (0).</li>
+    <li><span class="s-title">Leak.</span> Decay toward rest: <code>v ← v − (v − v_reset)/τ</code>. With integer τ this is one shift-and-subtract on chip — dirt cheap.</li>
+    <li><span class="s-title">Integrate.</span> Pour in this timestep's input, at full strength: <code>v ← v + x</code>.</li>
+  </ol>
+  <p>
+    Notice what step 1 implies: input arriving at time t can, at the very earliest, cause a spike
+    at time <strong>t+1</strong>. The neuron is a one-tick delay line. Stack 5 spiking layers and
+    the network's answer lags its input by 5 ticks — the "pipeline flush" that
+    <a href="training.html#flush">chapter 5</a> animates.
+  </p>
+</section>
+
+<section id="sim" class="reveal">
+  <h2><span class="sec-num">2.2</span>The simulator</h2>
+  <p>
+    This is the real update rule (ported from <code>HardwareLIFNode.single_step_forward</code>),
+    running live. Experiment suggestions: crank τ to 63 and watch single weak inputs pile up over
+    a long memory; drop τ to 2 and see that only <em>rapid bursts</em> can climb to threshold —
+    a small-τ neuron is a coincidence detector, a big-τ neuron is an evidence accumulator.
+  </p>
+  <div class="demo">
+    <div class="demo-head">
+      <span class="demo-tag">INTERACTIVE</span>
+      <span class="demo-title">Hardware LIF neuron — full simulator</span>
+      <span class="demo-sub">Yellow: input events (top raster & bars). Blue: membrane v. Green: output spikes. The firing-rate readout is spikes ÷ window — exactly the "rate code" the network's output layer uses.</span>
+    </div>
+    <div class="demo-body">
+      <div class="controls">
+        <div class="ctl">
+          <label>input pattern</label>
+          <select id="sim-pattern">
+            <option value="poisson">random (Poisson-ish)</option>
+            <option value="regular">regular drumbeat</option>
+            <option value="burst">bursts + silence</option>
+            <option value="step">constant drive</option>
+          </select>
+        </div>
+        <div class="ctl">
+          <label>input rate <output id="sim-rate-out">30%</output></label>
+          <input type="range" id="sim-rate" min="5" max="90" value="30">
+        </div>
+        <div class="ctl">
+          <label>weight w <output id="sim-w-out">0.40</output></label>
+          <input type="range" id="sim-w" min="5" max="120" value="40">
+        </div>
+        <div class="ctl">
+          <label>leak τ <output id="sim-tau-out">4</output></label>
+          <input type="range" id="sim-tau" min="0" max="7" value="2" step="1">
+        </div>
+        <div class="ctl">
+          <label>threshold θ <output id="sim-theta-out">1.00</output></label>
+          <input type="range" id="sim-theta" min="10" max="100" value="100">
+        </div>
+        <button class="btn" id="sim-pause">⏸ Pause</button>
+      </div>
+      <canvas id="sim-canvas" height="300"></canvas>
+      <div class="stats">
+        <div class="stat"><div class="k">membrane v</div><div class="val acc" id="sim-v">0.000</div></div>
+        <div class="stat"><div class="k">output firing rate</div><div class="val" id="sim-fr">0.00</div><div class="sub">spikes / timestep, last 160 steps</div></div>
+        <div class="stat"><div class="k">θ on the chip</div><div class="val" id="sim-thint">32767</div><div class="sub">integer threshold = round(θ / (1/32767))</div></div>
+      </div>
+    </div>
+    <div class="demo-note">θ is capped at 1.00 here for a hardware reason you'll meet in <a href="hardware.html#int16">chapter 4</a>: the chip stores θ as a 16-bit integer <code>int(θ·32767)</code>, so θ=1.0 is the largest representable threshold. The code enforces θ ∈ (0, 1] with a sigmoid — see §2.6 below.</div>
+  </div>
+</section>
+
+<section id="order" class="reveal">
+  <h2><span class="sec-num">2.3</span>Two neurons walk into a timestep: textbook vs. chip</h2>
+  <p>
+    The standard software library used here (<a href="https://github.com/fangwei123456/spikingjelly">SpikingJelly</a>)
+    ships a perfectly good LIF neuron. The obvious approach — and what earlier versions of this
+    project did — is to train with SpikingJelly's neuron and convert to the chip's neuron
+    afterward. The code's author eventually ripped that out, because the two neurons disagree in
+    three ways, and each disagreement quietly changes the network:
+  </p>
+  <div class="two-up">
+    <div class="panel">
+      <div class="p-title"><span class="chip blue">SpikingJelly LIFNode</span> charge → fire</div>
+      <ol style="padding-left:20px; font-size:13.5px;">
+        <li>Add input (decayed: <code>v += (x − v)/τ</code>)</li>
+        <li>Compare v ≥ θ → maybe spike <em>this same step</em></li>
+        <li>Reset if spiked</li>
+      </ol>
+      <p style="color:var(--muted); font-size:13px;">Input at time t can cause a spike at time t. No inter-layer latency.</p>
+    </div>
+    <div class="panel">
+      <div class="p-title"><span class="chip yellow">HardwareLIFNode (the chip)</span> fire → reset → leak → integrate</div>
+      <ol style="padding-left:20px; font-size:13.5px;">
+        <li>Compare <em>carried-over</em> v &gt; θ → maybe spike</li>
+        <li>Reset if spiked, then leak</li>
+        <li>Add input <em>raw and undecayed</em> (<code>v += x</code>)</li>
+      </ol>
+      <p style="color:var(--muted); font-size:13px;">Input at t spikes at t+1 at the earliest. Every layer = one tick of delay.</p>
+    </div>
+  </div>
+  <p>The three differences, named:</p>
+  <ul>
+    <li><strong>Latency structure.</strong> Same weights, different spike <em>timing</em> — and the deeper the network, the worse the accumulated mismatch.</li>
+    <li><strong>Decayed vs. raw input.</strong> SpikingJelly's default folds the input into the leak (<code>decay_input=True</code>, so a τ=4 neuron only feels ¼ of each input). The chip adds the raw weighted input. Same τ, different effective input strength.</li>
+    <li><strong>Continuous vs. integer τ.</strong> Next section.</li>
+  </ul>
+  <div class="demo">
+    <div class="demo-head">
+      <span class="demo-tag">INTERACTIVE</span>
+      <span class="demo-title">Same input, both neurons — spot the drift</span>
+      <span class="demo-sub">One shared input train (yellow) drives both models with identical w, τ, θ. Watch the chip neuron (bottom) spike one step later — and, because of decayed-vs-raw input, sometimes on a completely different schedule.</span>
+    </div>
+    <div class="demo-body">
+      <div class="controls">
+        <div class="ctl">
+          <label>leak τ <output id="ord-tau-out">4</output></label>
+          <input type="range" id="ord-tau" min="0" max="7" value="2" step="1">
+        </div>
+        <div class="ctl">
+          <label>weight w <output id="ord-w-out">0.55</output></label>
+          <input type="range" id="ord-w" min="10" max="120" value="55">
+        </div>
+        <button class="btn primary" id="ord-new">🎲 New random input</button>
+      </div>
+      <canvas id="ord-canvas" height="330"></canvas>
+      <div class="stats">
+        <div class="stat"><div class="k">spikes (textbook)</div><div class="val" id="ord-sj-n">0</div></div>
+        <div class="stat"><div class="k">spikes (chip)</div><div class="val" id="ord-hw-n">0</div></div>
+        <div class="stat"><div class="k">timing agreement</div><div class="val warn" id="ord-agree">—</div><div class="sub">steps where both did the same thing</div></div>
+      </div>
+    </div>
+    <div class="demo-note">This is why the code trains <em>directly</em> on <code>HardwareLIFNode</code>: "Trainability is a flag ON the hardware neuron, not a different neuron" (<code>build_neuron</code>, §5). Any train-nice-convert-later substitution is a silent change that only surfaces after deployment.</div>
+  </div>
+</section>
+
+<section id="intleak" class="reveal">
+  <h2><span class="sec-num">2.4</span>The leak is an integer (and pretending otherwise fooled a whole search)</h2>
+  <p>
+    On HiAER-Spike, τ is not a decimal — it deploys into an integer register:
+    <code>leak = round(τ)</code>. The consequence sounds small and isn't: an earlier version of
+    the hyperparameter search tuned τ as a continuous value in [1.5, 2.5], found a lovely
+    correlation between τ and accuracy… and <em>every single value in that range deploys as
+    leak=2</em>. The search was carefully optimizing a knob that does not exist on the chip.
+    The file's comment on the fix:
+  </p>
+  <div class="code-block">
+    <div class="code-head"><span class="dot"></span><span class="dot"></span><span class="file">Practice2.py · search space</span><span class="loc">§10</span></div>
+    <pre><code class="language-python"># tau was suggest_float(1.5, 2.5). On chip the leak register is an
+# integer and the converter's convention is leak = round(tau), so EVERY
+# value in that interval deployed as leak=2: the search was resolving a
+# difference that does not survive conversion, and the float metric was
+# rewarding it.
+
+HW_TAU_CHOICES = [2, 3, 4, 6, 8, 16, 32, 63]   # the leak values worth searching</code></pre>
+  </div>
+  <p>
+    Why that spacing? Because the <em>fractional</em> difference between neighboring integers is
+    huge at the small end (τ=2 keeps 50%/step, τ=3 keeps 67% — genuinely different networks) and
+    negligible at the large end (τ=63 vs 64 is invisible). τ=63 matches the leak used by a
+    known-working DVS conversion. When <code>trainable_tau=True</code>, the rounding happens
+    <em>inside the forward pass</em> with a straight-through gradient, so even a learned τ is
+    always the exact integer the chip will use.
+  </p>
+  <div class="demo">
+    <div class="demo-head">
+      <span class="demo-tag">INTERACTIVE</span>
+      <span class="demo-title">Continuous τ vs. what the chip actually runs</span>
+      <span class="demo-sub">Drag the "float τ" slider a search might tune. The purple curve is the decay that τ would give; the yellow curve is the decay <code>round(τ)</code> gives. Inside each plateau, moving the slider changes nothing on chip.</span>
+    </div>
+    <div class="demo-body">
+      <div class="controls">
+        <div class="ctl" style="flex:1;min-width:220px;">
+          <label>float τ (what the old search tuned) <output id="il-tau-out">2.10</output></label>
+          <input type="range" id="il-tau" min="150" max="450" value="210">
+        </div>
+      </div>
+      <canvas id="il-canvas" height="240"></canvas>
+      <div class="stats">
+        <div class="stat"><div class="k">float τ</div><div class="val" id="il-float">2.10</div><div class="sub">exists only during (old-style) training</div></div>
+        <div class="stat"><div class="k">deploys as leak</div><div class="val warn" id="il-int">2</div><div class="sub">= round(τ), the chip register</div></div>
+        <div class="stat"><div class="k">kept per step</div><div class="val" id="il-keep">50%</div><div class="sub">(1 − 1/leak) of the membrane survives</div></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="threshold" class="reveal">
+  <h2><span class="sec-num">2.5</span>The threshold lives in (0, 1] — by construction, not by hope</h2>
+  <p>
+    The chip stores θ as the integer <code>int(θ / w_delta)</code> where
+    <code>w_delta = 1/32767</code> (chapter 4 explains where that grid comes from). Three
+    danger zones, and how the code walls each off:
+  </p>
+  <ul>
+    <li><strong>θ &gt; 1.0</strong> → the integer overflows the 16-bit field. So θ = 1.0 (which lands exactly on 32767) is the ceiling.</li>
+    <li><strong>θ ≤ 0</strong> → <code>v &gt; θ</code> is true every step: the neuron fires unconditionally, forever, regardless of input. A network containing one such neuron is garbage that still <em>runs</em> — the worst kind of bug.</li>
+    <li><strong>Learned θ wandering out of range</strong> → when <code>trainable_threshold=True</code>, θ is not the raw parameter. The code stores an unconstrained number <code>raw_threshold</code> and computes <code>θ = sigmoid(raw)</code>, which mathematically <em>cannot leave</em> (0, 1). The optimizer can push raw anywhere it likes; θ stays legal.</li>
+  </ul>
+  <p>
+    One more elegant detail: the chip compares <em>strictly</em> (<code>v &gt; θ</code>), but the
+    training-time surrogate function computes "≥". The code reconciles them by firing on
+    <code>v − θ − w_delta ≥ 0</code> — subtracting exactly one grid step turns ≥ into &gt;
+    without breaking gradients.
+  </p>
+  <div class="demo">
+    <div class="demo-head">
+      <span class="demo-tag">INTERACTIVE</span>
+      <span class="demo-title">Threshold parametrization & quantization</span>
+      <span class="demo-sub">Drag the unconstrained parameter the optimizer actually touches. Sigmoid squashes it into (0,1); the chip rounds that onto its integer grid.</span>
+    </div>
+    <div class="demo-body">
+      <div class="controls">
+        <div class="ctl" style="flex:1;min-width:230px;">
+          <label>raw_threshold (unconstrained ℝ) <output id="th-raw-out">0.0</output></label>
+          <input type="range" id="th-raw" min="-60" max="60" value="0">
+        </div>
+      </div>
+      <canvas id="th-canvas" height="220"></canvas>
+      <div class="stats">
+        <div class="stat"><div class="k">θ = sigmoid(raw)</div><div class="val acc" id="th-theta">0.50000</div></div>
+        <div class="stat"><div class="k">integer on chip</div><div class="val" id="th-int">16384</div><div class="sub">int(θ · 32767), clamped to [1, 32767]</div></div>
+        <div class="stat"><div class="k">legal?</div><div class="val good" id="th-legal">YES</div><div class="sub">sigmoid makes illegal θ unreachable</div></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="surrogate" class="reveal">
+  <h2><span class="sec-num">2.6</span>The trick that makes any of this trainable: surrogate gradients</h2>
+  <p>
+    Training a network means nudging weights downhill on the loss, and "downhill" comes from
+    derivatives. Here's the problem: a spike is a step function — v below θ gives 0, above gives
+    1, and the derivative of that step is <strong>zero everywhere</strong> (and infinite at the
+    exact threshold). Zero gradient means zero learning signal. Taken literally, spiking networks
+    are untrainable by backpropagation.
+  </p>
+  <p>
+    The field's standard workaround, used throughout this code, is the
+    <strong>surrogate gradient</strong>: a small, principled lie. On the <em>forward</em> pass
+    (what the network actually computes), use the true hard step — real spikes, 0 or 1. On the
+    <em>backward</em> pass (used only for learning), pretend the step had been a smooth S-curve,
+    and hand back that curve's derivative — a gentle bump peaked at the threshold. The code uses
+    SpikingJelly's <code>surrogate.ATan()</code>, whose bump is
+    <code>α/2 · 1/(1 + (π/2·α·x)²)</code>.
+  </p>
+  <div class="demo">
+    <div class="demo-head">
+      <span class="demo-tag">INTERACTIVE</span>
+      <span class="demo-title">What backprop sees at a spike</span>
+      <span class="demo-sub">x-axis: how far the membrane is from threshold (v − θ). Drag the marker. The step is what the neuron does; the bump is the gradient backprop is given.</span>
+    </div>
+    <div class="demo-body">
+      <div class="controls">
+        <div class="ctl" style="flex:1;min-width:230px;">
+          <label>membrane distance from threshold <output id="sg-x-out">0.00</output></label>
+          <input type="range" id="sg-x" min="-200" max="200" value="0">
+        </div>
+      </div>
+      <canvas id="sg-canvas" height="250"></canvas>
+      <div class="stats">
+        <div class="stat"><div class="k">forward (real spike)</div><div class="val" id="sg-fwd">1</div><div class="sub">Heaviside(v − θ): what the chip does</div></div>
+        <div class="stat"><div class="k">backward (gradient)</div><div class="val acc" id="sg-grad">1.000</div><div class="sub">ATan surrogate, α = 2</div></div>
+      </div>
+    </div>
+    <div class="demo-note">Intuition: neurons <em>near</em> their threshold get strong learning signal ("a tiny weight change would have flipped this spike"); neurons far from it get almost none. The same trick — real thing forward, useful fiction backward — reappears in chapter 4 as the <strong>straight-through estimator</strong> for weight rounding and integer leaks.</div>
+  </div>
+</section>
+
+<section id="code" class="reveal">
+  <h2><span class="sec-num">2.7</span>The real forward pass, annotated</h2>
+  <p>Here is the actual heart of <code>HardwareLIFNode</code>, with everything above visible in ~15 lines:</p>
+  <div class="code-block">
+    <div class="code-head"><span class="dot"></span><span class="dot"></span><span class="file">Practice2.py · HardwareLIFNode.single_step_forward</span><span class="loc">§5</span></div>
+    <pre><code class="language-python">def single_step_forward(self, x: "torch.Tensor"):
+    self.v_float_to_tensor(x)
+    v_reset = 0.0 if self.v_reset is None else float(self.v_reset)
+    v_th = self.v_threshold                     # already on the chip's grid
+
+    # (QAT detail, ch.4: a folded BatchNorm bias may be delivered here,
+    #  which is identical to a per-channel threshold shift on chip)
+    fb = getattr(self, "_fold_bias", None)
+    if fb is not None:
+        shape = [1, fb.shape[0]] + [1] * (x.dim() - 2)
+        x = x + fb.reshape(*shape)
+
+    # 1. fire on the membrane carried in from the PREVIOUS timestep.
+    #    − W_DELTA turns the surrogate's ">=" into the chip's strict ">"
+    spike = self.surrogate_function(self.v - v_th - W_DELTA)
+    # 2. hard reset
+    spike_d = spike.detach() if self.detach_reset else spike
+    self.v = v_reset * spike_d + (1.0 - spike_d) * self.v
+    # 3. integer leak toward v_reset
+    self.v = self.v - (self.v - v_reset) / self.hw_tau
+    # 4. integrate this timestep's input, undecayed
+    self.v = self.v + x
+    return spike</code></pre>
+  </div>
+  <p>Line-by-line notes for the non-PyTorch reader:</p>
+  <ul>
+    <li><code>self.v</code> is a whole <em>tensor</em> of membrane levels — one per neuron in the layer — updated in parallel. The "one neuron" story runs thousands-wide.</li>
+    <li><code>surrogate_function(...)</code> returns hard 0/1 spikes forward and the ATan bump backward (§2.6).</li>
+    <li><code>spike.detach()</code> in the reset (with <code>detach_reset=True</code>) stops gradients flowing through the reset path — a standard stabilizer, so learning signal comes from the spike itself, not from bookkeeping.</li>
+    <li><code>self.hw_tau</code> is a property: for a fixed τ it's the stored integer; for a learned τ it clamps to [2,128] and rounds <em>with a straight-through gradient</em>, so the loss always sees the true integer leak.</li>
+    <li>The <code>_fold_bias</code> block is dormant until quantization-aware training begins — it's how a folded BatchNorm's bias reaches the neuron. Full story in <a href="hardware.html#folding">chapter 4</a>.</li>
+  </ul>
+  <div class="callout key">
+    <div class="ico">🔑</div>
+    <div>
+      <span class="callout-title">The design philosophy, in one quote</span>
+      <p>From <code>build_neuron</code>: <em>"There is deliberately no 'train with a nice neuron,
+      convert to the hardware one later' path any more. Every substitution of that kind … is a
+      silent change to the network that only shows up after conversion, which is exactly the gap
+      this search exists to close."</em> One neuron type (<code>LIF</code>), one implementation,
+      trained exactly as deployed. Anything else raises <code>NotImplementedError</code>.</p>
+    </div>
+  </div>
+</section>
+
+</div>
+<aside class="toc"></aside>
+</main>
+
+<nav class="foot-nav">
+  <a class="prev" href="index.html"><span class="dir">← Previous</span><span class="pg">01 · The big picture</span></a>
+  <a class="next" href="architecture.html"><span class="dir">Next →</span><span class="pg">03 · The configurable architecture</span></a>
+</nav>
+<footer class="site-foot">
+  <span>An interactive explainer for <a href="https://github.com/purujain2006/configurable-snn-classifier">configurable-snn-classifier</a></span>
+  <span>All demo math is ported from <code>Practice2.py</code> and verified against it.</span>
+</footer>
+
+<script src="assets/snn.js"></script>
+<script src="assets/site.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-python.min.js"></script>
+<script>
+(function () {
+  "use strict";
+  const TAUS = SNN.HW_TAU_CHOICES;
+  const P = () => window.Site.PALETTE;
+
+  /* ============ 2.2 full simulator ============ */
+  (function fullSim() {
+    const cv = document.getElementById("sim-canvas");
+    if (!cv) return;
+    const HIST = 160;
+    const els = {
+      pattern: document.getElementById("sim-pattern"),
+      rate: document.getElementById("sim-rate"), rateOut: document.getElementById("sim-rate-out"),
+      w: document.getElementById("sim-w"), wOut: document.getElementById("sim-w-out"),
+      tau: document.getElementById("sim-tau"), tauOut: document.getElementById("sim-tau-out"),
+      theta: document.getElementById("sim-theta"), thetaOut: document.getElementById("sim-theta-out"),
+      pause: document.getElementById("sim-pause"),
+      v: document.getElementById("sim-v"), fr: document.getElementById("sim-fr"),
+      thint: document.getElementById("sim-thint")
+    };
+    const state = { v: 0 };
+    const vH = new Array(HIST).fill(0), inH = new Array(HIST).fill(0), spH = new Array(HIST).fill(0);
+    let t = 0, paused = false;
+    const rand = SNN.rng(1234);
+
+    function inputAt(t, p) {
+      const kind = els.pattern.value;
+      if (kind === "poisson") return rand() < p ? 1 : 0;
+      if (kind === "regular") { const period = Math.max(1, Math.round(1 / Math.max(p, 0.02))); return t % period === 0 ? 1 : 0; }
+      if (kind === "burst") { const phase = t % 40; return phase < 10 ? (rand() < Math.min(1, p * 2.6) ? 1 : 0) : 0; }
+      if (kind === "step") return 1; // constant drive scaled by w & p
+      return 0;
+    }
+
+    function step() {
+      if (paused) return;
+      const p = parseInt(els.rate.value, 10) / 100;
+      const w = parseInt(els.w.value, 10) / 100;
+      const tau = TAUS[parseInt(els.tau.value, 10)];
+      const theta = parseInt(els.theta.value, 10) / 100;
+      const ev = inputAt(t, p);
+      const x = els.pattern.value === "step" ? w * p * 2 : ev * w;
+      const s = SNN.hardwareLIFStep(state, x, { tau, v_threshold: theta });
+      vH.push(state.v); vH.shift();
+      inH.push(x); inH.shift();
+      spH.push(s); spH.shift();
+      t++;
+      els.v.textContent = state.v.toFixed(3);
+      els.fr.textContent = (spH.reduce((a, b) => a + b, 0) / HIST).toFixed(2);
+      els.thint.textContent = SNN.quantizedThresholdInt(theta);
+    }
+
+    function draw() {
+      const { ctx, w, h } = window.Site.setupCanvas(cv, 300);
+      ctx.fillStyle = P().bg; ctx.fillRect(0, 0, w, h);
+      const theta = parseInt(els.theta.value, 10) / 100;
+      const padL = 8, spikeBand = 30, inBand = 26;
+      const plotTop = spikeBand + 12, plotBot = h - inBand - 12;
+      const dx = (w - padL - 8) / HIST;
+      const vmax = Math.max(theta * 1.5, 1.4, ...vH) * 1.04;
+      const Y = v => plotBot - (Math.max(v, 0) / vmax) * (plotBot - plotTop);
+      ctx.font = "10px 'JetBrains Mono', monospace";
+      // output band
+      ctx.fillStyle = "#4ade80"; ctx.textAlign = "left"; ctx.textBaseline = "top";
+      ctx.fillText("output spikes", padL, 2);
+      for (let i = 0; i < HIST; i++) if (spH[i]) {
+        ctx.fillRect(padL + i * dx, 14, Math.max(2, dx * 0.55), 13);
+      }
+      // input band
+      ctx.fillStyle = "#ffd166";
+      ctx.fillText("input events", padL, h - inBand + 12);
+      for (let i = 0; i < HIST; i++) if (inH[i] > 0) {
+        ctx.globalAlpha = 0.85;
+        ctx.fillRect(padL + i * dx, h - inBand, Math.max(2, dx * 0.55), 12);
+        ctx.globalAlpha = 1;
+      }
+      // threshold
+      ctx.strokeStyle = "#fbbf24"; ctx.setLineDash([5, 4]);
+      ctx.beginPath(); ctx.moveTo(padL, Y(theta)); ctx.lineTo(w - 8, Y(theta)); ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.fillStyle = "#fbbf24"; ctx.textBaseline = "bottom";
+      ctx.fillText("θ = " + theta.toFixed(2), padL + 4, Y(theta) - 2);
+      // membrane
+      ctx.strokeStyle = "#6ea8ff"; ctx.lineWidth = 2; ctx.beginPath();
+      for (let i = 0; i < HIST; i++) {
+        const x = padL + i * dx, y = Y(vH[i]);
+        i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+      }
+      ctx.stroke();
+    }
+
+    els.rate.addEventListener("input", () => els.rateOut.textContent = els.rate.value + "%");
+    els.w.addEventListener("input", () => els.wOut.textContent = (els.w.value / 100).toFixed(2));
+    els.tau.addEventListener("input", () => els.tauOut.textContent = TAUS[parseInt(els.tau.value, 10)]);
+    els.theta.addEventListener("input", () => els.thetaOut.textContent = (els.theta.value / 100).toFixed(2));
+    els.pause.addEventListener("click", () => {
+      paused = !paused;
+      els.pause.textContent = paused ? "▶ Resume" : "⏸ Pause";
+    });
+    setInterval(step, 70);
+    (function loop() { draw(); requestAnimationFrame(loop); })();
+  })();
+
+  /* ============ 2.3 order comparison ============ */
+  (function orderCmp() {
+    const cv = document.getElementById("ord-canvas");
+    if (!cv) return;
+    const T = 44;
+    const els = {
+      tau: document.getElementById("ord-tau"), tauOut: document.getElementById("ord-tau-out"),
+      w: document.getElementById("ord-w"), wOut: document.getElementById("ord-w-out"),
+      btn: document.getElementById("ord-new"),
+      sjN: document.getElementById("ord-sj-n"), hwN: document.getElementById("ord-hw-n"),
+      agree: document.getElementById("ord-agree")
+    };
+    let seed = 99;
+
+    function simulate() {
+      const tau = TAUS[parseInt(els.tau.value, 10)];
+      const w = parseInt(els.w.value, 10) / 100;
+      const rand = SNN.rng(seed);
+      const input = Array.from({ length: T }, () => rand() < 0.30 ? 1 : 0);
+      const sj = { v: 0 }, hw = { v: 0 };
+      const sjV = [], hwV = [], sjS = [], hwS = [];
+      for (let t = 0; t < T; t++) {
+        const x = input[t] * w;
+        sjS.push(SNN.spikingjellyLIFStep(sj, x, { tau, v_threshold: 1 }));
+        sjV.push(sj.v);
+        hwS.push(SNN.hardwareLIFStep(hw, x, { tau, v_threshold: 1 }));
+        hwV.push(hw.v);
+      }
+      return { input, sjV, hwV, sjS, hwS };
+    }
+
+    function draw() {
+      const { input, sjV, hwV, sjS, hwS } = simulate();
+      const { ctx, w, h } = window.Site.setupCanvas(cv, 330);
+      ctx.fillStyle = P().bg; ctx.fillRect(0, 0, w, h);
+      const padL = 30, dx = (w - padL - 12) / T;
+      ctx.font = "10px 'JetBrains Mono', monospace";
+
+      // shared input row
+      ctx.fillStyle = "#ffd166"; ctx.textAlign = "left"; ctx.textBaseline = "top";
+      ctx.fillText("shared input", padL, 2);
+      for (let t = 0; t < T; t++) if (input[t]) ctx.fillRect(padL + t * dx, 14, Math.max(2, dx * 0.5), 11);
+
+      function tracePanel(y0, y1, vs, ss, color, label) {
+        const vmax = Math.max(1.35, ...vs) * 1.05;
+        const Y = v => y1 - (Math.max(v, 0) / vmax) * (y1 - y0);
+        ctx.strokeStyle = "#fbbf2466"; ctx.setLineDash([4, 4]);
+        ctx.beginPath(); ctx.moveTo(padL, Y(1)); ctx.lineTo(w - 12, Y(1)); ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.strokeStyle = color; ctx.lineWidth = 1.8; ctx.beginPath();
+        for (let t = 0; t < T; t++) {
+          const x = padL + t * dx + dx / 2, y = Y(vs[t]);
+          t === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+        }
+        ctx.stroke();
+        for (let t = 0; t < T; t++) if (ss[t]) {
+          ctx.fillStyle = color;
+          ctx.fillRect(padL + t * dx, y0 - 16, Math.max(2, dx * 0.5), 11);
+        }
+        ctx.fillStyle = color; ctx.textBaseline = "bottom";
+        ctx.fillText(label, padL, y0 - 18);
+      }
+      tracePanel(70, 175, sjV, sjS, "#6ea8ff", "textbook (charge→fire) — v and spikes");
+      tracePanel(225, 322, hwV, hwS, "#ffd166", "chip (fire→reset→leak→integrate) — v and spikes");
+
+      let agree = 0;
+      for (let t = 0; t < T; t++) if (sjS[t] === hwS[t]) agree++;
+      els.sjN.textContent = sjS.reduce((a, b) => a + b, 0);
+      els.hwN.textContent = hwS.reduce((a, b) => a + b, 0);
+      els.agree.textContent = Math.round(agree / T * 100) + "%";
+    }
+    els.tau.addEventListener("input", () => { els.tauOut.textContent = TAUS[parseInt(els.tau.value, 10)]; draw(); });
+    els.w.addEventListener("input", () => { els.wOut.textContent = (els.w.value / 100).toFixed(2); draw(); });
+    els.btn.addEventListener("click", () => { seed = Math.floor(Math.random() * 1e9); draw(); });
+    window.addEventListener("resize", draw);
+    draw();
+  })();
+
+  /* ============ 2.4 integer leak ============ */
+  (function intLeak() {
+    const cv = document.getElementById("il-canvas");
+    if (!cv) return;
+    const els = {
+      tau: document.getElementById("il-tau"), out: document.getElementById("il-tau-out"),
+      f: document.getElementById("il-float"), i: document.getElementById("il-int"),
+      keep: document.getElementById("il-keep")
+    };
+    function draw() {
+      const tauF = parseInt(els.tau.value, 10) / 100;
+      const leak = Math.round(tauF);
+      const T = 24;
+      const dec = tau => { const ys = [1]; for (let t = 1; t < T; t++) ys.push(ys[t - 1] * (1 - 1 / tau)); return ys; };
+      const xs = Array.from({ length: T }, (_, i) => i);
+      window.Site.linePlot(cv, [
+        { xs, ys: dec(tauF), color: "#b78cff", width: 2, label: `float τ=${tauF.toFixed(2)} (training illusion)`, dots: true, dotR: 2 },
+        { xs, ys: dec(leak), color: "#ffd166", width: 2, dash: [6, 4], label: `chip leak=${leak} (reality)`, dots: true, dotR: 2 }
+      ], { height: 240, xlabel: "timestep", ylabel: "membrane (no input)", ymin: 0, ymax: 1 });
+      els.out.textContent = tauF.toFixed(2);
+      els.f.textContent = tauF.toFixed(2);
+      els.i.textContent = leak;
+      els.keep.textContent = Math.round((1 - 1 / leak) * 100) + "%";
+    }
+    els.tau.addEventListener("input", draw);
+    window.addEventListener("resize", draw);
+    draw();
+  })();
+
+  /* ============ 2.5 threshold sigmoid + quantize ============ */
+  (function thres() {
+    const cv = document.getElementById("th-canvas");
+    if (!cv) return;
+    const els = {
+      raw: document.getElementById("th-raw"), rawOut: document.getElementById("th-raw-out"),
+      theta: document.getElementById("th-theta"), int: document.getElementById("th-int"),
+      legal: document.getElementById("th-legal")
+    };
+    function draw() {
+      const raw = parseInt(els.raw.value, 10) / 10;
+      const theta = SNN.sigmoid(raw);
+      const xs = [], ys = [];
+      for (let r = -6; r <= 6.001; r += 0.1) { xs.push(r); ys.push(SNN.sigmoid(r)); }
+      const plt = window.Site.linePlot(cv, [
+        { xs, ys, color: "#6ea8ff", width: 2, label: "θ = sigmoid(raw_threshold)" }
+      ], {
+        height: 220, xlabel: "raw_threshold (unconstrained parameter)", ylabel: "θ",
+        ymin: 0, ymax: 1.08,
+        hlines: [{ y: 1.0, color: "#ff6b6b", label: "θ=1.0 → int 32767 (ceiling)" }]
+      });
+      // marker
+      plt.ctx.fillStyle = "#ffd166";
+      plt.ctx.beginPath(); plt.ctx.arc(plt.X(raw), plt.Y(theta), 5, 0, Math.PI * 2); plt.ctx.fill();
+      els.rawOut.textContent = raw.toFixed(1);
+      els.theta.textContent = theta.toFixed(5);
+      els.int.textContent = SNN.quantizedThresholdInt(theta);
+      els.legal.textContent = "YES";
+    }
+    els.raw.addEventListener("input", draw);
+    window.addEventListener("resize", draw);
+    draw();
+  })();
+
+  /* ============ 2.6 surrogate gradient ============ */
+  (function surr() {
+    const cv = document.getElementById("sg-canvas");
+    if (!cv) return;
+    const els = {
+      x: document.getElementById("sg-x"), xOut: document.getElementById("sg-x-out"),
+      fwd: document.getElementById("sg-fwd"), grad: document.getElementById("sg-grad")
+    };
+    function draw() {
+      const xv = parseInt(els.x.value, 10) / 100;
+      const xs = [], step = [], grad = [];
+      for (let x = -2; x <= 2.001; x += 0.02) {
+        xs.push(x);
+        step.push(SNN.heaviside(x));
+        grad.push(SNN.atanSurrogateGrad(x));
+      }
+      const plt = window.Site.linePlot(cv, [
+        { xs, ys: step, color: "#ffd166", width: 2, label: "forward: real spike (Heaviside)", step: true },
+        { xs, ys: grad, color: "#b78cff", width: 2, label: "backward: ATan surrogate gradient" }
+      ], { height: 250, xlabel: "v − θ (distance from threshold)", ylabel: "", ymin: -0.05, ymax: 1.12 });
+      plt.ctx.fillStyle = "#6ea8ff";
+      plt.ctx.beginPath(); plt.ctx.arc(plt.X(xv), plt.Y(SNN.atanSurrogateGrad(xv)), 5, 0, Math.PI * 2); plt.ctx.fill();
+      els.xOut.textContent = xv.toFixed(2);
+      els.fwd.textContent = SNN.heaviside(xv);
+      els.grad.textContent = SNN.atanSurrogateGrad(xv).toFixed(3);
+    }
+    els.x.addEventListener("input", draw);
+    window.addEventListener("resize", draw);
+    draw();
+  })();
+})();
+</script>
+</body>
+</html>
