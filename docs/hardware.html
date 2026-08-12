@@ -259,6 +259,115 @@ NEURON_LIMITS = {
     </div>
   </div>
 
+  <h3>What the runs actually showed</h3>
+  <p>
+    The two runs in <code>results/</code> that reached the deployment stage both failed, and both
+    failed here rather than at the clamp of section 4.2.
+  </p>
+
+  <div class="tbl-wrap">
+    <table class="tbl">
+      <thead><tr><th>Run</th><th class="num">weight_clip_frac</th><th class="num">max_abs_weight</th><th class="num">min_threshold</th><th>deployable</th></tr></thead>
+      <tbody>
+        <tr><td class="layer-name">probe</td><td class="num">0.0</td><td class="num">0.665</td><td class="num">&#8722;0.6249</td><td>no</td></tr>
+        <tr><td class="layer-name">trial 973e6c46</td><td class="num">0.0</td><td class="num">&#8212;</td><td class="num">&#8722;0.5877</td><td>no</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <p>
+    No weight left the representable range in either run, and the largest folded weight sat at
+    0.665 with a third of the range unused. The rejection in both cases reads
+    <code>folded threshold -0.6249 &lt;= 0 -- neuron fires unconditionally</code>. The per-layer
+    export shows where it came from, with layer 1 holding a channel pinned at the smallest legal
+    integer:
+  </p>
+
+  <div class="term-block">
+    <div class="term-head">results/probe/hardware_export.json</div>
+    <pre>layer 0: per-channel[32]  10,300 … 32,767   leak 63
+layer 1: per-channel[32]       <span class="err">1</span> … 32,767   leak 63    <span class="dim">&#8592; 1 is the clamp floor</span>
+layer 2: scalar               32,767          leak 63</pre>
+  </div>
+
+  <p>
+    Threshold-mode folding needs &#952;&#8242; = &#952; &#8722; b&#8242; &gt; 0, so it needs
+    &#952; &gt; b&#8242;. Since <code>fake_quantize_threshold</code> caps &#952; at
+    <code>w_alpha</code> = 1, the implied b&#8242; of at least 1.588 is above every &#952; the
+    encoding permits. No choice of threshold rescues that fold.
+  </p>
+
+  <div class="motiv">
+    <div class="m-row">
+      <span class="m-label">Observation</span>
+      <p>
+        Nothing in the float model constrains b&#8242;. It is
+        &#946; + (conv_b &#8722; &#956;)&#183;scale, and &#946; is a free learned parameter, so
+        training can place it anywhere. The result is discovered at export, after the full epoch
+        budget has been spent, and the trial is scored zero.
+      </p>
+    </div>
+    <div class="m-row">
+      <span class="m-label">Consequence</span>
+      <p>
+        The legality band has to be enforced while the network trains, so the network adapts to it
+        rather than meeting it once at the end. The band is two-sided, because the other end fails
+        silently as well: <code>quantized_threshold_int</code> saturates at INT16_MAX, so a
+        &#952;&#8242; above <code>w_alpha</code> deploys as <code>w_alpha</code> with no error
+        raised.
+      </p>
+    </div>
+    <div class="m-row code">
+      <span class="m-label">In code</span>
+      <p>
+        <code>constrain_fold_bias</code> clamps b&#8242; into
+        [&#952; &#8722; w_alpha, &#952;(1 &#8722; margin)] inside
+        <code>ConvBNFoldQuant._folded_weight_bias</code>, using the same straight-through estimator
+        as the weight quantizer. The forward pass uses the clamped value, so the loss responds to
+        the constraint, and the gradient still reaches &#946; so the optimizer can move toward a
+        legal value on its own. The margin is <code>TrainSpec.fold_bias_margin</code>, default
+        0.05, and setting it to 0 restores the previous behavior.
+      </p>
+    </div>
+  </div>
+
+  <div class="code-block">
+    <div class="code-head"><span class="file">Practice2.py &#183; the constraint</span><span class="loc">&#167;4b</span></div>
+    <pre><code class="language-python">def fold_bias_band(v_th: float, margin: float = 0.05):
+    lo = float(v_th) - W_ALPHA                 # keeps theta' <= w_alpha
+    hi = float(v_th) * (1.0 - float(margin))   # keeps theta' >= margin*theta
+    return lo, hi
+
+def constrain_fold_bias(b, v_th, margin: float = 0.05):
+    lo, hi = fold_bias_band(v_th, margin)
+    return _ste(torch.clamp(b, min=lo, max=hi), b)</code></pre>
+  </div>
+
+  <p>
+    With &#952; = 1 and the default margin, the band is [0, 0.95]. The b&#8242; of 1.588 that
+    produced the rejection above is clamped to 0.95, giving &#952;&#8242; = 0.05, which stores as
+    the integer 1,638. Every value of b&#8242; now yields a &#952;&#8242; inside (0, w_alpha]
+    by construction.
+  </p>
+
+  <div class="callout">
+    <span class="callout-title">The alternative, if the converter can be changed</span>
+    <p>
+      <code>fold_bias_mode="conv"</code> keeps b&#8242; on the convolution and never touches the
+      threshold, which is exact and needs no constraint. It is already implemented and used for
+      in-software verification. Deploying it requires the converter to support a per-output-channel
+      convolution bias. That is a smaller change than reworking the quantization scale, and it
+      removes the problem rather than bounding it.
+    </p>
+  </div>
+
+  <p class="footnote">
+    Both runs above were short. The probe trained for 3 epochs and the search trials reached about
+    0.5 validation accuracy against a 0.98 target, so BatchNorm's running statistics were still
+    immature when the fold read them. The clip fraction is worth re-measuring after a converged
+    run before drawing conclusions about section 4.2.
+  </p>
+
   <div class="demo">
     <div class="demo-head">
       <span class="demo-tag">INTERACTIVE</span>

@@ -67,6 +67,18 @@ except ImportError:
     _HAS_HS_API = False
 
 
+def _no_grad(fn):
+    """`@torch.no_grad()` that survives being imported without torch.
+
+    DVSGesturePuru is defined at module level, so a bare `@torch.no_grad()` on
+    one of its methods is evaluated at import time and raises when torch is the
+    None placeholder above. That broke `summary`, which the module docstring
+    promises runs without torch. The methods themselves only ever run with torch
+    present, so degrading to an identity decorator is safe.
+    """
+    return torch.no_grad()(fn) if _HAS_TORCH else fn
+
+
 def _require_torch():
     if not _HAS_TORCH:
         raise RuntimeError(
@@ -243,6 +255,18 @@ class TrainSpec:
     # conv/linear WEIGHTS only, with no bias, so a folded bias must live in the
     # per-channel threshold. "conv" is exact but needs on-chip conv bias.
     fold_bias_mode: str = "threshold"
+    # threshold mode only. The fold sets theta' = theta - b', and the chip can
+    # only store theta' in (0, w_alpha]. Nothing in the float model stops b'
+    # from leaving that band, and measured runs show it does: with theta capped
+    # at 1.0 the observed b' reached ~1.59, so theta' went to -0.59 and the
+    # config was rejected as undeployable after a full training run.
+    #
+    # constrain_fold_bias keeps b' inside the band DURING inline QAT, with a
+    # straight-through gradient, so the network trains against the constraint
+    # instead of meeting it at export. Set to 0 to disable and recover the old
+    # behaviour. The margin is expressed as a fraction of theta: the constraint
+    # is theta' >= fold_bias_margin * theta.
+    fold_bias_margin: float = 0.05
 
 
 def parse_fc_widths(spec: str) -> list[int]:
@@ -765,6 +789,31 @@ if _HAS_TORCH:
         q = torch.round(wc.abs() * levels) / levels * torch.sign(wc) * W_ALPHA
         return _ste(q, w)
 
+    def fold_bias_band(v_th: float, margin: float = 0.05):
+        """The interval b' must lie in for theta' = theta - b' to be storable.
+
+        Two-sided, because both ends fail silently:
+          * theta' <= 0     -> the neuron fires on every timestep regardless of
+                               input. deployment_report treats this as blocking.
+          * theta' > w_alpha -> quantized_threshold_int clamps to INT16_MAX, so
+                               the deployed threshold is not the one trained.
+        Returns (lo, hi) with lo <= 0 <= hi for any theta in (0, w_alpha].
+        """
+        lo = float(v_th) - W_ALPHA            # keeps theta' <= w_alpha
+        hi = float(v_th) * (1.0 - float(margin))   # keeps theta' >= margin*theta
+        return lo, hi
+
+    def constrain_fold_bias(b, v_th, margin: float = 0.05):
+        """Clamp the folded bias into the band above, straight-through.
+
+        Forward uses the clamped value, so the neuron sees the b' that will
+        actually deploy and the loss responds to the constraint. Backward passes
+        the gradient to bn.bias unchanged, so the optimizer can still move beta
+        toward a legal value on its own rather than being pinned at the bound.
+        """
+        lo, hi = fold_bias_band(v_th, margin)
+        return _ste(torch.clamp(b, min=lo, max=hi), b)
+
     def fake_quantize_threshold(th):
         """theta -> the float the chip's integer threshold represents.
         Clamped into (0, 1] so int(theta/W_DELTA) is a legal INT16 threshold."""
@@ -790,6 +839,7 @@ if _HAS_TORCH:
 else:
     fake_quantize_weight = fake_quantize_threshold = None
     quantized_threshold_int = weight_clip_fraction = None
+    fold_bias_band = constrain_fold_bias = None
 
 
 # =============================================================================
@@ -1013,12 +1063,14 @@ if _HAS_TORCH:
         path and converter see an ordinary folded conv with nothing left to do.
         """
 
-        def __init__(self, conv, bn, bias_mode="threshold", quantize=True):
+        def __init__(self, conv, bn, bias_mode="threshold", quantize=True,
+                     fold_bias_margin: float = 0.05):
             super().__init__()
             self.conv = conv                     # keep as trainable float params
             self.bn = bn                         # keep for gamma/beta + running stats
             self.bias_mode = bias_mode
             self.quantize = quantize
+            self.fold_bias_margin = float(fold_bias_margin)
             self.stride = conv.stride
             self.padding = conv.padding
             self.dilation = conv.dilation
@@ -1031,6 +1083,15 @@ if _HAS_TORCH:
             self._bias_sink = None
             self.step_mode = getattr(conv, "step_mode", "s")
 
+        def _sink_threshold(self) -> float:
+            """The base theta of the neuron this block's bias is folded into."""
+            node = self._bias_sink
+            if node is None:
+                return W_ALPHA
+            th = node.raw_v_threshold()          # UNclamped: the real value
+            th = torch.as_tensor(th).detach().float()
+            return float(th.min())               # scalar before export
+
         # --- the fold, from CURRENT bn params/stats --------------------------
         def _folded_weight_bias(self):
             bn = self.bn
@@ -1040,7 +1101,27 @@ if _HAS_TORCH:
             b = bn.bias + (cb - bn.running_mean) * scale               # [O]
             if self.quantize:
                 w = fake_quantize_weight(w)      # STE: forward rounds, backward passes
+            # In threshold mode b' becomes theta - b' on chip, so it has to stay
+            # inside the storable band. Applied here rather than at export so the
+            # forward pass, and therefore the loss, sees the deployed value.
+            # conv mode needs no constraint: b' stays on the conv, untouched.
+            if self.bias_mode == "threshold" and self.fold_bias_margin > 0:
+                b = constrain_fold_bias(b, self._sink_threshold(), self.fold_bias_margin)
             return w, b
+
+        @torch.no_grad()
+        def fold_bias_violation(self):
+            """Fraction of channels whose unconstrained b' sits outside the band,
+            with the worst offender. Reports pressure the clamp is absorbing."""
+            bn = self.bn
+            scale = bn.weight / torch.sqrt(bn.running_var + bn.eps)
+            cb = self.conv.bias if self.conv.bias is not None else 0.0
+            b = bn.bias + (cb - bn.running_mean) * scale
+            lo, hi = fold_bias_band(self._sink_threshold(), self.fold_bias_margin)
+            out = ((b < lo) | (b > hi))
+            return {"frac_out_of_band": out.float().mean().item(),
+                    "min_b": b.min().item(), "max_b": b.max().item(),
+                    "band": (lo, hi)}
 
         def _update_bn_stats(self, x):
             """Run BN in train mode purely to update running_mean/var (and let
@@ -1263,12 +1344,13 @@ class DVSGesturePuru(nn.Module):
     def forward(self, x: "torch.Tensor"):
         return self.conv_fc(x)
 
-    def to_qat_folded(self, bias_mode: str = "threshold"):
+    def to_qat_folded(self, bias_mode: str = "threshold", fold_bias_margin: float = 0.05):
         """
         Swap every (Conv2d, BatchNorm2d) pair for a single ConvBNFoldQuant, in
         place, so the whole subsequent run trains on the folded+quantized grid
         (Option A / true QAT). The neuron after each pair becomes the sink for
-        the folded bias in threshold mode.
+        the folded bias in threshold mode, and fold_bias_margin keeps that bias
+        inside the band where theta - b' remains a storable threshold.
 
         Call AFTER a short float warmup (BN needs a few epochs of real statistics
         before its running_var is meaningful enough to fold from). Idempotent:
@@ -1284,10 +1366,13 @@ class DVSGesturePuru(nn.Module):
             nxt = mods[i + 1] if i + 1 < len(mods) else None
             nxt2 = mods[i + 2] if i + 2 < len(mods) else None
             if isinstance(m, (layer.Conv2d, nn.Conv2d)) and isinstance(nxt, (layer.BatchNorm2d, nn.BatchNorm2d)):
-                block = ConvBNFoldQuant(m, nxt, bias_mode=bias_mode, quantize=True)
+                block = ConvBNFoldQuant(m, nxt, bias_mode=bias_mode, quantize=True,
+                                        fold_bias_margin=fold_bias_margin)
                 block.step_mode = self.step_mode
                 new_mods.append(block)
-                # link the bias sink to the following neuron (threshold mode)
+                # link the bias sink to the following neuron (threshold mode).
+                # Wired BEFORE any forward pass, because _folded_weight_bias
+                # reads the sink's threshold to size the constraint band.
                 if bias_mode == "threshold" and isinstance(nxt2, HardwareLIFNode):
                     block._bias_sink = nxt2
                 i += 2                       # consumed conv + bn
@@ -1304,7 +1389,7 @@ class DVSGesturePuru(nn.Module):
         self._qat_bias_mode = bias_mode
         return self
 
-    @torch.no_grad()
+    @_no_grad
     def export_deployed(self):
         """
         After QAT, produce the plain BN-free model the converter consumes: each
@@ -1504,9 +1589,19 @@ def fold_bias_report(net: "DVSGesturePuru") -> list[dict]:
             node = mods[i + 2] if i + 2 < len(mods) else None
             th = float(node.v_threshold) if node is not None and not torch.is_tensor(node.v_threshold) else 1.0
             ab = b_prime.abs()
+            # theta' = theta - b' must land in (0, w_alpha] to be storable.
+            # Report how far outside that band the raw fold would fall, which is
+            # what TrainSpec.fold_bias_margin exists to prevent during QAT.
+            lo, hi = fold_bias_band(th, 0.0)
+            below = (b_prime < lo)          # theta' > w_alpha, saturates at INT16_MAX
+            above = (b_prime > hi)          # theta' <= 0, fires unconditionally
             rows.append({"conv_index": i, "theta": th,
                          "mean_abs_b_over_theta": (ab.mean() / th).item(),
-                         "max_abs_b_over_theta": (ab.max() / th).item()})
+                         "max_abs_b_over_theta": (ab.max() / th).item(),
+                         "theta_prime_min": (th - b_prime.max()).item(),
+                         "theta_prime_max": (th - b_prime.min()).item(),
+                         "frac_theta_prime_le_0": above.float().mean().item(),
+                         "frac_theta_prime_over_alpha": below.float().mean().item()})
     return rows
 
 
@@ -1643,6 +1738,13 @@ def deployment_report(net) -> dict:
     if clip > DEPLOY_LIMITS["max_weight_clip_frac"]:
         warnings_.append(f"{clip*100:.2f}% of folded weights outside [-1, 1] "
                          f"(max |w| = {max_abs_w:.3f}); INT16 grid discards them")
+    # The other end of the threshold field. quantized_threshold_int clamps at
+    # INT16_MAX, so a theta above w_alpha deploys as w_alpha with no error
+    # raised anywhere. Not blocking, since the network still runs, but the
+    # deployed threshold is not the trained one.
+    if max_th > W_ALPHA:
+        warnings_.append(f"max folded threshold {max_th:.4f} > w_alpha "
+                         f"({W_ALPHA:g}); it saturates at INT16_MAX on chip")
 
     return {"neurons": rows, "weight_clip_frac": clip, "max_abs_weight": max_abs_w,
             "min_threshold": (min_th if math.isfinite(min_th) else None),
@@ -2012,7 +2114,8 @@ def run_training(cfg: dict, data_dir: str, device=None, report_fn=None, ckpt_pat
         if best_state is not None:
             net.load_state_dict(best_state)          # grid-train from best warmup
         net.eval()                                   # fold from running stats
-        net.to_qat_folded(bias_mode=train_cfg.fold_bias_mode)
+        net.to_qat_folded(bias_mode=train_cfg.fold_bias_mode,
+                          fold_bias_margin=getattr(train_cfg, "fold_bias_margin", 0.05))
         net.to(device)
 
         grid_cfg = deepcopy(train_cfg)
@@ -2248,7 +2351,8 @@ def config_to_specs(config: dict) -> dict:
                            qat_warmup_frac=config.get("qat_warmup_frac", 0.25),
                            qat_epochs=config.get("qat_epochs", 4),
                            qat_lr_scale=config.get("qat_lr_scale", 0.5),
-                           fold_bias_mode=config.get("fold_bias_mode", "threshold")),
+                           fold_bias_mode=config.get("fold_bias_mode", "threshold"),
+                           fold_bias_margin=config.get("fold_bias_margin", 0.05)),
     }
 
 
