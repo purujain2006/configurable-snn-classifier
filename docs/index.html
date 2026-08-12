@@ -36,7 +36,7 @@
     HiAER-Spike is a neuromorphic research platform developed at UC San Diego and programmed
     through a Python interface called <code>hs_api</code>. It executes networks of spiking neurons
     directly. A neuron on the chip holds a small amount of state, receives events from other
-    neurons, and emits an event of its own when its state crosses a threshold.
+    neurons, and emits an event of its own when its state crosses a threshold. It is a binary framework.
   </p>
   <p>
     The appeal is power consumption. A conventional processor evaluates every unit of a network on
@@ -105,11 +105,10 @@
     evaluates on every input.
   </p>
   <p>
-    A convolutional ANN applies the same small filter across an image and stacks layers of these
+    A convolutional NN applies the same small filter across an image and stacks layers of these
     filters. The design is a good match for a GPU, which multiplies large dense matrices quickly.
-    HiAER-Spike does not run this model of computation, because there is no continuous value for a
-    spike to carry and no dense multiply for the hardware to perform.
-  </p>
+    HiAER-Spike does not run this model of computation, because there spikes are binary and only store 0s/1s and due to their nature of only firing when necessary, dense multiplication is inefficient and undesireable.
+  </p> 
 </section>
 
 <section id="snn" class="reveal">
@@ -121,7 +120,7 @@
   </p>
   <ul>
     <li>Incoming spikes add their connection weights to <code>v</code>. Negative weights subtract.</li>
-    <li>Between updates <code>v</code> decays toward rest at a rate set by a constant &#964;. Older input therefore counts for less than recent input.</li>
+    <li>Between updates <code>v</code> decays toward rest at a rate set by a constant &#964;. Older input therefore counts for less than recent input. <code>v</code>/&#964; is used as a leaky term so that larger &#964;'s reflect a longer memory</li>
     <li>When <code>v</code> crosses a threshold &#952;, the neuron emits a spike and <code>v</code> returns to zero.</li>
   </ul>
   <p>
