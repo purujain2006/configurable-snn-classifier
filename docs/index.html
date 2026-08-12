@@ -130,6 +130,13 @@
     and the reset value.
   </p>
   <p>
+    The order of those operations is fixed by the hardware, as listed in section 1.1, and it
+    affects when spikes appear. At each timestep the neuron first compares the potential it carried
+    in from the <em>previous</em> timestep against &#952;, then resets if it fired, then leaks, and
+    only then adds the current input. Input arriving at timestep <code>t</code> therefore cannot
+    produce an output spike before timestep <code>t+1</code>.
+  </p>
+  <p>
     Because a single spike carries almost no information, an SNN is run for <code>T</code>
     timesteps and its answer is read from how often each output neuron fired. The simulator below
     runs the same update rule the chip uses.
@@ -177,7 +184,7 @@
     <div class="demo-head">
       <span class="demo-tag">INTERACTIVE</span>
       <span class="demo-title">Operation count, dense against event-driven</span>
-      <span class="demo-sub">The left panel shades every input the ANN processes. The right panel shades only the inputs that spiked, which are the only ones the SNN touches. Lower the input activity to see the gap widen.</span>
+      <span class="demo-sub">The left panel shades every input the ANN processes. The right panel shades only the inputs that spiked, which are the only ones the SNN touches. Below the right panel, the <span style="color:var(--muted);">v</span> row is the membrane potential tested at the start of each timestep and the <span style="color:var(--good);">out</span> row is the resulting output spike. Lower the input activity to see the operation gap widen.</span>
     </div>
     <div class="demo-body">
       <div class="controls">
@@ -187,7 +194,7 @@
         </div>
         <button class="btn primary" id="avs-run">Run 16 timesteps</button>
       </div>
-      <canvas id="avs-canvas" height="240"></canvas>
+      <canvas id="avs-canvas" height="355"></canvas>
       <div class="stats">
         <div class="stat"><div class="k">ANN operations</div><div class="val" id="avs-ann-ops">0</div><div class="sub">6 multiply-adds per timestep</div></div>
         <div class="stat"><div class="k">SNN operations</div><div class="val acc" id="avs-snn-ops">0</div><div class="sub">one addition per arriving spike</div></div>
@@ -195,9 +202,18 @@
       </div>
     </div>
     <div class="demo-note">
-      The networks in this project realise roughly ten million synaptic connections, so the ratio
-      shown here scales up accordingly. The cost of the SNN is that time becomes part of the
-      computation: the network runs T times per sample instead of once.
+      <p>
+        Reading the output row: the neuron holds a weight of 0.45 per input, a threshold of 1.0 and
+        a leak of 4. Each arriving spike raises the membrane bar, and the bar decays between
+        timesteps. A column turns green once the bar entering that timestep stands above the dashed
+        threshold line, which happens one timestep after the input that pushed it there. The marker
+        drawn on the most recent spike shows that offset.
+      </p>
+      <p>
+        The networks in this project realise roughly ten million synaptic connections, so the ratio
+        shown here scales up accordingly. The cost of the SNN is that time becomes part of the
+        computation: the network runs T times per sample instead of once.
+      </p>
     </div>
   </div>
 </section>

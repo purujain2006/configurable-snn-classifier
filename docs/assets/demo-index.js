@@ -60,8 +60,8 @@
       return grid;
     }
 
-    function draw(grid, step, annOps, snnOps, spikesOut) {
-      const { ctx, w, h } = window.Site.setupCanvas(cv, 285);
+    function draw(grid, step, annOps, snnOps, spikesOut, vTested) {
+      const { ctx, w, h } = window.Site.setupCanvas(cv, 355);
       ctx.fillStyle = P().bg; ctx.fillRect(0, 0, w, h);
       const half = w / 2;
       const cell = Math.min((half - 90) / T, 16);
@@ -98,21 +98,67 @@
           ctx.strokeRect(x - 1, topY - 3, cell - 0.5, N_IN * rowH + 2);
         }
       }
-      panel(0, "ANN — dense numbers, all processed", false);
-      panel(half, "SNN — spikes, silence is skipped", true);
+      panel(0, "ANN: every input processed every step", false);
+      panel(half, "SNN: only arriving spikes cost work", true);
       // divider
       ctx.strokeStyle = "#2a2724"; ctx.beginPath(); ctx.moveTo(half, 8); ctx.lineTo(half, h - 8); ctx.stroke();
-      // output spikes for SNN
-      ctx.fillStyle = "#a7a29a"; ctx.font = "12.5px 'JetBrains Mono', monospace";
-      ctx.fillText("neuron output:", half + 12, topY + N_IN * rowH + 14);
-      for (let t = 0; t < Math.min(step, T); t++) {
-        if (spikesOut[t]) {
-          ctx.fillStyle = "#9bb17a";
-          ctx.fillRect(half + 118 + t * cell, topY + N_IN * rowH + 10, cell - 2.5, 12);
-        } else {
-          ctx.fillStyle = "#161514";
-          ctx.fillRect(half + 118 + t * cell, topY + N_IN * rowH + 10, cell - 2.5, 12);
-        }
+
+      // ---- membrane and output rows, aligned to the same timestep columns ----
+      const gx = half + 44;                       // same left edge as the input columns
+      const inputsEnd = topY + N_IN * rowH;
+      const memTop = inputsEnd + 16, memH = 54, memBase = memTop + memH;
+      const outY = memBase + 20;
+      const shown = Math.min(step, T);
+      const vmax = Math.max(1.45, ...vTested.slice(0, shown), 0);
+
+      ctx.font = "12.5px 'JetBrains Mono', monospace";
+      ctx.textAlign = "left"; ctx.textBaseline = "top";
+      ctx.fillStyle = "#7d7871";
+      ctx.fillText("v", half + 12, memBase - 14);
+      ctx.fillText("out", half + 12, outY);
+
+      // threshold line
+      const thY = memBase - (1.0 / vmax) * memH;
+      ctx.strokeStyle = "#e0a94f88"; ctx.setLineDash([4, 4]); ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(gx, thY); ctx.lineTo(gx + T * cell, thY); ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.fillStyle = "#e0a94f"; ctx.textBaseline = "bottom";
+      ctx.fillText("θ", gx + T * cell + 6, thY + 5);
+
+      // membrane bars: the value tested at the start of each step
+      ctx.textBaseline = "top";
+      for (let t = 0; t < shown; t++) {
+        const v = vTested[t] || 0;
+        const bh = Math.max(1, Math.min(v / vmax, 1) * memH);
+        ctx.fillStyle = spikesOut[t] ? "#9bb17a" : "#5f5a53";
+        ctx.fillRect(gx + t * cell, memBase - bh, cell - 2.5, bh);
+      }
+      ctx.strokeStyle = "#2a2724"; ctx.beginPath();
+      ctx.moveTo(gx, memBase + 0.5); ctx.lineTo(gx + T * cell, memBase + 0.5); ctx.stroke();
+
+      // output row
+      for (let t = 0; t < shown; t++) {
+        ctx.fillStyle = spikesOut[t] ? "#9bb17a" : "#161514";
+        ctx.fillRect(gx + t * cell, outY, cell - 2.5, 12);
+      }
+
+      // causal marker: the most recent spike, and the inputs that produced it
+      let last = -1;
+      for (let t = shown - 1; t >= 0; t--) { if (spikesOut[t]) { last = t; break; } }
+      if (last > 0) {
+        const cx = gx + last * cell + (cell - 2.5) / 2;
+        const px = gx + (last - 1) * cell + (cell - 2.5) / 2;
+        ctx.strokeStyle = "#9bb17a"; ctx.lineWidth = 1.2;
+        ctx.beginPath();
+        ctx.moveTo(px, inputsEnd + 2);
+        ctx.lineTo(px, inputsEnd + 9);
+        ctx.lineTo(cx, inputsEnd + 9);
+        ctx.lineTo(cx, memBase - Math.max(1, Math.min((vTested[last] || 0) / vmax, 1) * memH) - 3);
+        ctx.stroke();
+        ctx.fillStyle = "#9bb17a"; ctx.font = "11.5px 'JetBrains Mono', monospace";
+        ctx.textAlign = "left"; ctx.textBaseline = "top";
+        ctx.fillText("input through t=" + (last - 1) + "  fires at t=" + last,
+                     Math.min(cx + 8, half + 44 + T * cell - 190), inputsEnd + 12);
       }
     }
 
@@ -122,7 +168,7 @@
       const grid = makeInput(p);
       // simulate the SNN neuron (hardware order) with weight .45 per input
       const state = { v: 0 };
-      const spikesOut = [];
+      const spikesOut = [], vTested = [];
       let step = 0, annOps = 0, snnOps = 0, last = 0;
       function frame(ts) {
         if (ts - last > 240) {
@@ -132,13 +178,16 @@
             for (let i = 0; i < N_IN; i++) { if (grid[i][step]) { events++; x += 0.45; } }
             annOps += N_IN;          // dense: one MAC per input, every step
             snnOps += events;        // event-driven: one ADD per spike
+            // the potential carried in from the previous step is what the
+            // threshold test uses, so record it before the update
+            vTested.push(state.v);
             spikesOut.push(SNN.hardwareLIFStep(state, x, { tau: 4, v_threshold: 1.0 }));
             step++;
             annOpsEl.textContent = annOps;
             snnOpsEl.textContent = snnOps;
             savedEl.textContent = annOps ? Math.round((1 - snnOps / annOps) * 100) + "%" : "—";
           }
-          draw(grid, step, annOps, snnOps, spikesOut);
+          draw(grid, step, annOps, snnOps, spikesOut, vTested);
           if (step >= T) return;
         }
         anim = requestAnimationFrame(frame);
@@ -147,7 +196,7 @@
     }
     slider.addEventListener("input", () => { out.textContent = slider.value + "%"; });
     runBtn.addEventListener("click", run);
-    draw(makeInput(0.2), 0, 0, 0, []);
+    draw(makeInput(0.2), 0, 0, 0, [], []);
   })();
 
   /* ---------------- demo: poke the neuron ---------------- */
