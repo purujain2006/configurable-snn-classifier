@@ -116,8 +116,7 @@ NEURON_LIMITS = {
 <section id="int16" class="reveal">
   <h2><span class="sec-num">4.2</span>The INT16 grid</h2>
   <p>
-    The conversion library quantizes with fixed settings, which the file mirrors as constants so
-    that training and conversion agree.
+    We quantize weights with the following value from the formula below:
   </p>
   <div class="formula">
     w_delta = <span class="c">w_alpha</span> / (2<sup><span class="c">w_bits</span>&#8722;1</sup> &#8722; 1) = 1 / 32767 &#8776; 0.0000305
