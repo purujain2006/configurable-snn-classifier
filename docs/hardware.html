@@ -116,39 +116,34 @@ NEURON_LIMITS = {
 <section id="int16" class="reveal">
   <h2><span class="sec-num">4.2</span>The INT16 grid</h2>
   <p>
-    The chip stores no decimals. Its weight memory holds 16-bit signed integers, so the values that
+    The chip holds 16-bit signed integers, so the values that
     physically exist on the device run from &#8722;32767 to +32767. A trained weight of 0.7 has to
-    be assigned one of them before it can be deployed.
+    be scaled to one of them before it can be deployed.
   </p>
 
-  <h3>What w_alpha is</h3>
+  <h3>w_alpha</h3>
   <p>
-    <code>w_alpha</code> is the rule for making that assignment. It answers one question: what real
-    value should the largest integer stand for?
+    <code>w_alpha</code>  assigns the real
+    value that the largest integer (32767) should stand for.
   </p>
   <div class="formula">
     store: &nbsp; <span class="o">n</span> = round( <span class="v">w</span> / <span class="c">w_alpha</span> &#215; 32767 )
     &nbsp;&nbsp;&nbsp;&nbsp;
     read: &nbsp; <span class="v">w</span> = <span class="o">n</span> &#215; <span class="c">w_alpha</span> / 32767
-    <span class="note">With w_alpha = 1 the integer 32767 represents the value 1.0. With w_alpha = 5 it represents 5.0. The same integers are stored either way; only their interpretation changes.</span>
+    <span class="note">With w_alpha = 1 the integer 32767 represents the value 1.0. With w_alpha = 5 it represents 5.0.</span>
   </div>
   <p>
-    That choice sets the range, because there is no integer left over above the largest one:
+    A larger range sacrifices a bit of resolution:
   </p>
   <dl class="kv">
-    <dt>w_alpha = 1</dt><dd>32767 means 1.0, so the representable range is [&#8722;1, 1] and a weight of 1.3 has no code. It is truncated to 1.0.</dd>
-    <dt>w_alpha = 5</dt><dd>32767 means 5.0, so the range is [&#8722;5, 5] and 1.3 stores as round(1.3/5 &#215; 32767) = 8519, reading back as 1.29997.</dd>
+    <dt>w_alpha = 1</dt><dd>32767 is 1.0, so the range is [&#8722;1, 1] and a weight of 1.3 must be truncated to 1.0.</dd>
+    <dt>w_alpha = 5</dt><dd>32767 is 5.0, so the range is [&#8722;5, 5] and a weight of 1.3 stores as round(1.3/5 &#215; 32767) = 8519 while being read back as 1.29997.</dd>
   </dl>
-  <p>
-    So the boundary at &#177;1 is not a property of the hardware. It is the arithmetic consequence
-    of setting <code>w_alpha</code> to 1. Saying that weights are clamped to [&#8722;1, 1] and
-    saying that <code>w_alpha</code> is 1 are the same statement.
-  </p>
 
   <h3>Where it appears</h3>
   <p>
-    The value originates in the converter, which the file mirrors as constants so that training and
-    conversion agree on the same grid.
+    The value originates in the converter, which our file mirrors, so that training and
+    conversion agree.
   </p>
   <div class="code-block">
     <div class="code-head"><span class="file">Practice2.py</span><span class="loc">&#167;4b</span></div>
@@ -157,11 +152,11 @@ INT16_MAX = 2 ** (W_BITS - 1) - 1      # 32767
 W_DELTA   = W_ALPHA / INT16_MAX        # 1/32767, the spacing between grid points
 
 def fake_quantize_weight(w):
-    wc = torch.clamp(w / W_ALPHA, min=-1.0, max=1.0)     # the truncation happens here
+    wc = torch.clamp(w / W_ALPHA, min=-1.0, max=1.0)     # truncation
     ...
 
 def quantized_threshold_int(th):
-    return clamp(round(th / W_DELTA), 1, INT16_MAX)      # thresholds share the scale</code></pre>
+    return clamp(round(th / W_DELTA), 1, INT16_MAX)      # thresholds share the scale </code></pre>
   </div>
   <p>
     The converter is constructed as
@@ -171,16 +166,12 @@ def quantized_threshold_int(th):
     range are truncated rather than mapped proportionally.
   </p>
   <p>
-    Thresholds are pinned to the same scale, which is why &#952; has to stay within (0, 1]. A neuron
-    compares an integer membrane against an integer threshold, so both quantities have to be
-    expressed in the same units. Giving weights their own scale would require rescaling every
-    threshold by the same factor to keep that comparison meaningful.
+    Thresholds are mapped to the same scale, which is why &#952; has to stay within (0, 1]. Giving weights their own scale would require rescaling every
+    threshold by the same factor to keep that comparison meaningful, since the threshold and weights are interlinked and must share the same sense of units.
   </p>
   <p>
-    Within the range the grid is fine enough that rounding error is around 10<sup>&#8722;5</sup>,
-    which is negligible for a network. The damage is concentrated entirely at the boundary. That
-    makes the question of what pushes a weight past 1.0 the one that matters, given that trained
-    convolution weights normally sit between 0.1 and 0.6 and would never approach it on their own.
+    Within the range, the grid is fine enough that rounding error is around 10<sup>&#8722;5</sup>,
+    which is negligible for a network. However, it is important to understand why weights breach past 1.0 (w_alpha) in magnitude.
   </p>
 
   <div class="demo">
