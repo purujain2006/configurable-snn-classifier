@@ -249,7 +249,7 @@
     kernel size, how the resolution is reduced, how many timesteps, what leak and threshold the
     neurons use, and how the network is trained. Some combinations exceed the routing limits in
     section 1.1 and cannot be built. Others fit but lose accuracy when their weights are
-    quantised.
+    quantized.
   </p>
   <p>
     The project searches that space automatically. The requirement is a configuration that
@@ -427,7 +427,7 @@ python Practice2.py search  --compute local --trials 50 --data-dir &lt;DVS128 ro
   <ul>
     <li><code>summary</code> prints the architecture table, the neuron and synapse counts, and the feasibility verdict. It needs no GPU.</li>
     <li><code>single</code> trains one configuration and reports both its float accuracy and its converted accuracy.</li>
-    <li><code>fold</code> loads a checkpoint, folds batch normalisation into the convolutions, quantises, verifies the result, and writes the per-layer tables the converter reads.</li>
+    <li><code>fold</code> loads a checkpoint, folds batch normalisation into the convolutions, quantizes, verifies the result, and writes the per-layer tables the converter reads.</li>
     <li><code>search</code> runs the automated search.</li>
   </ul>
 </section>
@@ -438,7 +438,7 @@ python Practice2.py search  --compute local --trials 50 --data-dir &lt;DVS128 ro
     <a class="card" href="neurons.html">
       <div class="c-num">PAGE 02</div>
       <div class="c-title">The neuron</div>
-      <div class="c-desc">The neuron HiAER-Spike implements, built in PyTorch so that training and deployment use the same update rule. Covers the integer leak, the quantised threshold, and how a binary spike is trained through.</div>
+      <div class="c-desc">The neuron HiAER-Spike implements, built in PyTorch so that training and deployment use the same update rule. Covers the integer leak, the quantized threshold, and how a binary spike is trained through.</div>
       <div class="c-tags"><span>simulator</span><span>update order</span><span>surrogate gradient</span></div>
     </a>
     <a class="card" href="architecture.html">
