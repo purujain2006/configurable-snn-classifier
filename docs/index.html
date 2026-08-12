@@ -120,7 +120,7 @@
   </p>
   <ul>
     <li>Incoming spikes add their connection weights to <code>v</code>. Negative weights subtract.</li>
-    <li>Between updates <code>v</code> decays toward rest at a rate set by a constant &#964;. Older input therefore counts for less than recent input.</li>
+    <li>Between updates <code>v</code> decays toward rest at a rate set by a constant &#964;. Older input therefore counts for less than recent input. <code>v</code>/&#964; is used as a leaky term so that larger &#964;'s reflect a longer memory</li>
     <li>When <code>v</code> crosses a threshold &#952;, the neuron emits a spike and <code>v</code> returns to zero.</li>
   </ul>
   <p>
