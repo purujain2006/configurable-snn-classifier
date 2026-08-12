@@ -18,7 +18,7 @@
     <p class="kicker">Page 4</p>
     <h1>Fitting the chip</h1>
     <p class="lede">
-      Section 1.1 listed the routing limits and the numeric formats HiAER-Spike imposes. This page
+      Section 1.3 listed the routing limits and the numeric formats HiAER-Spike imposes. This page
       turns them into code: an arithmetic check that rejects unbuildable configurations, and a
       training procedure that keeps the network inside the INT16 grid instead of quantizing it once
       training is over.
@@ -374,7 +374,7 @@ layer 2: scalar               32,767          leak 63</pre>
       <p>
         <code>constrain_fold_bias</code> clamps b&#8242; into
         [&#952; &#8722; w_alpha, &#952;(1 &#8722; margin)] inside
-        <code>ConvBNFoldQuant._folded_weight_bias</code>, using the same straight-through estimator
+        <code>ConvBNFoldQuant._folded_weight_bias</code>, using the same clamping arrangement
         as the weight quantizer. The forward pass uses the clamped value, so the loss responds to
         the constraint, and the gradient still reaches &#946; so the optimizer can move toward a
         legal value on its own. The margin is <code>TrainSpec.fold_bias_margin</code>, default
@@ -497,6 +497,79 @@ def fake_quantize_weight(w):
     <code>quantized</code> numerically, while its derivative with respect to
     <code>original</code> is exactly 1.
   </p>
+
+  <h3>Every weight exists twice</h3>
+  <p>
+    That arrangement means a weight is two numbers rather than one, and separating them answers a
+    question the sections above leave open: whether training itself truncates.
+  </p>
+  <dl class="kv">
+    <dt>stored value</dt><dd>An ordinary parameter with no limits on it. This is what the optimizer updates. It lives at <code>module.parametrizations.weight.original</code>.</dd>
+    <dt>used value</dt><dd>The stored value after clamping and rounding. This is what the network multiplies with, and it is what reading <code>module.weight</code> returns.</dd>
+  </dl>
+  <p>
+    Truncation applies to the used value alone. If the optimizer sets the stored value to 1.3, the
+    stored value stays 1.3 and the used value becomes 1.0. So weights do pass the boundary during
+    training. What cannot pass it is the number the network computes with.
+  </p>
+
+  <div class="motiv">
+    <div class="m-row">
+      <span class="m-label">Observation</span>
+      <p>
+        Clamping the stored value directly would leave the optimizer with nowhere to record small
+        changes. A weight held at 1.0 would receive an update wanting 1.25, stay at 1.0, then
+        receive one wanting 0.9, with no memory of the intervening movement.
+      </p>
+    </div>
+    <div class="m-row">
+      <span class="m-label">Consequence</span>
+      <p>
+        The unconstrained value has to be kept somewhere, so that a weight can travel from 1.3 down
+        to 0.9 continuously while the network sees 1.0 throughout and then 0.9.
+      </p>
+    </div>
+    <div class="m-row code">
+      <span class="m-label">In code</span>
+      <p>
+        <code>_WeightFakeQuant</code> is registered through
+        <code>torch.nn.utils.parametrize</code>, which keeps the raw parameter and computes the
+        clamped version on each read. <code>bake_weight_fake_quant</code> collapses the two into one
+        at export, so the saved network holds the values the chip receives.
+      </p>
+    </div>
+  </div>
+
+  <p>Three things keep the stored value from drifting far past the boundary.</p>
+  <ul>
+    <li>It rarely approaches the boundary at all. Trained convolution weights sit around 0.1 to 0.6, and only folding lifts them toward 1.0.</li>
+    <li>Weight decay pulls every weight toward zero in proportion to its size, so the further out a stored value travels the harder it is pulled back.</li>
+    <li>Nothing is gained by travelling further, since the used value is already pinned at 1.0 and the network's output stops responding.</li>
+  </ul>
+  <p>
+    The third point holds for the network's output but not for the gradient. A true derivative would
+    be zero past the boundary, and the straight-through estimator returns 1 there instead, so the
+    optimizer can keep pushing a stored value outward to no effect. Weight decay is what balances
+    that. This behavior is characteristic of straight-through quantization generally rather than
+    specific to this implementation.
+  </p>
+
+  <div class="callout warn">
+    <span class="callout-title">A metric this invalidates</span>
+    <p>
+      <code>weight_clip_fraction</code> counts weights whose magnitude exceeds 1, and it reads
+      <code>m.weight</code>, which is the used value. The used value is clamped to 1 before it can
+      be read, so the count is structurally zero and the function reports 0.0% whatever the network
+      is doing. It measures whether the clamp worked rather than whether the clamp had anything to
+      do.
+    </p>
+    <p>
+      <code>max_abs_weight</code> reads the same tensor and is informative anyway. A weight that had
+      been clamped would appear there as exactly 1.0. The runs recorded in section 4.3 report 0.665,
+      which is what establishes that no truncation occurred. Pointing the fraction at
+      <code>module.parametrizations.weight.original</code> would make it measure something.
+    </p>
+  </div>
 </section>
 
 <section id="qat" class="reveal">

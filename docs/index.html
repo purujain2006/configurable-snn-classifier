@@ -44,8 +44,111 @@
     little activity costs little energy.
   </p>
   <p>
-    In exchange, the chip fixes several properties of any network it runs. These are hardware
-    facts, not settings, and the rest of this project exists to work inside them.
+    Running a network on it takes more than loading a file, because the chip shares almost nothing
+    with the environment a network is trained in. The next section covers what has to happen in
+    between, and the section after that lists what the chip fixes as a result.
+  </p>
+</section>
+
+<section id="converter" class="reveal">
+  <h2><span class="sec-num">1.2</span>From a trained model to the chip</h2>
+  <p>
+    A network is trained in PyTorch, where a layer is a compact object and every number is a
+    32-bit float. The chip holds neither. Translating between them is the job of a program called
+    the <span class="term">converter</span>, supplied as part of <code>hs_api</code>.
+  </p>
+
+  <div class="motiv">
+    <div class="m-row">
+      <span class="m-label">Observation</span>
+      <p>
+        The chip has no concept of a convolution and no way to store a decimal. It knows individual
+        neurons, integer values, and messages passing between neurons.
+      </p>
+    </div>
+    <div class="m-row">
+      <span class="m-label">Consequence</span>
+      <p>
+        Every layer has to be expanded into the individual neurons it implies, every connection
+        between them has to be listed explicitly, and every number has to be mapped onto an
+        integer. What a network costs on this chip is therefore measured in neurons and connections
+        rather than in layers and parameters.
+      </p>
+    </div>
+    <div class="m-row code">
+      <span class="m-label">In code</span>
+      <p>
+        The converter performs that expansion. <code>Practice2.py</code> mirrors its arithmetic
+        exactly, so that a network can be trained against the numbers the converter will produce
+        rather than adjusted to them afterwards.
+      </p>
+    </div>
+  </div>
+
+  <h3>What the expansion involves</h3>
+  <p>
+    A convolution layer in PyTorch is one small filter, reused at every position in the image. The
+    chip cannot reuse anything, because it has no loop and no notion of a filter. It has a table
+    listing which neuron sends to which other neuron, and with what weight.
+  </p>
+  <p>
+    So the converter walks the layer and writes out one neuron for every output position in every
+    channel, then lists that neuron's incoming connections one by one. A single convolution of 32
+    channels over a 29&#215;29 image with a 7&#215;7 filter becomes 4,608 neurons holding 7.2
+    million connections between them, from 50,176 trained numbers. Reuse costs a GPU nothing and
+    costs this chip an entry in a table for every connection.
+  </p>
+  <p>Three terms follow from that picture, and they appear throughout this project.</p>
+  <dl class="kv">
+    <dt>axon</dt><dd>An input line carrying spikes into the chip from outside. The camera feeds these.</dd>
+    <dt>fan-in</dt><dd>How many connections arrive at one neuron. For a convolution neuron this is the size of the window it reads.</dd>
+    <dt>fan-out</dt><dd>How many connections leave one neuron toward the next layer.</dd>
+  </dl>
+  <p>
+    Each of the three has a hard limit, because each corresponds to storage in a routing table of
+    fixed size.
+  </p>
+
+  <h3>What the mapping onto integers involves</h3>
+  <p>
+    The chip's memory holds 16-bit signed integers, so the values that exist on it run from
+    &#8722;32767 to +32767. A trained weight of 0.7 has to be assigned one of them, which requires
+    a rule for what the largest integer stands for. That rule is a constant called
+    <code>w_alpha</code>, and the converter fixes it at 1, meaning the integer 32767 represents the
+    value 1.0.
+  </p>
+  <p>
+    A weight of 1.3 then has no integer available to it, since 1.0 is the largest value the format
+    can express. The converter replaces it with 1.0. That replacement is called
+    <span class="term">truncation</span>, and it is the one part of the mapping that loses real
+    information. Within the range the spacing between neighboring integers is about
+    0.00003, so ordinary rounding is harmless.
+  </p>
+  <p>
+    Firing thresholds and the decay constant are mapped the same way, which is why both appear in
+    the table below as integer formats rather than as free values.
+  </p>
+
+  <h3>Running it</h3>
+  <p>
+    Once the network is expanded and mapped, the converter feeds the input as spikes for
+    <code>T</code> timesteps, runs a few further timesteps with no input at all, and counts the
+    spikes each output neuron produced. The reason for those extra timesteps appears in section 1.5.
+  </p>
+  <p class="footnote">
+    The behavior described here is taken from the comments and mirror functions in
+    <code>Practice2.py</code>, which document the converter's quantization settings, its neuron
+    model, and its measurement procedure. The address assignment and routing details are general to
+    this style of hardware rather than stated in the project's own code.
+  </p>
+</section>
+
+<section id="fixed" class="reveal">
+  <h2><span class="sec-num">1.3</span>What the chip fixes</h2>
+  <p>
+    Those two requirements, a finite routing table and an integer number format, produce the
+    following limits. They are properties of the hardware rather than settings, and the rest of
+    this project exists to work inside them.
   </p>
 
   <div class="tbl-wrap">
@@ -78,7 +181,7 @@
         </tr>
         <tr>
           <td class="layer-name">available layers</td><td class="num">conv, linear, pool</td>
-          <td>No batch normalization, and no bias term on convolutions or linear maps.</td>
+          <td>No bias term on convolutions or linear maps, and no batch normalization, which is a layer that rescales each channel using statistics gathered during training.</td>
         </tr>
         <tr>
           <td class="layer-name">neuron update order</td><td class="num">fixed</td>
@@ -97,7 +200,7 @@
 </section>
 
 <section id="ann" class="reveal">
-  <h2><span class="sec-num">1.2</span>Conventional neural networks</h2>
+  <h2><span class="sec-num">1.4</span>Conventional neural networks</h2>
   <p>
     Most neural networks in use today are artificial neural networks, or ANNs. A unit in an ANN
     computes a weighted sum of its inputs, applies a nonlinear function, and passes the resulting
@@ -112,7 +215,7 @@
 </section>
 
 <section id="snn" class="reveal">
-  <h2><span class="sec-num">1.3</span>Spiking neural networks</h2>
+  <h2><span class="sec-num">1.5</span>Spiking neural networks</h2>
   <p>
     A spiking neural network, or SNN, replaces the continuous activation with a binary event. Each
     neuron keeps one number, the <span class="term">membrane potential</span> <code>v</code>, and
@@ -129,7 +232,7 @@
     and the reset value.
   </p>
   <p>
-    The order of those operations is fixed by the hardware, as listed in section 1.1, and it
+    The order of those operations is fixed by the hardware, as listed in section 1.3, and it
     affects when spikes appear. At each timestep the neuron first compares the potential it carried
     in from the <em>previous</em> timestep against &#952;, then resets if it fired, then leaks, and
     only then adds the current input. Input arriving at timestep <code>t</code> therefore cannot
@@ -167,7 +270,7 @@
 </section>
 
 <section id="difference" class="reveal">
-  <h2><span class="sec-num">1.4</span>Why the two models differ in cost</h2>
+  <h2><span class="sec-num">1.6</span>Why the two models differ in cost</h2>
   <p>
     The distinction that matters for hardware is when work happens. An ANN unit multiplies each of
     its inputs on every evaluation. An SNN neuron does arithmetic only for inputs that spiked, and
@@ -218,7 +321,7 @@
 </section>
 
 <section id="task" class="reveal">
-  <h2><span class="sec-num">1.5</span>The workload: DVS128 Gesture</h2>
+  <h2><span class="sec-num">1.7</span>The workload: DVS128 Gesture</h2>
   <p>
     The dataset is DVS128 Gesture, published by IBM in 2017. It contains recordings of 29 people
     performing 11 gestures, including hand waves, arm rotations, air drums and air guitar, under
@@ -243,7 +346,7 @@
 </section>
 
 <section id="goal" class="reveal">
-  <h2><span class="sec-num">1.6</span>What the project sets out to do</h2>
+  <h2><span class="sec-num">1.8</span>What the project sets out to do</h2>
   <p>
     A network for this chip has many free parameters: how many convolution layers, how wide, what
     kernel size, how the resolution is reduced, how many timesteps, what leak and threshold the
@@ -306,7 +409,7 @@
 </section>
 
 <section id="map" class="reveal">
-  <h2><span class="sec-num">1.7</span>How the code is organised</h2>
+  <h2><span class="sec-num">1.9</span>How the code is organised</h2>
   <p>
     The implementation is a single file, <code>Practice2.py</code>, divided into numbered sections.
     Sections 1 to 4 import no deep learning libraries, so architecture planning and the feasibility
@@ -433,13 +536,13 @@ python Practice2.py search  --compute local --trials 50 --data-dir &lt;DVS128 ro
 </section>
 
 <section id="pages" class="reveal">
-  <h2><span class="sec-num">1.8</span>The rest of this walkthrough</h2>
+  <h2><span class="sec-num">1.10</span>The rest of this walkthrough</h2>
   <div class="cards">
     <a class="card" href="neurons.html">
       <div class="c-num">PAGE 02</div>
       <div class="c-title">The neuron</div>
       <div class="c-desc">The neuron HiAER-Spike implements, built in PyTorch so that training and deployment use the same update rule. Covers the integer leak, the quantized threshold, and how a binary spike is trained through.</div>
-      <div class="c-tags"><span>simulator</span><span>update order</span><span>surrogate gradient</span></div>
+      <div class="c-tags"><span>simulator</span><span>update order</span><span>training through spikes</span></div>
     </a>
     <a class="card" href="architecture.html">
       <div class="c-num">PAGE 03</div>
