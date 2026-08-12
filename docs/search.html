@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>The Hyperparameter Search — Configurable SNN Classifier, Explained</title>
 <meta name="description" content="Optuna + Ray Tune + ASHA, the three-tier evaluation funnel, and the crash-proof results pipeline — interactively.">
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚡</text></svg>">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' fill='%23000'/><path d='M3 22h5l3-13 4 19 3-11h4l2 5h5' fill='none' stroke='%23d6a24c' stroke-width='2.4' stroke-linejoin='round'/></svg>">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:ital,wght@0,400;0,600;0,700;1,400&display=swap" rel="stylesheet">
@@ -48,7 +48,6 @@
     <li><span class="s-title">Tier 3 — deployment. The only report that counts.</span> Fold, quantize, export, evaluate: <code>hw_val_accuracy</code>. If <code>deployment_report</code> says undeployable (a folded threshold ≤ 0), the score is 0 — "regardless of how good its float accuracy looked."</li>
     </ol>
   <div class="callout key">
-    <div class="ico">🎭</div>
     <div>
       <span class="callout-title">The subtle trick: one name, two meanings — on purpose</span>
       <ul>
@@ -60,7 +59,6 @@
     </div>
   </div>
   <div class="callout warn">
-    <div class="ico">🪤</div>
     <div>
       <span class="callout-title">The best bug story in the file: <code>max_t = epochs + 1</code></span>
       <p>ASHA stops any trial that has reported <code>max_t</code> times. Every <code>tune.report()</code>
@@ -97,7 +95,7 @@
         <div class="ctl"><label>grace period <output id="as-g-out">8</output></label><input type="range" id="as-g" min="1" max="16" value="8"></div>
         <div class="ctl"><label>reduction factor <output id="as-rf-out">3</output></label><input type="range" id="as-rf" min="2" max="4" value="3"></div>
         <div class="ctl"><label>epoch budget <output id="as-ep-out">40</output></label><input type="range" id="as-ep" min="16" max="60" value="40"></div>
-        <button class="btn primary" id="as-run">🎲 New cohort</button>
+        <button class="btn primary" id="as-run">New cohort</button>
       </div>
       <canvas id="as-canvas" height="280"></canvas>
       <div class="stats">
@@ -166,7 +164,6 @@
     </table>
   </div>
   <div class="callout key">
-    <div class="ico">⚖️</div>
     <div>
       <span class="callout-title">Two kinds of decision — spot the difference</span>
       <ul>
@@ -205,7 +202,6 @@
     <li>It only triggers on a <strong>deploy-phase, deployable</strong> report ≥ target — "a float epoch that crosses the target says nothing about what runs on chip."</li>
   </ul>
   <div class="callout key">
-    <div class="ico">🏁</div>
     <div>
       <span class="callout-title">The chapter — and really the whole file — in one rule</span>
       <p>Prune on the cheap signal, select on the true one, and make the true one the accuracy of
@@ -289,7 +285,7 @@
       const X = e => padL + e / (epochs - 1) * (W - padL - 12);
       const Y = a => padT + (1 - a) * (H - padT - padB);
       // axes
-      ctx.strokeStyle = "#16203466"; ctx.fillStyle = "#7e8ca6";
+      ctx.strokeStyle = "#2a272455"; ctx.fillStyle = "#8d8983";
       ctx.font = "10px 'JetBrains Mono', monospace";
       [0, 0.25, 0.5, 0.75, 1].forEach(t => {
         ctx.beginPath(); ctx.moveTo(padL, Y(t)); ctx.lineTo(W - 12, Y(t)); ctx.stroke();
@@ -297,10 +293,10 @@
       });
       // rungs
       rungs.forEach(rg => {
-        ctx.strokeStyle = "#fbbf24"; ctx.setLineDash([5, 4]);
+        ctx.strokeStyle = "#d6a24c"; ctx.setLineDash([5, 4]);
         ctx.beginPath(); ctx.moveTo(X(rg - 1), padT); ctx.lineTo(X(rg - 1), H - padB); ctx.stroke();
         ctx.setLineDash([]);
-        ctx.fillStyle = "#fbbf24"; ctx.textAlign = "center"; ctx.textBaseline = "top";
+        ctx.fillStyle = "#d6a24c"; ctx.textAlign = "center"; ctx.textBaseline = "top";
         ctx.fillText("rung@" + rg, X(rg - 1), H - padB + 6);
       });
       // curves
@@ -309,7 +305,7 @@
         cost += t.aliveUntil;
         const dead = t.aliveUntil < epochs;
         if (!dead) finished++;
-        ctx.strokeStyle = dead ? "#3a466033" : (t.cap > 0.85 ? "#4ade80" : "#6ea8ff");
+        ctx.strokeStyle = dead ? "#33302c55" : (t.cap > 0.85 ? "#8f9e73" : "#ece7de");
         ctx.lineWidth = dead ? 1 : 1.6;
         ctx.beginPath();
         for (let e = 0; e < t.aliveUntil; e++) {
@@ -318,7 +314,7 @@
         }
         ctx.stroke();
         if (dead) {
-          ctx.fillStyle = "#ff6b6b";
+          ctx.fillStyle = "#c0604f";
           ctx.beginPath(); ctx.arc(X(t.aliveUntil - 1), Y(t.ys[t.aliveUntil - 1]), 2.6, 0, Math.PI * 2); ctx.fill();
         }
       });

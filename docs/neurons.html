@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Spiking Neurons, Properly — Configurable SNN Classifier, Explained</title>
 <meta name="description" content="LIF neurons from scratch: an interactive simulator, the chip's order of operations, integer leaks, and surrogate gradients.">
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚡</text></svg>">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' fill='%23000'/><path d='M3 22h5l3-13 4 19 3-11h4l2 5h5' fill='none' stroke='%23d6a24c' stroke-width='2.4' stroke-linejoin='round'/></svg>">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:ital,wght@0,400;0,600;0,700;1,400&display=swap" rel="stylesheet">
@@ -63,7 +63,6 @@
     <li><span class="s-title">Integrate.</span> Pour in this timestep's input, at full strength: <code>v ← v + x</code>.</li>
   </ol>
   <div class="callout key">
-    <div class="ico">⏱️</div>
     <div>
       <span class="callout-title">What step 1 implies</span>
       <ul>
@@ -87,7 +86,7 @@
     <div class="demo-head">
       <span class="demo-tag">INTERACTIVE</span>
       <span class="demo-title">Hardware LIF neuron — full simulator</span>
-      <span class="demo-sub">Yellow: input events (top raster & bars). Blue: membrane v. Green: output spikes. The firing-rate readout is spikes ÷ window — exactly the "rate code" the network's output layer uses.</span>
+      <span class="demo-sub">Amber: input events (lower band and bars). Pale trace: membrane v. Sage: output spikes (top band). The firing-rate readout is spikes ÷ window — exactly the "rate code" the network's output layer uses.</span>
     </div>
     <div class="demo-body">
       <div class="controls">
@@ -116,7 +115,7 @@
           <label>threshold θ <output id="sim-theta-out">1.00</output></label>
           <input type="range" id="sim-theta" min="10" max="100" value="100">
         </div>
-        <button class="btn" id="sim-pause">⏸ Pause</button>
+        <button class="btn" id="sim-pause">Pause</button>
       </div>
       <canvas id="sim-canvas" height="300"></canvas>
       <div class="stats">
@@ -167,7 +166,7 @@
     <div class="demo-head">
       <span class="demo-tag">INTERACTIVE</span>
       <span class="demo-title">Same input, both neurons — spot the drift</span>
-      <span class="demo-sub">One shared input train (yellow) drives both models with identical w, τ, θ. Watch the chip neuron (bottom) spike one step later — and, because of decayed-vs-raw input, sometimes on a completely different schedule.</span>
+      <span class="demo-sub">One shared input train (amber, top) drives both models with identical w, τ, θ. Watch the chip neuron (bottom) spike one step later — and, because of decayed-vs-raw input, sometimes on a completely different schedule.</span>
     </div>
     <div class="demo-body">
       <div class="controls">
@@ -179,7 +178,7 @@
           <label>weight w <output id="ord-w-out">0.55</output></label>
           <input type="range" id="ord-w" min="10" max="120" value="55">
         </div>
-        <button class="btn primary" id="ord-new">🎲 New random input</button>
+        <button class="btn primary" id="ord-new">New random input</button>
       </div>
       <canvas id="ord-canvas" height="330"></canvas>
       <div class="stats">
@@ -220,7 +219,7 @@ HW_TAU_CHOICES = [2, 3, 4, 6, 8, 16, 32, 63]   # the leak values worth searching
     <div class="demo-head">
       <span class="demo-tag">INTERACTIVE</span>
       <span class="demo-title">Continuous τ vs. what the chip actually runs</span>
-      <span class="demo-sub">Drag the "float τ" slider a search might tune. The purple curve is the decay that τ would give; the yellow curve is the decay <code>round(τ)</code> gives. Inside each plateau, moving the slider changes nothing on chip.</span>
+      <span class="demo-sub">Drag the "float τ" slider a search might tune. The terracotta curve is the decay that τ would give; the amber dashed curve is the decay <code>round(τ)</code> actually gives. Inside each plateau, moving the slider changes nothing on chip.</span>
     </div>
     <div class="demo-body">
       <div class="controls">
@@ -252,7 +251,6 @@ HW_TAU_CHOICES = [2, 3, 4, 6, 8, 16, 32, 63]   # the leak values worth searching
     <li><strong>Learned θ wandering out of range</strong> → when <code>trainable_threshold=True</code>, θ is not the raw parameter. The code stores an unconstrained number <code>raw_threshold</code> and computes <code>θ = sigmoid(raw)</code>, which mathematically <em>cannot leave</em> (0, 1). The optimizer can push raw anywhere it likes; θ stays legal.</li>
   </ul>
   <div class="callout aside">
-    <div class="ico">✨</div>
     <div>
       <span class="callout-title">One elegant detail</span>
       <p>The chip compares <em>strictly</em> (<code>v &gt; θ</code>); the training surrogate computes "≥".
@@ -352,7 +350,6 @@ HW_TAU_CHOICES = [2, 3, 4, 6, 8, 16, 32, 63]   # the leak values worth searching
     <li>The <code>_fold_bias</code> block is dormant until quantization-aware training begins — it's how a folded BatchNorm's bias reaches the neuron. Full story in <a href="hardware.html#folding">chapter 4</a>.</li>
   </ul>
   <div class="callout key">
-    <div class="ico">🔑</div>
     <div>
       <span class="callout-title">The design philosophy, in one quote</span>
       <p>From <code>build_neuron</code>: <em>"There is deliberately no 'train with a nice neuron,
@@ -445,13 +442,13 @@ HW_TAU_CHOICES = [2, 3, 4, 6, 8, 16, 32, 63]   # the leak values worth searching
       const Y = v => plotBot - (Math.max(v, 0) / vmax) * (plotBot - plotTop);
       ctx.font = "10px 'JetBrains Mono', monospace";
       // output band
-      ctx.fillStyle = "#4ade80"; ctx.textAlign = "left"; ctx.textBaseline = "top";
+      ctx.fillStyle = "#8f9e73"; ctx.textAlign = "left"; ctx.textBaseline = "top";
       ctx.fillText("output spikes", padL, 2);
       for (let i = 0; i < HIST; i++) if (spH[i]) {
         ctx.fillRect(padL + i * dx, 14, Math.max(2, dx * 0.55), 13);
       }
       // input band
-      ctx.fillStyle = "#ffd166";
+      ctx.fillStyle = "#d6a24c";
       ctx.fillText("input events", padL, h - inBand + 12);
       for (let i = 0; i < HIST; i++) if (inH[i] > 0) {
         ctx.globalAlpha = 0.85;
@@ -459,13 +456,13 @@ HW_TAU_CHOICES = [2, 3, 4, 6, 8, 16, 32, 63]   # the leak values worth searching
         ctx.globalAlpha = 1;
       }
       // threshold
-      ctx.strokeStyle = "#fbbf24"; ctx.setLineDash([5, 4]);
+      ctx.strokeStyle = "#d6a24c"; ctx.setLineDash([5, 4]);
       ctx.beginPath(); ctx.moveTo(padL, Y(theta)); ctx.lineTo(w - 8, Y(theta)); ctx.stroke();
       ctx.setLineDash([]);
-      ctx.fillStyle = "#fbbf24"; ctx.textBaseline = "bottom";
+      ctx.fillStyle = "#d6a24c"; ctx.textBaseline = "bottom";
       ctx.fillText("θ = " + theta.toFixed(2), padL + 4, Y(theta) - 2);
       // membrane
-      ctx.strokeStyle = "#6ea8ff"; ctx.lineWidth = 2; ctx.beginPath();
+      ctx.strokeStyle = "#ece7de"; ctx.lineWidth = 2; ctx.beginPath();
       for (let i = 0; i < HIST; i++) {
         const x = padL + i * dx, y = Y(vH[i]);
         i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
@@ -479,7 +476,7 @@ HW_TAU_CHOICES = [2, 3, 4, 6, 8, 16, 32, 63]   # the leak values worth searching
     els.theta.addEventListener("input", () => els.thetaOut.textContent = (els.theta.value / 100).toFixed(2));
     els.pause.addEventListener("click", () => {
       paused = !paused;
-      els.pause.textContent = paused ? "▶ Resume" : "⏸ Pause";
+      els.pause.textContent = paused ? "Resume" : "Pause";
     });
     setInterval(step, 70);
     (function loop() { draw(); requestAnimationFrame(loop); })();
@@ -524,14 +521,14 @@ HW_TAU_CHOICES = [2, 3, 4, 6, 8, 16, 32, 63]   # the leak values worth searching
       ctx.font = "10px 'JetBrains Mono', monospace";
 
       // shared input row
-      ctx.fillStyle = "#ffd166"; ctx.textAlign = "left"; ctx.textBaseline = "top";
+      ctx.fillStyle = "#d6a24c"; ctx.textAlign = "left"; ctx.textBaseline = "top";
       ctx.fillText("shared input", padL, 2);
       for (let t = 0; t < T; t++) if (input[t]) ctx.fillRect(padL + t * dx, 14, Math.max(2, dx * 0.5), 11);
 
       function tracePanel(y0, y1, vs, ss, color, label) {
         const vmax = Math.max(1.35, ...vs) * 1.05;
         const Y = v => y1 - (Math.max(v, 0) / vmax) * (y1 - y0);
-        ctx.strokeStyle = "#fbbf2466"; ctx.setLineDash([4, 4]);
+        ctx.strokeStyle = "#d6a24c55"; ctx.setLineDash([4, 4]);
         ctx.beginPath(); ctx.moveTo(padL, Y(1)); ctx.lineTo(w - 12, Y(1)); ctx.stroke();
         ctx.setLineDash([]);
         ctx.strokeStyle = color; ctx.lineWidth = 1.8; ctx.beginPath();
@@ -547,8 +544,8 @@ HW_TAU_CHOICES = [2, 3, 4, 6, 8, 16, 32, 63]   # the leak values worth searching
         ctx.fillStyle = color; ctx.textBaseline = "bottom";
         ctx.fillText(label, padL, y0 - 18);
       }
-      tracePanel(70, 175, sjV, sjS, "#6ea8ff", "textbook (charge→fire) — v and spikes");
-      tracePanel(225, 322, hwV, hwS, "#ffd166", "chip (fire→reset→leak→integrate) — v and spikes");
+      tracePanel(70, 175, sjV, sjS, "#ece7de", "textbook (charge→fire) — v and spikes");
+      tracePanel(225, 322, hwV, hwS, "#d6a24c", "chip (fire→reset→leak→integrate) — v and spikes");
 
       let agree = 0;
       for (let t = 0; t < T; t++) if (sjS[t] === hwS[t]) agree++;
@@ -579,8 +576,8 @@ HW_TAU_CHOICES = [2, 3, 4, 6, 8, 16, 32, 63]   # the leak values worth searching
       const dec = tau => { const ys = [1]; for (let t = 1; t < T; t++) ys.push(ys[t - 1] * (1 - 1 / tau)); return ys; };
       const xs = Array.from({ length: T }, (_, i) => i);
       window.Site.linePlot(cv, [
-        { xs, ys: dec(tauF), color: "#b78cff", width: 2, label: `float τ=${tauF.toFixed(2)} (training illusion)`, dots: true, dotR: 2 },
-        { xs, ys: dec(leak), color: "#ffd166", width: 2, dash: [6, 4], label: `chip leak=${leak} (reality)`, dots: true, dotR: 2 }
+        { xs, ys: dec(tauF), color: "#c07a5c", width: 2, label: `float τ=${tauF.toFixed(2)} (training illusion)`, dots: true, dotR: 2 },
+        { xs, ys: dec(leak), color: "#d6a24c", width: 2, dash: [6, 4], label: `chip leak=${leak} (reality)`, dots: true, dotR: 2 }
       ], { height: 240, xlabel: "timestep", ylabel: "membrane (no input)", ymin: 0, ymax: 1 });
       els.out.textContent = tauF.toFixed(2);
       els.f.textContent = tauF.toFixed(2);
@@ -607,14 +604,14 @@ HW_TAU_CHOICES = [2, 3, 4, 6, 8, 16, 32, 63]   # the leak values worth searching
       const xs = [], ys = [];
       for (let r = -6; r <= 6.001; r += 0.1) { xs.push(r); ys.push(SNN.sigmoid(r)); }
       const plt = window.Site.linePlot(cv, [
-        { xs, ys, color: "#6ea8ff", width: 2, label: "θ = sigmoid(raw_threshold)" }
+        { xs, ys, color: "#ece7de", width: 2, label: "θ = sigmoid(raw_threshold)" }
       ], {
         height: 220, xlabel: "raw_threshold (unconstrained parameter)", ylabel: "θ",
         ymin: 0, ymax: 1.08,
-        hlines: [{ y: 1.0, color: "#ff6b6b", label: "θ=1.0 → int 32767 (ceiling)" }]
+        hlines: [{ y: 1.0, color: "#c0604f", label: "θ=1.0 → int 32767 (ceiling)" }]
       });
       // marker
-      plt.ctx.fillStyle = "#ffd166";
+      plt.ctx.fillStyle = "#d6a24c";
       plt.ctx.beginPath(); plt.ctx.arc(plt.X(raw), plt.Y(theta), 5, 0, Math.PI * 2); plt.ctx.fill();
       els.rawOut.textContent = raw.toFixed(1);
       els.theta.textContent = theta.toFixed(5);
@@ -643,10 +640,10 @@ HW_TAU_CHOICES = [2, 3, 4, 6, 8, 16, 32, 63]   # the leak values worth searching
         grad.push(SNN.atanSurrogateGrad(x));
       }
       const plt = window.Site.linePlot(cv, [
-        { xs, ys: step, color: "#ffd166", width: 2, label: "forward: real spike (Heaviside)", step: true },
-        { xs, ys: grad, color: "#b78cff", width: 2, label: "backward: ATan surrogate gradient" }
+        { xs, ys: step, color: "#d6a24c", width: 2, label: "forward: real spike (Heaviside)", step: true },
+        { xs, ys: grad, color: "#c07a5c", width: 2, label: "backward: ATan surrogate gradient" }
       ], { height: 250, xlabel: "v − θ (distance from threshold)", ylabel: "", ymin: -0.05, ymax: 1.12 });
-      plt.ctx.fillStyle = "#6ea8ff";
+      plt.ctx.fillStyle = "#ece7de";
       plt.ctx.beginPath(); plt.ctx.arc(plt.X(xv), plt.Y(SNN.atanSurrogateGrad(xv)), 5, 0, Math.PI * 2); plt.ctx.fill();
       els.xOut.textContent = xv.toFixed(2);
       els.fwd.textContent = SNN.heaviside(xv);

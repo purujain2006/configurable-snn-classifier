@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Hardware Rules & Quantization — Configurable SNN Classifier, Explained</title>
 <meta name="description" content="HiAER-Spike's wiring budgets, the INT16 grid, BatchNorm folding, and quantization-aware training — interactively.">
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚡</text></svg>">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' fill='%23000'/><path d='M3 22h5l3-13 4 19 3-11h4l2 5h5' fill='none' stroke='%23d6a24c' stroke-width='2.4' stroke-linejoin='round'/></svg>">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:ital,wght@0,400;0,600;0,700;1,400&display=swap" rel="stylesheet">
@@ -197,7 +197,7 @@ NEURON_LIMITS = {
     <div class="demo-head">
       <span class="demo-tag">INTERACTIVE</span>
       <span class="demo-title">A whole layer's weights meeting the clamp</span>
-      <span class="demo-sub">4,000 simulated trained weights (bell curve), folded through per-channel BN scales. Red mass = weights the INT16 grid will amputate. The dashed marker is the file's 2% warning budget (<code>DEPLOY_LIMITS.max_weight_clip_frac</code>).</span>
+      <span class="demo-sub">4,000 simulated trained weights (bell curve), folded through per-channel BN scales. Rust bars = weights the INT16 grid will amputate. The dashed marker is the file's 2% warning budget (<code>DEPLOY_LIMITS.max_weight_clip_frac</code>).</span>
     </div>
     <div class="demo-body">
       <div class="controls">
@@ -281,8 +281,8 @@ def fake_quantize_weight(w):
       </div>
       <div id="qt-bar" style="display:flex;height:44px;border-radius:10px;overflow:hidden;border:1px solid var(--border-2);font-family:var(--mono);font-size:11.5px;"></div>
       <div class="legend" style="margin-top:10px;">
-        <span><i style="background:#6ea8ff;"></i> float warmup — BN active, precise weights, statistics maturing</span>
-        <span><i style="background:#b78cff;"></i> on-grid — BN folded inline, weights INT16-clamped every step, lr × 0.5</span>
+        <span><i style="background:#ece7de;"></i> float warmup — BN active, precise weights, statistics maturing</span>
+        <span><i style="background:#c07a5c;"></i> on-grid — BN folded inline, weights INT16-clamped every step, lr × 0.5</span>
       </div>
     </div>
     <div class="demo-note">At the fold point, every (Conv, BN) pair is physically replaced by one <code>ConvBNFoldQuant</code> module. Its forward pass re-folds from BN's <em>running</em> statistics every step (batch statistics would make the deployed weight flicker per-minibatch), fake-quantizes W′, and hands b′ to the downstream neuron as a per-channel threshold shift — the <code>_fold_bias</code> hook you saw in chapter 2's forward pass. BN's γ, β and running stats keep updating from a cheap statistics-only pass, so the fold tracks the data as training proceeds.</div>
@@ -324,7 +324,6 @@ def fake_quantize_weight(w):
     <li><strong>Related guard:</strong> <code>fold_bn</code> refuses to run on a network in training mode — BN would supply <em>batch</em> statistics instead of running ones, "the single most common cause of a 'folding lost accuracy' report."</li>
   </ul>
   <div class="callout key">
-    <div class="ico">🎯</div>
     <div>
       <span class="callout-title">This chapter in one sentence</span>
       <p>Feasibility says <em>the wiring fits</em>; folding + fake quantization say <em>the numbers
@@ -379,8 +378,8 @@ def fake_quantize_weight(w):
       if (fanOut > L.fan_out) bust.push(`fan-out busts the limit`);
       if (fcIn > L.fan_in) bust.push(`the flatten alone busts FC fan-in — this is why GAP rescues feasibility (ch. 3)`);
       $("fb-note").innerHTML = bust.length
-        ? `⚠ ${bust.join("; ")}.`
-        : `✓ All within budget. Try k=7 with Cin=128: fan-in = 49·128 = 6,272 still fits — but k=3, Cin=128 into an FC via a big flatten is where 128-channel configs died.`;
+        ? `OVER BUDGET &nbsp;·&nbsp; ${bust.join("; ")}.`
+        : `WITHIN BUDGET &nbsp;·&nbsp; Try k=7 with Cin=128: fan-in = 49·128 = 6,272 still fits — but k=3, Cin=128 into an FC via a big flatten is where 128-channel configs died.`;
     }
     ["fb-k", "fb-cin", "fb-cout", "fb-s", "fb-fc"].forEach(id => $(id).addEventListener("change", update));
     update();
@@ -399,29 +398,29 @@ def fake_quantize_weight(w):
       const padL = 30, padR = 30, mid = h / 2 + 8;
       const X = v => padL + (v + 1.7) / 3.4 * (W - padL - padR);
       // representable band
-      ctx.fillStyle = "rgba(74,222,128,.08)";
+      ctx.fillStyle = "rgba(143,158,115,.08)";
       ctx.fillRect(X(-1), mid - 34, X(1) - X(-1), 68);
       // axis
-      ctx.strokeStyle = "#2a3854"; ctx.beginPath(); ctx.moveTo(X(-1.7), mid); ctx.lineTo(X(1.7), mid); ctx.stroke();
-      ctx.font = "10px 'JetBrains Mono', monospace"; ctx.fillStyle = "#7e8ca6";
+      ctx.strokeStyle = "#3a3733"; ctx.beginPath(); ctx.moveTo(X(-1.7), mid); ctx.lineTo(X(1.7), mid); ctx.stroke();
+      ctx.font = "10px 'JetBrains Mono', monospace"; ctx.fillStyle = "#8d8983";
       ctx.textAlign = "center"; ctx.textBaseline = "top";
       [-1.5, -1, -0.5, 0, 0.5, 1, 1.5].forEach(t => {
-        ctx.fillStyle = Math.abs(t) === 1 ? "#4ade80" : "#7e8ca6";
+        ctx.fillStyle = Math.abs(t) === 1 ? "#8f9e73" : "#8d8983";
         ctx.beginPath(); ctx.moveTo(X(t), mid - 5); ctx.lineTo(X(t), mid + 5);
-        ctx.strokeStyle = Math.abs(t) === 1 ? "#4ade80" : "#2a3854"; ctx.stroke();
+        ctx.strokeStyle = Math.abs(t) === 1 ? "#8f9e73" : "#3a3733"; ctx.stroke();
         ctx.fillText(t.toFixed(1), X(t), mid + 9);
       });
-      ctx.fillStyle = "#4ade80"; ctx.textBaseline = "bottom";
+      ctx.fillStyle = "#8f9e73"; ctx.textBaseline = "bottom";
       ctx.fillText("representable [−1, +1]", X(0), mid - 38);
       // float marker
-      ctx.fillStyle = "#b78cff";
+      ctx.fillStyle = "#c07a5c";
       ctx.beginPath(); ctx.arc(X(w), mid - 20, 6, 0, Math.PI * 2); ctx.fill();
       ctx.textBaseline = "bottom"; ctx.fillText("float " + w.toFixed(2), X(w), mid - 30);
       // arrow to quantized
-      ctx.strokeStyle = "#ffd166"; ctx.setLineDash([3, 3]);
+      ctx.strokeStyle = "#d6a24c"; ctx.setLineDash([3, 3]);
       ctx.beginPath(); ctx.moveTo(X(w), mid - 14); ctx.lineTo(X(q), mid + 18); ctx.stroke();
       ctx.setLineDash([]);
-      ctx.fillStyle = "#ffd166";
+      ctx.fillStyle = "#d6a24c";
       ctx.beginPath(); ctx.arc(X(q), mid + 22, 6, 0, Math.PI * 2); ctx.fill();
       ctx.textBaseline = "top"; ctx.fillText("chip " + q.toFixed(3), X(q), mid + 32);
 
@@ -459,14 +458,14 @@ def fake_quantize_weight(w):
       let warn = "";
       if (thp <= 0) {
         $("f-thp").className = "val bad";
-        warn = `<div class="verdict fail">✗ BLOCKING: folded threshold θ′ = ${thp.toFixed(3)} ≤ 0 — this neuron would fire unconditionally on chip. deployment_report scores this config 0.</div>`;
+        warn = `<div class="verdict fail">BLOCKING &nbsp;·&nbsp; folded threshold θ′ = ${thp.toFixed(3)} ≤ 0 — this neuron would fire unconditionally on chip. deployment_report scores this config 0.</div>`;
       } else if (thp > 1) {
         $("f-thp").className = "val warn";
-        warn = `<div class="verdict pass" style="border-color:rgba(251,191,36,.4);color:var(--warn);">θ′ > 1 — legal to compute with, but note it exceeds the (0,1] grid the base θ obeys; the fold’s legality check watches the unclamped value.</div>`;
+        warn = `<div class="verdict pass" style="border-color:rgba(214,162,76,.4);color:var(--warn);">NOTE &nbsp;·&nbsp; θ′ > 1 — legal to compute with, but note it exceeds the (0,1] grid the base θ obeys; the fold’s legality check watches the unclamped value.</div>`;
       } else {
         $("f-thp").className = "val acc";
       }
-      if (clipped) warn += `<div class="verdict fail" style="margin-top:8px;">✗ |W′| > 1: the INT16 grid will silently truncate this weight. In a real layer this is counted by weight_clip_fraction.</div>`;
+      if (clipped) warn += `<div class="verdict fail" style="margin-top:8px;">CLIPPED &nbsp;·&nbsp; |W′| > 1 — the INT16 grid will silently truncate this weight. In a real layer this is counted by weight_clip_fraction.</div>`;
       $("f-warn").innerHTML = warn;
     }
     ["f-w", "f-g", "f-v", "f-m", "f-b"].forEach(id => $(id).addEventListener("input", update));
@@ -511,17 +510,17 @@ def fake_quantize_weight(w):
       for (let i = 0; i < BINS; i++) {
         const x0 = lo + (i + 0.5) / BINS * (hi - lo);
         const bh = bins[i] / peak * (h - padB - 26);
-        ctx.fillStyle = Math.abs(x0) > 1 ? "#ff6b6b" : "#6ea8ff";
+        ctx.fillStyle = Math.abs(x0) > 1 ? "#c0604f" : "#ece7de";
         ctx.fillRect(padL + i * bw, h - padB - bh, Math.max(1, bw - 1), bh);
       }
       // ±1 markers
-      ctx.strokeStyle = "#4ade80"; ctx.setLineDash([5, 4]);
+      ctx.strokeStyle = "#8f9e73"; ctx.setLineDash([5, 4]);
       [-1, 1].forEach(t => { ctx.beginPath(); ctx.moveTo(X(t), 8); ctx.lineTo(X(t), h - padB); ctx.stroke(); });
       ctx.setLineDash([]);
-      ctx.font = "10px 'JetBrains Mono', monospace"; ctx.fillStyle = "#4ade80";
+      ctx.font = "10px 'JetBrains Mono', monospace"; ctx.fillStyle = "#8f9e73";
       ctx.textAlign = "center"; ctx.textBaseline = "top";
       ctx.fillText("−1", X(-1), h - padB + 6); ctx.fillText("+1", X(1), h - padB + 6);
-      ctx.fillStyle = "#7e8ca6";
+      ctx.fillStyle = "#8d8983";
       [-2, 0, 2].forEach(t => ctx.fillText(String(t), X(t), h - padB + 6));
 
       const frac = clipped / N;
@@ -551,8 +550,8 @@ def fake_quantize_weight(w):
       $("qt-fr-out").textContent = frac.toFixed(2);
       const wp = warmup / epochs * 100, gp = grid / epochs * 100;
       $("qt-bar").innerHTML =
-        `<div style="width:${wp}%;background:#6ea8ff;display:grid;place-items:center;color:#0a0e17;font-weight:700;min-width:52px;">float ×${warmup}</div>` +
-        `<div style="width:${gp}%;background:#b78cff;display:grid;place-items:center;color:#0a0e17;font-weight:700;min-width:52px;">on-grid ×${grid}</div>`;
+        `<div style="width:${wp}%;background:#ece7de;display:grid;place-items:center;color:#050505;font-weight:700;min-width:52px;">float ×${warmup}</div>` +
+        `<div style="width:${gp}%;background:#c07a5c;display:grid;place-items:center;color:#050505;font-weight:700;min-width:52px;">on-grid ×${grid}</div>`;
     }
     ["qt-ep", "qt-fr"].forEach(id => $(id).addEventListener("input", update));
     update();

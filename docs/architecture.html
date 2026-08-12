@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>The Configurable Architecture — Configurable SNN Classifier, Explained</title>
 <meta name="description" content="How the network is specified, planned on paper, and costed — with a live network builder using the file's exact math.">
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚡</text></svg>">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' fill='%23000'/><path d='M3 22h5l3-13 4 19 3-11h4l2 5h5' fill='none' stroke='%23d6a24c' stroke-width='2.4' stroke-linejoin='round'/></svg>">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:ital,wght@0,400;0,600;0,700;1,400&display=swap" rel="stylesheet">
@@ -106,7 +106,6 @@
     <li><span class="s-title">Record everything.</span> Each layer's plan stores input size, post-conv size (where the LIF neurons live), post-pool size, channels, and effective stride/padding — a <code>ConvBlockPlan</code>.</li>
   </ol>
   <div class="callout key">
-    <div class="ico">📐</div>
     <div>
       <span class="callout-title">Why "one source of truth" is a headline feature</span>
       <ul>
@@ -329,7 +328,6 @@ pipeline flush steps    : 3  (1 per spiking layer)
     <li>Per-<em>layer</em> neuron overrides are free on chip (it reads a neuron model per neuron anyway). Per-<em>channel</em> τ/θ were "considered and rejected as too many degrees of freedom for this dataset."</li>
   </ul>
   <div class="callout aside">
-    <div class="ico">🧪</div>
     <div>
       <span class="callout-title">Try it above</span>
       <p>The "per-layer mix with pooling" preset in the builder is this exact config. Note how
@@ -393,7 +391,7 @@ pipeline flush steps    : 3  (1 per spiking layer)
         <td><select data-i="${i}" data-f="k">${K_OPTS.map(c => `<option ${c === L.k ? "selected" : ""}>${c}</option>`).join("")}</select></td>
         <td><select data-i="${i}" data-f="s">${S_OPTS.map(c => `<option ${c === L.s ? "selected" : ""}>${c}</option>`).join("")}</select></td>
         <td><input type="checkbox" data-i="${i}" data-f="pool" ${L.pool ? "checked" : ""} style="accent-color:var(--accent);width:15px;height:15px;"></td>
-        <td>${layers.length > 1 ? `<button class="btn small" data-del="${i}">✕</button>` : ""}</td>
+        <td>${layers.length > 1 ? `<button class="btn small" data-del="${i}">×</button>` : ""}</td>
       </tr>`).join("");
     tb.querySelectorAll("select,input").forEach(el => {
       el.addEventListener("change", () => {
@@ -480,8 +478,8 @@ pipeline flush steps    : 3  (1 per spiking layer)
 
     // ---- verdict ----
     $("nb-verdict").innerHTML = feasible
-      ? `<div class="verdict pass">✓ HiAER-Spike feasibility: PASS <span class="why">every layer fits the chip's wiring budgets</span></div>`
-      : `<div class="verdict fail">✗ HiAER-Spike feasibility: FAIL</div>
+      ? `<div class="verdict pass">PASS &nbsp;·&nbsp; HiAER-Spike feasibility <span class="why">every layer fits the chip's wiring budgets</span></div>`
+      : `<div class="verdict fail">FAIL &nbsp;·&nbsp; HiAER-Spike feasibility</div>
          <ul class="violations">${violations.map(v => `<li>${v}</li>`).join("")}</ul>`;
 
     // ---- CLI ----

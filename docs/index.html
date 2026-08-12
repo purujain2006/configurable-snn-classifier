@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>The Big Picture — Configurable SNN Classifier, Explained</title>
 <meta name="description" content="A plain-English, interactive tour of a real spiking neural network research codebase: from event cameras to neuromorphic silicon.">
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚡</text></svg>">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' fill='%23000'/><path d='M3 22h5l3-13 4 19 3-11h4l2 5h5' fill='none' stroke='%23d6a24c' stroke-width='2.4' stroke-linejoin='round'/></svg>">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:ital,wght@0,400;0,600;0,700;1,400&display=swap" rel="stylesheet">
@@ -50,7 +50,6 @@
     <li>Nearly every unusual decision in this code exists to make them the <em>same network</em>.</li>
   </ul>
   <div class="callout key">
-    <div class="ico">🧭</div>
     <div>
       <span class="callout-title">How to read this site</span>
       <ul>
@@ -121,7 +120,7 @@
           <label>input activity (how busy the scene is) <output id="avs-sparsity-out">20%</output></label>
           <input type="range" id="avs-sparsity" min="2" max="60" value="20">
         </div>
-        <button class="btn primary" id="avs-run">▶ Run 16 timesteps</button>
+        <button class="btn primary" id="avs-run">Run 16 timesteps</button>
       </div>
       <canvas id="avs-canvas" height="240"></canvas>
       <div class="stats">
@@ -167,27 +166,27 @@
   <div class="pipe">
     <a class="pipe-card" href="training.html">
       <div class="pc-step">STAGE A</div>
-      <div class="pc-title">📷 Event camera</div>
+      <div class="pc-title">Event camera</div>
       <div class="pc-desc">128×128 DVS sensor streams sparse ON/OFF brightness-change events. Chopped into T=16 time-slices, shrunk to 64×64, snapped to 0/1.</div>
     </a>
     <a class="pipe-card" href="architecture.html">
       <div class="pc-step">STAGE B</div>
-      <div class="pc-title">🧩 Configurable SNN</div>
+      <div class="pc-title">Configurable SNN</div>
       <div class="pc-desc">A few convolution layers of LIF neurons + a tiny classifier head. Depth, kernels, channels, pooling — all knobs. Planned & feasibility-checked before building.</div>
     </a>
     <a class="pipe-card" href="training.html">
       <div class="pc-step">STAGE C</div>
-      <div class="pc-title">🎓 Training</div>
+      <div class="pc-title">Training</div>
       <div class="pc-desc">Backpropagation with a "surrogate gradient" trick, warmup in float, then training <em>on the chip's integer grid</em> (quantization-aware training).</div>
     </a>
     <a class="pipe-card" href="hardware.html">
       <div class="pc-step">STAGE D</div>
-      <div class="pc-title">📦 Fold & quantize</div>
+      <div class="pc-title">Fold &amp; quantize</div>
       <div class="pc-desc">BatchNorm gets mathematically absorbed into conv weights; weights snap to INT16 in [−1,1]; biases hide inside per-channel thresholds. Deployability is checked, not hoped for.</div>
     </a>
     <a class="pipe-card" href="search.html">
       <div class="pc-step">STAGE E</div>
-      <div class="pc-title">🔍 The search</div>
+      <div class="pc-title">The search</div>
       <div class="pc-desc">Optuna + Ray Tune try hundreds of configs. Free feasibility check first, cheap float training with early stopping, and the <em>chip-accurate</em> number is what gets optimized.</div>
     </a>
   </div>
@@ -204,11 +203,11 @@
     <div class="demo-head">
       <span class="demo-tag">INTERACTIVE</span>
       <span class="demo-title">Poke a hardware LIF neuron</span>
-      <span class="demo-sub">Yellow bars: your input spikes (weight 0.45). Blue trace: membrane potential v. Dashed line: threshold θ=1.0. When v crosses θ → output spike (top), hard reset to 0.</span>
+      <span class="demo-sub">Amber bars: your input spikes (weight 0.45). Pale trace: membrane potential v. Dashed line: threshold θ=1.0. When v crosses θ → output spike (top row), hard reset to 0.</span>
     </div>
     <div class="demo-body">
       <div class="controls">
-        <button class="btn primary" id="poke-btn">⚡ Inject input spike</button>
+        <button class="btn primary" id="poke-btn">Inject input spike</button>
         <div class="ctl">
           <label>leak τ <output id="poke-tau-out">4</output></label>
           <input type="range" id="poke-tau" min="0" max="7" value="2" step="1">
@@ -344,11 +343,11 @@ python Practice.py search  --compute local --trials 50  # Optuna hyperparameter 
       for (const s of spikes) {
         const y = s.row * rowH + rowH / 2;
         const g = ctx.createLinearGradient(s.x - 26, 0, s.x, 0);
-        g.addColorStop(0, "rgba(110,168,255,0)");
-        g.addColorStop(1, "rgba(110,168,255,.35)");
+        g.addColorStop(0, "rgba(236,231,222,0)");
+        g.addColorStop(1, "rgba(236,231,222,.35)");
         ctx.fillStyle = g;
         ctx.fillRect(s.x - 26, y - 0.6, 26, 1.2);
-        ctx.fillStyle = "rgba(255,209,102,.8)";
+        ctx.fillStyle = "rgba(214,162,76,.8)";
         ctx.fillRect(s.x, y - 2.6, 1.8, 5.2);
       }
       requestAnimationFrame(tick);
@@ -388,23 +387,23 @@ python Practice.py search  --compute local --trials 50  # Optuna hyperparameter 
       ctx.font = "11px 'JetBrains Mono', monospace";
 
       function panel(x0, title, isSNN) {
-        ctx.fillStyle = "#a7b4cc"; ctx.textAlign = "left"; ctx.textBaseline = "top";
+        ctx.fillStyle = "#bab6b0"; ctx.textAlign = "left"; ctx.textBaseline = "top";
         ctx.font = "600 12px 'JetBrains Mono', monospace";
         ctx.fillText(title, x0 + 12, 12);
         ctx.font = "10px 'JetBrains Mono', monospace";
         for (let i = 0; i < N_IN; i++) {
           const y = topY + i * rowH;
-          ctx.fillStyle = "#5a6780";
+          ctx.fillStyle = "#66625d";
           ctx.fillText("in" + i, x0 + 12, y + 3);
           for (let t = 0; t < T; t++) {
             const x = x0 + 44 + t * cell;
             const active = grid[i][t] === 1;
             const done = t < step;
             if (isSNN) {
-              ctx.fillStyle = active ? (done ? "#ffd166" : "#4d431f") : (done ? "#141b29" : "#0d1220");
+              ctx.fillStyle = active ? (done ? "#d6a24c" : "#3a3025") : (done ? "#161514" : "#0a0a0a");
             } else {
               // ANN: every cell is "a number", always processed
-              ctx.fillStyle = done ? "rgba(110,168,255,.75)" : "#1a2438";
+              ctx.fillStyle = done ? "rgba(236,231,222,.75)" : "#1e1c1a";
             }
             ctx.fillRect(x, y, cell - 2.5, 12);
           }
@@ -412,23 +411,23 @@ python Practice.py search  --compute local --trials 50  # Optuna hyperparameter 
         // step cursor
         if (step > 0 && step <= T) {
           const x = x0 + 44 + (step - 1) * cell;
-          ctx.strokeStyle = "#ffffff33";
+          ctx.strokeStyle = "#ffffff2e";
           ctx.strokeRect(x - 1, topY - 3, cell - 0.5, N_IN * rowH + 2);
         }
       }
       panel(0, "ANN — dense numbers, all processed", false);
       panel(half, "SNN — spikes, silence is skipped", true);
       // divider
-      ctx.strokeStyle = "#1f2a41"; ctx.beginPath(); ctx.moveTo(half, 8); ctx.lineTo(half, h - 8); ctx.stroke();
+      ctx.strokeStyle = "#2a2724"; ctx.beginPath(); ctx.moveTo(half, 8); ctx.lineTo(half, h - 8); ctx.stroke();
       // output spikes for SNN
-      ctx.fillStyle = "#8493ad"; ctx.font = "10px 'JetBrains Mono', monospace";
+      ctx.fillStyle = "#8d8983"; ctx.font = "10px 'JetBrains Mono', monospace";
       ctx.fillText("neuron output:", half + 12, topY + N_IN * rowH + 14);
       for (let t = 0; t < Math.min(step, T); t++) {
         if (spikesOut[t]) {
-          ctx.fillStyle = "#4ade80";
+          ctx.fillStyle = "#8f9e73";
           ctx.fillRect(half + 118 + t * cell, topY + N_IN * rowH + 10, cell - 2.5, 12);
         } else {
-          ctx.fillStyle = "#141b29";
+          ctx.fillStyle = "#161514";
           ctx.fillRect(half + 118 + t * cell, topY + N_IN * rowH + 10, cell - 2.5, 12);
         }
       }
@@ -504,22 +503,22 @@ python Practice.py search  --compute local --trials 50  # Optuna hyperparameter 
       const vmax = Math.max(1.6, ...vHist) * 1.05;
       const Y = v => plotBot - (v / vmax) * (plotBot - plotTop);
       // threshold line
-      ctx.strokeStyle = "#fbbf24"; ctx.setLineDash([5, 4]); ctx.lineWidth = 1.2;
+      ctx.strokeStyle = "#d6a24c"; ctx.setLineDash([5, 4]); ctx.lineWidth = 1.2;
       ctx.beginPath(); ctx.moveTo(padL, Y(THETA)); ctx.lineTo(w - 8, Y(THETA)); ctx.stroke();
       ctx.setLineDash([]);
-      ctx.fillStyle = "#fbbf24"; ctx.font = "10px 'JetBrains Mono', monospace";
+      ctx.fillStyle = "#d6a24c"; ctx.font = "10px 'JetBrains Mono', monospace";
       ctx.textAlign = "left"; ctx.textBaseline = "bottom";
       ctx.fillText("threshold θ = 1.0", padL + 4, Y(THETA) - 3);
       // input bars
       for (let i = 0; i < HIST; i++) {
         if (inHist[i] > 0) {
-          ctx.fillStyle = "rgba(255,209,102,.5)";
+          ctx.fillStyle = "rgba(214,162,76,.5)";
           const bh = (inHist[i] / vmax) * (plotBot - plotTop);
           ctx.fillRect(padL + i * dx, plotBot - bh, Math.max(1.5, dx * 0.6), bh);
         }
       }
       // membrane trace
-      ctx.strokeStyle = "#6ea8ff"; ctx.lineWidth = 2;
+      ctx.strokeStyle = "#ece7de"; ctx.lineWidth = 2;
       ctx.beginPath();
       for (let i = 0; i < HIST; i++) {
         const x = padL + i * dx, y = Y(vHist[i]);
@@ -529,13 +528,13 @@ python Practice.py search  --compute local --trials 50  # Optuna hyperparameter 
       // output spikes
       for (let i = 0; i < HIST; i++) {
         if (spkHist[i]) {
-          ctx.fillStyle = "#4ade80";
+          ctx.fillStyle = "#8f9e73";
           ctx.fillRect(padL + i * dx, 12, Math.max(2, dx * 0.6), 14);
         }
       }
-      ctx.fillStyle = "#4ade80"; ctx.textBaseline = "top";
+      ctx.fillStyle = "#8f9e73"; ctx.textBaseline = "top";
       ctx.fillText("output spikes", padL, 0);
-      ctx.fillStyle = "#7e8ca6"; ctx.textAlign = "right";
+      ctx.fillStyle = "#8d8983"; ctx.textAlign = "right";
       ctx.fillText("v = " + state.v.toFixed(3), w - 10, 0);
     }
 

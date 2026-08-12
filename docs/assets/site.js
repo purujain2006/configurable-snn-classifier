@@ -28,7 +28,7 @@
     ).join("");
     nav.innerHTML = `
       <a class="nav-logo" href="index.html">
-        <span class="bolt">⚡</span><span>SNN&nbsp;→&nbsp;Silicon</span>
+        <svg class="mark" width="20" height="20" viewBox="0 0 32 32" aria-hidden="true"><path d="M2 22h5l3-13 4 19 3-11h4l2 5h7" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round"/></svg><span>SNN <span style="color:var(--faint);">/</span> Silicon</span>
       </a>
       <div class="nav-links">${links}</div>
       <a class="nav-gh" href="https://github.com/purujain2006/configurable-snn-classifier" aria-label="GitHub" title="View the code on GitHub">
@@ -92,9 +92,9 @@
   }
 
   const PALETTE = {
-    bg: "#04070d", grid: "#1a253c55", axis: "#2a3854",
-    text: "#7e8ca6", accent: "#6ea8ff", accent2: "#b78cff",
-    spike: "#ffd166", good: "#4ade80", bad: "#ff6b6b", warn: "#fbbf24"
+    bg: "#050505", grid: "#2a272455", axis: "#3a3733",
+    text: "#8d8983", accent: "#ece7de", accent2: "#c07a5c",
+    spike: "#d6a24c", good: "#8f9e73", bad: "#c0604f", warn: "#d6a24c"
   };
 
   // Minimal line plot. series: [{xs, ys, color, width, dash, label, step}]
