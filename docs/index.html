@@ -17,12 +17,9 @@
   <canvas class="hero-canvas" id="hero-raster"></canvas>
   <div class="hero-inner">
     <p class="kicker">Project showcase</p>
-    <h1>A gesture classifier built<br>around its hardware</h1>
+    <h1>A configurable SNN built for HiAER-Spike</h1>
     <p class="lede">
-      This project trains spiking neural networks to recognize hand gestures from an event camera,
-      and targets a neuromorphic chip called HiAER-Spike. The chip constrains how a network may be
-      wired and what precision its numbers may carry. Those constraints drive every decision in the
-      code, so this walkthrough starts with the hardware and works outward from it.
+     This project is a Python program that finds the best performing configuration of a user-specificed spiking neural network under the constraints of HiAER-Spike, a neuromorphic platform. The platform limits how a network may be wired, supports only a narrow set of operations, and works in limited precision. These constraints drastically alter how a network is constructed, trained, and evaluated. The program is built for reuse. The network and the hardware limits are both supplied as configuration, so the user can point it at a new architecture, or raise the limits as HiAER-Spike develops, without rewriting the search. The immediate goal is to find parameters that increase accuracy for a specified network while the long-term goal is an analysis of which parameters are worth focusing on and expanding capabilities in.
     </p>
   </div>
 </header>
@@ -31,111 +28,89 @@
 <div class="wrap">
 
 <section id="hardware" class="reveal">
-  <h2><span class="sec-num">1.1</span>The hardware: HiAER-Spike</h2>
+  <h2><span class="sec-num">1.1</span>Introduction to HiAER-Spike</h2>
   <p>
     HiAER-Spike is a neuromorphic research platform developed at UC San Diego and programmed
     through a Python interface called <code>hs_api</code>. It executes networks of spiking neurons
-    directly. A neuron on the chip holds a small amount of state, receives events from other
-    neurons, and emits an event of its own when its state crosses a threshold. Those events carry no
-    value of their own. A neuron either fires or it does not.
+    directly. A neuron on the chip holds a small state, receives events from other
+    neurons, and emits an event of its own when its state crosses a threshold. These events carry information solely through their spikes; a neuron does/doesn't fire.
   </p>
   <p>
-    The appeal is power consumption. A conventional processor evaluates every unit of a network on
-    every input. This chip performs work only where an event actually arrives, so a workload with
+    The appeal of such a framework is power consumption. A conventional GPU evaluates every unit of a network on
+    every input. This platform performs work only where an event actually arrives, so a workload with
     little activity costs little energy.
-  </p>
-  <p>
-    Running a network on it takes more than loading a file. The chip shares almost nothing with the
-    environment a network is trained in, so a trained model has to be rebuilt into a form the
-    hardware accepts before any of it can be loaded.
   </p>
 </section>
 
 <section id="converter" class="reveal">
-  <h2><span class="sec-num">1.2</span>From a trained model to the chip</h2>
+  <h2><span class="sec-num">1.2</span>Conversion from a trained model to hardware-executable one</h2>
   <p>
     A network is trained in PyTorch, where a layer is a compact object and every number is a
-    32-bit float. The chip holds neither. Translating between them is the job of a program called
-    the <span class="term">converter</span>, supplied as part of <code>hs_api</code>.
+    32-bit float. The platform has neither of these capabilities. This is the job of a 
+    <span class="term">converter</span>, supplied as part of <code>hs_api</code>.
   </p>
 
   <div class="motiv">
     <div class="m-row">
       <span class="m-label">Observation</span>
       <p>
-        The chip has no concept of a convolution and no way to store a decimal. It knows individual
-        neurons, integer values, and messages passing between neurons.
+        The platform defines networks in terms of indvidual neurons, int16 values, and messages passing between neuron. There are no broader categories such as fully connected and convolutional layers.
       </p>
     </div>
     <div class="m-row">
       <span class="m-label">Consequence</span>
       <p>
-        Every layer has to be expanded into the individual neurons it implies, every connection
-        between them has to be listed explicitly, and every number has to be mapped onto an
-        integer. What a network costs on this chip is therefore measured in neurons and connections
-        rather than in layers and parameters.
+        Every layer must be expanded into the individual neurons it implies and every connection
+        between them has to be listed explicitly. Additionally, every floating-point number must be mapped onto an
+        int-16.
       </p>
     </div>
     <div class="m-row code">
       <span class="m-label">In code</span>
       <p>
-        The converter performs that expansion. <code>Practice2.py</code> mirrors its arithmetic
-        exactly, so that a network can be trained against the numbers the converter will produce
-        rather than adjusted to them afterwards.
+        The converter performs this expansion. However, more relevant to us, our <code>Practice2.py</code> mirrors its arithmetic
+        exactly, so that a network is trained against the numbers the converter will produce
+        rather than adjusted to them afterwards. This prevents massive losses in accuracy due to conversion and discourages dependence on high-precision weight values for storing information.
       </p>
     </div>
   </div>
 
-  <h3>What the expansion involves</h3>
+  <h3>Expansion by the Converter</h3>
   <p>
-    A convolution layer in PyTorch is one small filter, reused at every position in the image. The
-    chip cannot reuse anything, since it has no loop and no filters. All it holds is a flat table
-    naming which neuron sends to which other neuron, and with what weight.
-  </p>
-  <p>
-    So the converter walks the layer and writes out one neuron for every output position in every
+    The platform holds a table that maps which neuron sends to which other neuron, and with what weight.
+    The converter walks each layer and writes out one neuron for every output position in every
     channel, then lists that neuron's incoming connections one by one. A single convolution of 32
     channels over a 29&#215;29 image with a 7&#215;7 filter becomes 4,608 neurons holding 7.2
-    million connections between them, from 50,176 trained numbers. A GPU gets that reuse for free.
-    Here each connection the filter stands in for occupies its own row in the table.
+    million connections between them, from 50,176 trained numbers.
   </p>
   <p>Four terms follow from that picture, and they appear throughout this project.</p>
   <dl class="kv">
-    <dt>synapse</dt><dd>One connection between two neurons, holding one weight. Connection and synapse mean the same thing throughout this walkthrough, and the code uses both, in names like <code>count_neurons_and_synapses</code>.</dd>
-    <dt>axon</dt><dd>An input line carrying spikes into the chip from outside. The camera feeds these.</dd>
-    <dt>fan-in</dt><dd>How many connections arrive at one neuron. For a convolution neuron this is the size of the window it reads.</dd>
+    <dt>synapse</dt><dd>One connection between two neurons, holding one weight.</dd>
+    <dt>axon</dt><dd>An input line carrying spikes into the chip from outside. For our example, a DVS camera feeds these.</dd>
+    <dt>fan-in</dt><dd>How many connections arrive at one neuron.</dd>
     <dt>fan-out</dt><dd>How many connections leave one neuron toward the next layer.</dd>
   </dl>
   <p>
-    Each of the last three has a hard limit, because each one counts rows in that table, and the
-    table is a fixed size. Storing a connection is what costs something on this chip, so what a
-    network is allowed to look like comes down to how many connections it needs and where they land.
-    This walkthrough calls those caps the <span class="term">connection limits</span>.
-  </p>
-  <p class="footnote">
-    Hardware documentation calls the table the routing table and calls the caps routing limits,
-    since getting a spike from one neuron to another is a routing problem for the chip. The two
-    names describe the same thing.
+    Each of the last three has limit on how large they can be, because each one counts rows in the platform's routing table, and that
+    table is a fixed size. These connection/routing limits directly determine whether or a not a network can be constructed.
   </p>
 
-  <h3>What the mapping onto integers involves</h3>
+  <h3>Mapping floating-point onto int16</h3>
   <p>
-    The chip's memory holds 16-bit signed integers, so the values that exist on it run from
-    &#8722;32767 to +32767. A trained weight of 0.7 has to be assigned one of them, which requires
-    a rule for what the largest integer stands for. That rule is a constant called
-    <code>w_alpha</code>, and the converter fixes it at 1, meaning the integer 32767 represents the
+    The platform's memory holds 16-bit signed integers, so the values that exist on it discretely range from
+    &#8722;32767 to +32767. Weights can possess values awkward values such as 0.7, which needs to be represented by one of such integer values.
+    To do this, the converter defines
+    <code>w_alpha</code> and fixes it at 1. The constant dictates that the largest integer (+32767) represents the
     value 1.0.
   </p>
   <p>
-    A weight of 1.3 then has no integer available to it, since 1.0 is the largest value the format
-    can express. The converter replaces it with 1.0. That replacement is called
-    <span class="term">truncation</span>, and it is the one part of the mapping that loses real
-    information. Within the range the spacing between neighboring integers is about
-    0.00003, so ordinary rounding is harmless.
+    This brings up the issue of weights beyond 1.0, such as 1.3 which has no integer available to it. The converter replaces it with 1.0.
+    <span class="term">Truncation</span> loses
+    information and must be accounted for. Within the range [-1,1], the spacing between neighboring integers is about
+    0.00003, so snapping to the nearest available integer has negligible loss of information.
   </p>
   <p>
-    Firing thresholds and the decay constant are mapped the same way, which is why both appear in
-    the table below as integer formats rather than as free values.
+    Firing thresholds and the decay constant are mapped the same way.
   </p>
 
   <h3>Running it</h3>
@@ -144,27 +119,20 @@
     <code>T</code> timesteps, runs a few further timesteps with no input at all, and counts the
     spikes each output neuron produced. The extra timesteps are there because each layer holds its
     output back by one step, so the last frame of input needs a moment to reach the far end. Those
-    trailing steps are called the <span class="term">flush</span>.
-  </p>
-  <p class="footnote">
-    The behavior described here is taken from the comments and mirror functions in
-    <code>Practice2.py</code>, which document the converter's quantization settings, its neuron
-    model, and its measurement procedure. The address assignment and spike delivery details are
-    general to this style of hardware rather than stated in the project's own code.
+    trailing timesteps are called the <span class="term">flush</span>. The reason behind flushing will be discussed later.
   </p>
 </section>
 
 <section id="fixed" class="reveal">
-  <h2><span class="sec-num">1.3</span>What the chip fixes</h2>
+  <h2><span class="sec-num">1.3</span>Platform Limits</h2>
   <p>
-    Those two requirements, a connection table of fixed size and an integer number format, produce the
-    following limits. They are properties of the hardware rather than settings, and the rest of
-    this project exists to work inside them.
+    The routing table of fixed size and an int16 number format produce the
+    following hardware limits.
   </p>
 
   <div class="tbl-wrap">
     <table class="tbl">
-      <thead><tr><th>Constraint</th><th>Value</th><th>What it restricts</th></tr></thead>
+      <thead><tr><th>Constraint</th><th>Value</th><th>Restriction</th></tr></thead>
       <tbody>
         <tr>
           <td class="layer-name">input axons</td><td class="num">16,383</td>
@@ -184,7 +152,7 @@
         </tr>
         <tr>
           <td class="layer-name">threshold format</td><td class="num">int(&#952; &#183; 32767)</td>
-          <td>Firing thresholds are integers, so &#952; has to stay within (0, 1].</td>
+          <td>Firing thresholds, as mentioned earlier, have the same int16 limits. &#952; must stay within (0, 1].</td>
         </tr>
         <tr>
           <td class="layer-name">leak</td><td class="num">integer register</td>
