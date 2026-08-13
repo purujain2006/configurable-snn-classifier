@@ -109,6 +109,15 @@
     An unrecognized key raises with the list of valid field names rather than failing further down
     the call stack.
   </p>
+  <p class="footnote">
+    Two fields above need a word of explanation. <code>norm</code> chooses the normalization layer:
+    <code>bn</code> is the ordinary batch normalization of section 1.3, <code>tdbn</code> is a
+    variant that also normalizes across the timesteps rather than the batch alone, and
+    <code>none</code> switches it off. Turning it off makes the model enable a bias on each
+    convolution, since a convolution with neither would hold every output channel at zero mean.
+    <code>dilation</code> spaces a kernel's taps apart so it covers a wider area without more
+    weights. It stays at 1 throughout this project.
+  </p>
 </section>
 
 <section id="planning" class="reveal">
@@ -119,7 +128,7 @@
       <span class="m-label">Observation</span>
       <p>
         Three parts of the program need the spatial size of every layer: the module that builds the
-        network, the check against the routing limits, and the count of neurons and synapses. 
+        network, the check against the connection limits, and the count of neurons and connections. 
       </p>
     </div>
     <div class="m-row">
@@ -133,7 +142,8 @@
       <span class="m-label">In code</span>
       <p>
         <code>plan_network()</code> returns a <code>NetPlan</code> listing every convolution block
-        and linear layer with its input size, output size, channel counts and effective stride. The
+        and linear layer with its input size, output size, channel counts, and cumulative stride, meaning
+        the product of every stride up to that point. The
         model builder, <code>check_feasibility</code> and <code>count_neurons_and_synapses</code>
         all take that object as their input.
       </p>
@@ -171,7 +181,7 @@
         </tr>
         <tr>
           <td class="layer-name">connections</td><td class="num">neurons &#183; k&#178; &#183; C<sub>in</sub></td>
-          <td>Synapses the chip must route, since each output neuron reads its own window.</td>
+          <td>One row per connection the chip has to store, since each output neuron reads its own window.</td>
         </tr>
         <tr>
           <td class="layer-name">parameters</td><td class="num">k&#178; &#183; C<sub>in</sub> &#183; C<sub>out</sub></td>
@@ -183,7 +193,7 @@
   <p>
     In the two-layer configuration below, the second convolution holds 50,176 parameters and
     realizes 7.2 million connections, because the same filter is applied at 144 positions. Only the
-    parameter count ever reaches a GPU's memory. All 7.2 million have to be routed individually
+    parameter count ever reaches a GPU's memory. All 7.2 million have to be stored individually
     here, which is why the chip's limits are written as fan-in and fan-out rather than as a
     parameter budget.
   </p>
@@ -229,7 +239,7 @@ pipeline flush steps    : 3
   <p>
     The panel below runs the planning, costing and feasibility code from the file, ported to
     JavaScript and checked against the Python implementation. A few things are worth trying: 128
-    channels breaks the routing limits, a GAP head moves the parameter count by an order of
+    channels breaks the connection limits, a GAP head moves the parameter count by an order of
     magnitude, and enough layers will eventually trip the small-map guard from section 3.2.
   </p>
 

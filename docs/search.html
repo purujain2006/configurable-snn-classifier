@@ -56,7 +56,7 @@
       <span class="m-label">Observation</span>
       <p>
         Configurations differ enormously in how much they cost to evaluate. Section 4.1 showed that
-        a large fraction violate the routing limits, which arithmetic detects in microseconds.
+        a large fraction violate the connection limits, which arithmetic detects in microseconds.
         Among the rest, many are clearly weak within a few epochs.
       </p>
     </div>
@@ -289,7 +289,7 @@
         <tr><td class="layer-name">trial_progress.jsonl</td><td>every epoch</td><td>Epoch, training and validation accuracy, loss, learning rate.</td></tr>
         <tr><td class="layer-name">best.json</td><td>on improvement</td><td>The best configuration by converted accuracy, with its quantization gap and clip fraction.</td></tr>
         <tr><td class="layer-name">leaderboard.csv</td><td>per trial</td><td>One row per trial. A pruned trial is recorded as pruned rather than as zero, which would be indistinguishable from a configuration that converted badly.</td></tr>
-        <tr><td class="layer-name">infeasible.jsonl</td><td>on rejection</td><td>Configurations that failed the routing check, with the violated limits.</td></tr>
+        <tr><td class="layer-name">infeasible.jsonl</td><td>on rejection</td><td>Configurations that failed the connection check, with the limits they exceeded.</td></tr>
         <tr><td class="layer-name">undeployable.jsonl</td><td>on rejection</td><td>Configurations that trained but could not be represented on chip.</td></tr>
         <tr><td class="layer-name">trial_records.csv</td><td>at the end</td><td>Configuration, metrics and architecture counts for every trial, including those that never trained.</td></tr>
       </tbody>

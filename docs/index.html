@@ -99,15 +99,23 @@
     million connections between them, from 50,176 trained numbers. A GPU gets that reuse for free.
     Here each connection the filter stands in for occupies its own row in the table.
   </p>
-  <p>Three terms follow from that picture, and they appear throughout this project.</p>
+  <p>Four terms follow from that picture, and they appear throughout this project.</p>
   <dl class="kv">
+    <dt>synapse</dt><dd>One connection between two neurons, holding one weight. Connection and synapse mean the same thing throughout this walkthrough, and the code uses both, in names like <code>count_neurons_and_synapses</code>.</dd>
     <dt>axon</dt><dd>An input line carrying spikes into the chip from outside. The camera feeds these.</dd>
     <dt>fan-in</dt><dd>How many connections arrive at one neuron. For a convolution neuron this is the size of the window it reads.</dd>
     <dt>fan-out</dt><dd>How many connections leave one neuron toward the next layer.</dd>
   </dl>
   <p>
-    Each of the three has a hard limit, because each corresponds to storage in a routing table of
-    fixed size.
+    Each of the last three has a hard limit, because each one counts rows in that table, and the
+    table is a fixed size. Storing a connection is what costs something on this chip, so what a
+    network is allowed to look like comes down to how many connections it needs and where they land.
+    This walkthrough calls those caps the <span class="term">connection limits</span>.
+  </p>
+  <p class="footnote">
+    Hardware documentation calls the table the routing table and calls the caps routing limits,
+    since getting a spike from one neuron to another is a routing problem for the chip. The two
+    names describe the same thing.
   </p>
 
   <h3>What the mapping onto integers involves</h3>
@@ -135,20 +143,21 @@
     Once the network is expanded and mapped, the converter feeds the input as spikes for
     <code>T</code> timesteps, runs a few further timesteps with no input at all, and counts the
     spikes each output neuron produced. The extra timesteps are there because each layer holds its
-    output back by one step, so the last frame of input needs a moment to reach the far end.
+    output back by one step, so the last frame of input needs a moment to reach the far end. Those
+    trailing steps are called the <span class="term">flush</span>.
   </p>
   <p class="footnote">
     The behavior described here is taken from the comments and mirror functions in
     <code>Practice2.py</code>, which document the converter's quantization settings, its neuron
-    model, and its measurement procedure. The address assignment and routing details are general to
-    this style of hardware rather than stated in the project's own code.
+    model, and its measurement procedure. The address assignment and spike delivery details are
+    general to this style of hardware rather than stated in the project's own code.
   </p>
 </section>
 
 <section id="fixed" class="reveal">
   <h2><span class="sec-num">1.3</span>What the chip fixes</h2>
   <p>
-    Those two requirements, a finite routing table and an integer number format, produce the
+    Those two requirements, a connection table of fixed size and an integer number format, produce the
     following limits. They are properties of the hardware rather than settings, and the rest of
     this project exists to work inside them.
   </p>
@@ -163,7 +172,7 @@
         </tr>
         <tr>
           <td class="layer-name">neuron fan-in</td><td class="num">8,159</td>
-          <td>How many sources one neuron may listen to. Caps the receptive field of a convolution and the width of a fully connected layer.</td>
+          <td>How many sources one neuron may listen to. Caps how large a window one convolution neuron may read, and the width of a fully connected layer.</td>
         </tr>
         <tr>
           <td class="layer-name">neuron fan-out</td><td class="num">4,095</td>
@@ -314,7 +323,7 @@
         drawn on the most recent spike shows that offset.
       </p>
       <p>
-        The networks in this project realize roughly ten million synaptic connections, so the ratio
+        The networks in this project realize roughly ten million connections, so the ratio
         shown here scales up accordingly. The cost of the SNN is that time becomes part of the
         computation: the network runs T times per sample instead of once.
       </p>
@@ -343,7 +352,8 @@
   </p>
   <p>
     The code converts each recording into <code>T</code> frames by dividing the event stream into
-    <code>T</code> groups of equal event count and rasterizing each group.
+    <code>T</code> groups of equal event count, then turning each group into an image by counting the
+    events that landed on each pixel.
   </p>
 </section>
 
@@ -352,7 +362,7 @@
   <p>
     A network for this chip has many free parameters: how many convolution layers, how wide, what
     kernel size, how the resolution is reduced, how many timesteps, what leak and threshold the
-    neurons use, and how the network is trained. Some combinations exceed the routing limits in
+    neurons use, and how the network is trained. Some combinations exceed the connection limits in
     section 1.3 and cannot be built. Others fit but lose accuracy when their weights are
     quantized.
   </p>
@@ -405,7 +415,7 @@
     <div>
       <div class="r-k">Rejected before training</div>
       <div class="r-v">arithmetic only</div>
-      <div class="r-s">Routing limits are checked in microseconds, so infeasible configurations never reach a GPU.</div>
+      <div class="r-s">Connection limits are checked in microseconds, so infeasible configurations never reach a GPU.</div>
     </div>
   </div>
 </section>
@@ -471,12 +481,12 @@
         </a>
         <a href="hardware.html">
           <rect class="tree-leaf-box" x="456" y="131" width="438" height="38" fill="rgba(255,255,255,.022)" stroke="#3a3733"/>
-          <text class="tree-node-title" x="472" y="155" font-size="15.5" font-weight="500">Routing limits as arithmetic</text>
+          <text class="tree-node-title" x="472" y="155" font-size="15.5" font-weight="500">Connection limits as arithmetic</text>
           <text class="tree-tag" x="878" y="155" font-size="12.5" text-anchor="end">&#167;3</text>
         </a>
         <a href="architecture.html">
           <rect class="tree-leaf-box" x="456" y="183" width="438" height="38" fill="rgba(255,255,255,.022)" stroke="#3a3733"/>
-          <text class="tree-node-title" x="472" y="207" font-size="15.5" font-weight="500">Cost model: neurons, synapses, parameters</text>
+          <text class="tree-node-title" x="472" y="207" font-size="15.5" font-weight="500">Cost model: neurons, connections, parameters</text>
           <text class="tree-tag" x="878" y="207" font-size="12.5" text-anchor="end">&#167;4</text>
         </a>
         <a href="training.html">
@@ -530,7 +540,7 @@ python Practice2.py fold    --ckpt best.pth --data-dir &lt;DVS128 root&gt;
 python Practice2.py search  --compute local --trials 50 --data-dir &lt;DVS128 root&gt;</code></pre>
   </div>
   <ul>
-    <li><code>summary</code> prints the architecture table, the neuron and synapse counts, and the feasibility verdict. It needs no GPU.</li>
+    <li><code>summary</code> prints the architecture table, the neuron and connection counts, and the feasibility verdict. It needs no GPU.</li>
     <li><code>single</code> trains one configuration and reports both its float accuracy and its converted accuracy.</li>
     <li><code>fold</code> loads a checkpoint, folds batch normalization into the convolutions, quantizes, verifies the result, and writes the per-layer tables the converter reads.</li>
     <li><code>search</code> runs the automated search.</li>
@@ -555,7 +565,7 @@ python Practice2.py search  --compute local --trials 50 --data-dir &lt;DVS128 ro
     <a class="card" href="hardware.html">
       <div class="c-num">PAGE 04</div>
       <div class="c-title">Fitting the chip</div>
-      <div class="c-desc">The routing limits become an arithmetic check. Batch normalization is removed without changing what the network computes, and training moves onto the INT16 grid rather than meeting it afterwards.</div>
+      <div class="c-desc">The connection limits become an arithmetic check. Batch normalization is removed without changing what the network computes, and training moves onto the INT16 grid rather than meeting it afterwards.</div>
       <div class="c-tags"><span>feasibility</span><span>folding</span><span>quantization</span></div>
     </a>
     <a class="card" href="training.html">
