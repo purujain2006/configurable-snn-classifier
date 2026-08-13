@@ -106,7 +106,7 @@
     return obj</code></pre>
   </div>
   <p class="footnote">
-    An unrecognised key raises with the list of valid field names rather than failing further down
+    An unrecognized key raises with the list of valid field names rather than failing further down
     the call stack.
   </p>
 </section>
@@ -182,9 +182,10 @@
   </div>
   <p>
     In the two-layer configuration below, the second convolution holds 50,176 parameters and
-    realizes 7.2 million connections, because the same filter is applied at 144 positions. Weight
-    reuse costs a GPU nothing. The chip has to route each connection individually, which is why its
-    limits are expressed as fan-in and fan-out rather than as a parameter budget.
+    realizes 7.2 million connections, because the same filter is applied at 144 positions. Only the
+    parameter count ever reaches a GPU's memory. All 7.2 million have to be routed individually
+    here, which is why the chip's limits are written as fan-in and fan-out rather than as a
+    parameter budget.
   </p>
 
   <div class="term-block">
@@ -227,9 +228,9 @@ pipeline flush steps    : 3
   <h2><span class="sec-num">3.4</span>Building a configuration</h2>
   <p>
     The panel below runs the planning, costing and feasibility code from the file, ported to
-    JavaScript and checked against the Python implementation. Raising the channel count to 128
-    breaks the routing limits. Switching the head to GAP changes the parameter count sharply.
-    Adding layers eventually triggers the guard in section 3.2.
+    JavaScript and checked against the Python implementation. A few things are worth trying: 128
+    channels breaks the routing limits, a GAP head moves the parameter count by an order of
+    magnitude, and enough layers will eventually trip the small-map guard from section 3.2.
   </p>
 
   <div class="demo">
@@ -323,11 +324,11 @@ pipeline flush steps    : 3
   <p>
     After the convolution stack, a block of shape channels &#215; height &#215; width has to become
     11 class scores. The two available reductions differ in how much fan-in they demand from the
-    first linear layer, which section 1.1 limits to 8,159.
+    first linear layer, which section 1.3 limits to 8,159.
   </p>
   <div class="two-up">
     <div class="panel">
-      <div class="p-title"><span class="chip blue">flatten</span></div>
+      <div class="p-title"><span class="chip neutral">flatten</span></div>
       <ul>
         <li>Unrolls the block into one vector, so 32&#215;12&#215;12 becomes 4,608 features.</li>
         <li>Every neuron in the following linear layer then has a fan-in of 4,608.</li>
@@ -335,7 +336,7 @@ pipeline flush steps    : 3
       </ul>
     </div>
     <div class="panel">
-      <div class="p-title"><span class="chip violet">gap</span></div>
+      <div class="p-title"><span class="chip rust">gap</span></div>
       <ul>
         <li>Global average pooling reduces each channel to its mean, so 32&#215;12&#215;12 becomes 32 features.</li>
         <li>Fan-in drops to the channel count, and many more configurations pass the feasibility check.</li>

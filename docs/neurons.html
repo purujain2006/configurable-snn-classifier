@@ -180,7 +180,7 @@
 <section id="leak" class="reveal">
   <h2><span class="sec-num">2.3</span>The leak is an integer</h2>
   <p>
-    Section 1.1 noted that the chip holds the leak in an integer register. The converter writes
+    Section 1.3 noted that the chip holds the leak in an integer register. The converter writes
     <code>round(&#964;)</code> into it.
   </p>
 
@@ -188,9 +188,10 @@
     <div class="m-row">
       <span class="m-label">Observation</span>
       <p>
-        When developing this search, one hyperparameter search sampled &#964; as a continuous value between 1.5 and 2.5
-        and found a correlation between &#964; and accuracy. However, on the chip, values in that interval round to
-        2, so all of those configurations deploy as the same network. The correlation described is one the hardware cannot improve.
+        An earlier study sampled &#964; as a continuous value between 1.5 and 2.5 and reported a
+        correlation between &#964; and accuracy. Every value in that interval rounds to 2 on the
+        chip, so all of those configurations deploy as one and the same network. Whatever that
+        correlation measured, the hardware cannot act on it.
       </p>
     </div>
     <div class="m-row">
@@ -257,9 +258,14 @@
       <span class="m-label">Consequence</span>
       <p>
         The constraint has to be built into the parameterization rather than checked afterwards, so
-        that no optimizer step can produce an illegal threshold. Later, we will cover how folding biases into the threshold calculation will make it possible to produce negative/illegal thresholds, but those temporary biases will be able to end at legal values throughout a training run. Because of this, a separate accessor is needed for
-        deployment checks, because a clamp applied for numerical safety during training (to allow a singular trial to pass) would hide the illegal
-        value from a check that is supposed to catch it once it is supposedly ready to deploy.
+        that no optimizer step can produce an illegal threshold.
+      </p>
+      <p>
+        One other thing moves the threshold: folding a batch normalization bias into it, covered in
+        section 4.3. That shifted value is allowed to sit outside the legal range mid-run, as long
+        as it lands inside by the end. Deployment checks therefore read the threshold through their
+        own accessor. A clamp applied for numerical safety during training would otherwise hide the
+        illegal value from the one check that exists to catch it.
       </p>
     </div>
     <div class="m-row code">
@@ -267,8 +273,10 @@
       <p>
         The learned value is stored as <code>raw_threshold</code> and read as
         <code>sigmoid(raw_threshold)</code>, which lies in (0, 1) by construction.
-        <code>fake_quantize_threshold</code> then snaps it to the integer grid, and
-        <code>raw_v_threshold()</code> exposes the unclamped value for the deployment report. Snapping is the process of rounding the continous value into the discrete intervals allowed by the chip (1/32767 = ~0.0000305).
+        <code>fake_quantize_threshold</code> then snaps it to the integer grid. Snapping means
+        rounding a continuous value onto the discrete steps the chip allows, here 1/32767, or about
+        0.0000305. <code>raw_v_threshold()</code> exposes the unclamped value for the deployment
+        report.
       </p>
     </div>
   </div>
@@ -387,7 +395,7 @@
   <ul>
     <li><code>self.v</code> holds one potential per neuron in the layer, so the update runs across the whole layer at once.</li>
     <li>Subtracting <code>W_DELTA</code> before the comparison reproduces the chip's strict inequality using a surrogate that tests for greater-or-equal.</li>
-    <li><code>spike.detach()</code> in the reset keeps gradients from flowing through the reset path, which stabilises training.</li>
+    <li><code>spike.detach()</code> in the reset keeps gradients from flowing through the reset path, which stabilizes training.</li>
     <li><code>self.hw_tau</code> returns the stored integer, or the rounded learned value when &#964; is trainable.</li>
     <li>The <code>_fold_bias</code> block is inactive during ordinary training. Section 4.5 describes what sets it.</li>
   </ul>

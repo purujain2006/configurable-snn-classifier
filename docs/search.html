@@ -137,7 +137,7 @@
   </p>
   <p>
     The grace period is kept above one for two reasons recorded in the comments. Section 5.5 noted
-    that cosine and onecycle schedules improve late, so judging too early favours configurations
+    that cosine and onecycle schedules improve late, so judging too early favors configurations
     with a flat learning rate. Infeasible trials also report once at epoch zero, and a grace period
     above one keeps them from forming a checkpoint and lowering the bar for everything else.
   </p>
@@ -236,7 +236,7 @@
       <tbody>
         <tr><td class="layer-name">channels</td><td class="num">32, 64</td><td>Wider layers drove infeasibility (chi-square p=6e-4, Cramér's V=0.59) and never scored better.</td></tr>
         <tr><td class="layer-name">kernel</td><td class="num">5, 7</td><td>Every configuration in the top ten used one of these.</td></tr>
-        <tr><td class="layer-name">depth</td><td class="num">2 to 4</td><td>Shallow networks were favoured (Kruskal-Wallis q=0.08). Depth 5 never exceeded 0.77.</td></tr>
+        <tr><td class="layer-name">depth</td><td class="num">2 to 4</td><td>Shallow networks were favored (Kruskal-Wallis q=0.08). Depth 5 never exceeded 0.77.</td></tr>
         <tr><td class="layer-name">hidden layers</td><td class="num">0 or 1</td><td>Every configuration in the top ten used none (q=0.04).</td></tr>
         <tr><td class="layer-name">normalization</td><td class="num">bn, tdbn</td><td>Removing normalization produced every network that failed to learn (p=0.0015).</td></tr>
         <tr><td class="layer-name">resize_to</td><td class="num">32, 64</td><td>Native resolution needs 32,768 axons against a limit of 16,383, so it can never pass.</td></tr>

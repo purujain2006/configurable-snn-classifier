@@ -47,20 +47,29 @@
     <li><code>drop_last</code> is enabled on the training loader only. On validation it would discard up to N&#8722;1 clips and bias every accuracy figure.</li>
     <li><code>num_workers</code> is 0. Each search trial already runs in its own process, and nested worker processes oversubscribe the CPUs and fail on Windows.</li>
   </ul>
-  <p>
-    Three supporting functions exist because of failures encountered while running searches.
-    <code>warmup_dataset_cache()</code> builds the frame cache for every value of T before any
-    parallel trial starts, since two trials building the same cache directory can corrupt it, and
-    it treats a directory with missing class folders as incomplete rather than usable.
-    <code>_quiet_with_heartbeat</code> suppresses the library's per-file progress output and prints
-    one line every twenty seconds, restoring the full log if the operation fails.
-    <code>validate_data_dir()</code> reports the expected directory layout instead of allowing a
-    missing dataset to surface as a file error inside the library.
-  </p>
+  <p>Three supporting functions exist because of failures encountered while running searches.</p>
+  <dl class="kv">
+    <dt>warmup_dataset_cache()</dt>
+    <dd>
+      Builds the frame cache for every value of T before any parallel trial starts, since two trials
+      building the same cache directory can corrupt it. A directory missing class folders counts as
+      incomplete rather than usable.
+    </dd>
+    <dt>_quiet_with_heartbeat</dt>
+    <dd>
+      Suppresses the library's per-file progress output and prints one line every twenty seconds.
+      If the operation fails, the full log is restored.
+    </dd>
+    <dt>validate_data_dir()</dt>
+    <dd>
+      Reports the expected directory layout up front, so a missing dataset does not surface later as
+      a file error raised from inside the library.
+    </dd>
+  </dl>
 </section>
 
 <section id="binarize" class="reveal">
-  <h2><span class="sec-num">5.2</span>Resizing and binarising the input</h2>
+  <h2><span class="sec-num">5.2</span>Resizing and binarizing the input</h2>
 
   <div class="motiv">
     <div class="m-row">
@@ -103,7 +112,7 @@ return (out > 0).float()   # any nonzero contribution becomes a full spike</code
     </div>
     <div class="demo-body">
       <div class="controls">
-        <button class="btn" id="bz-rand">Randomise events</button>
+        <button class="btn" id="bz-rand">Randomize events</button>
         <button class="btn" id="bz-clear">Clear</button>
         <div class="seg" id="bz-mode">
           <button class="on" data-m="or">interpolate then threshold</button>
@@ -146,17 +155,17 @@ return (out > 0).float()   # any nonzero contribution becomes a full spike</code
       <span class="m-label">Observation</span>
       <p>
         Section 2.1 established that the chip's neuron fires on the potential it carried in from
-        the previous timestep, so each spiking layer delays its output by one timestep. When the
-        input ends after T frames, the evidence from the final frames has not yet reached the
-        classifier.
+        the previous timestep. Each spiking layer therefore holds its output back by one step. When
+        the input ends after T frames, evidence from the final frames is still in transit and has
+        not reached the classifier.
       </p>
     </div>
     <div class="m-row">
       <span class="m-label">Consequence</span>
       <p>
-        Stopping the simulation at T discards the last frames of every clip, and the amount
-        discarded grows with depth. A network measured this way scores lower on chip than in
-        training, with nothing in the configuration to indicate why.
+        Stopping the simulation at T throws away the last frames of every clip, and how many grows
+        with depth. A network measured that way scores lower on chip than it did in training.
+        Nothing in the configuration says why.
       </p>
     </div>
     <div class="m-row code">

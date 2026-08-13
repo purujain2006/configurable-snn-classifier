@@ -36,7 +36,8 @@
     HiAER-Spike is a neuromorphic research platform developed at UC San Diego and programmed
     through a Python interface called <code>hs_api</code>. It executes networks of spiking neurons
     directly. A neuron on the chip holds a small amount of state, receives events from other
-    neurons, and emits an event of its own when its state crosses a threshold. It is a binary framework.
+    neurons, and emits an event of its own when its state crosses a threshold. Those events carry no
+    value of their own. A neuron either fires or it does not.
   </p>
   <p>
     The appeal is power consumption. A conventional processor evaluates every unit of a network on
@@ -44,9 +45,9 @@
     little activity costs little energy.
   </p>
   <p>
-    Running a network on it takes more than loading a file, because the chip shares almost nothing
-    with the environment a network is trained in. The next section covers what has to happen in
-    between, and the section after that lists what the chip fixes as a result.
+    Running a network on it takes more than loading a file. The chip shares almost nothing with the
+    environment a network is trained in, so a trained model has to be rebuilt into a form the
+    hardware accepts before any of it can be loaded.
   </p>
 </section>
 
@@ -88,15 +89,15 @@
   <h3>What the expansion involves</h3>
   <p>
     A convolution layer in PyTorch is one small filter, reused at every position in the image. The
-    chip cannot reuse anything, because it has no loop and no notion of a filter. It has a table
-    listing which neuron sends to which other neuron, and with what weight.
+    chip cannot reuse anything, since it has no loop and no filters. All it holds is a flat table
+    naming which neuron sends to which other neuron, and with what weight.
   </p>
   <p>
     So the converter walks the layer and writes out one neuron for every output position in every
     channel, then lists that neuron's incoming connections one by one. A single convolution of 32
     channels over a 29&#215;29 image with a 7&#215;7 filter becomes 4,608 neurons holding 7.2
-    million connections between them, from 50,176 trained numbers. Reuse costs a GPU nothing and
-    costs this chip an entry in a table for every connection.
+    million connections between them, from 50,176 trained numbers. A GPU gets that reuse for free.
+    Here each connection the filter stands in for occupies its own row in the table.
   </p>
   <p>Three terms follow from that picture, and they appear throughout this project.</p>
   <dl class="kv">
@@ -133,7 +134,8 @@
   <p>
     Once the network is expanded and mapped, the converter feeds the input as spikes for
     <code>T</code> timesteps, runs a few further timesteps with no input at all, and counts the
-    spikes each output neuron produced. The reason for those extra timesteps appears in section 1.5.
+    spikes each output neuron produced. The extra timesteps are there because each layer holds its
+    output back by one step, so the last frame of input needs a moment to reach the far end.
   </p>
   <p class="footnote">
     The behavior described here is taken from the comments and mirror functions in
@@ -192,10 +194,9 @@
   </div>
 
   <p>
-    Two of these have consequences that reach far into the code. Because thresholds and weights are
-    quantized, a network measured in floating point is not the network that runs. Because the
-    update order is fixed, a network trained with a different order produces different spike times
-    once converted.
+    Two entries in that table reach further into the code than the rest. The first is quantization:
+    a network measured in floating point is not the network that runs. The second is the update
+    order, which shifts every spike time in a network that was trained against a different one.
   </p>
 </section>
 
@@ -209,9 +210,10 @@
   </p>
   <p>
     A convolutional NN applies the same small filter across an image and stacks layers of these
-    filters. The design is a good match for a GPU, which multiplies large dense matrices quickly.
-    HiAER-Spike does not run this model of computation, because there spikes are binary and only store 0s/1s and due to their nature of only firing when necessary, dense multiplication is inefficient and undesireable.
-  </p> 
+    filters. The design suits a GPU, which multiplies large dense matrices quickly. HiAER-Spike
+    cannot run it. Its neurons exchange binary events rather than continuous values, and they do
+    work only where an event arrives, so there is no dense matrix for the hardware to multiply.
+  </p>
 </section>
 
 <section id="snn" class="reveal">
@@ -223,7 +225,7 @@
   </p>
   <ul>
     <li>Incoming spikes add their connection weights to <code>v</code>. Negative weights subtract.</li>
-    <li>Between updates <code>v</code> decays toward rest at a rate set by a constant &#964;. Older input therefore counts for less than recent input. <code>v</code>/&#964; is used as a leaky term so that larger &#964;'s reflect a longer memory</li>
+    <li>Between updates <code>v</code> decays toward rest at a rate set by a constant &#964;. The amount removed each step is <code>v</code>/&#964;, so a larger &#964; leaks less and carries evidence for longer. Older input counts for less than recent input.</li>
     <li>When <code>v</code> crosses a threshold &#952;, the neuron emits a spike and <code>v</code> returns to zero.</li>
   </ul>
   <p>
@@ -312,7 +314,7 @@
         drawn on the most recent spike shows that offset.
       </p>
       <p>
-        The networks in this project realise roughly ten million synaptic connections, so the ratio
+        The networks in this project realize roughly ten million synaptic connections, so the ratio
         shown here scales up accordingly. The cost of the SNN is that time becomes part of the
         computation: the network runs T times per sample instead of once.
       </p>
@@ -329,15 +331,15 @@
   </p>
   <p>
     The recordings come from a dynamic vision sensor, an event camera with a 128&#215;128 array. A
-    conventional camera reports the brightness of every pixel at a fixed frame rate. Each pixel of
-    an event camera instead reports independently, and only when its own brightness changes. A
-    report of an increase and a report of a decrease occupy separate channels, which is why the
-    data has two channels rather than three.
+    conventional camera reports every pixel's brightness on a fixed clock. An event camera has no
+    clock. Each pixel reports on its own, only when its own brightness changes, with increases and
+    decreases arriving on separate channels. That last detail is why the data has two channels
+    rather than three.
   </p>
   <p>
-    A still background produces no events. A moving hand produces a dense stream of them along its
-    edges. The recording is therefore a sparse sequence of changes, which matches what a spiking
-    network consumes.
+    A still background produces no events at all, while a moving hand throws off a dense stream of
+    them along its edges. What the sensor records is a sparse sequence of changes, which is the kind
+    of input a spiking network consumes.
   </p>
   <p>
     The code converts each recording into <code>T</code> frames by dividing the event stream into
@@ -351,7 +353,7 @@
     A network for this chip has many free parameters: how many convolution layers, how wide, what
     kernel size, how the resolution is reduced, how many timesteps, what leak and threshold the
     neurons use, and how the network is trained. Some combinations exceed the routing limits in
-    section 1.1 and cannot be built. Others fit but lose accuracy when their weights are
+    section 1.3 and cannot be built. Others fit but lose accuracy when their weights are
     quantized.
   </p>
   <p>
@@ -409,7 +411,7 @@
 </section>
 
 <section id="map" class="reveal">
-  <h2><span class="sec-num">1.9</span>How the code is organised</h2>
+  <h2><span class="sec-num">1.9</span>How the code is organized</h2>
   <p>
     The implementation is a single file, <code>Practice2.py</code>, divided into numbered sections.
     Sections 1 to 4 import no deep learning libraries, so architecture planning and the feasibility
@@ -572,7 +574,7 @@ python Practice2.py search  --compute local --trials 50 --data-dir &lt;DVS128 ro
       <div class="c-num">PAGE 07</div>
       <div class="c-title">Reference</div>
       <div class="c-desc">A searchable index of every class and function in the file, grouped by the section it belongs to, with the reason each one exists.</div>
-      <div class="c-tags"><span>~80 entries</span></div>
+      <div class="c-tags"><span>70 entries</span><span>13 sections</span></div>
     </a>
   </div>
 </section>

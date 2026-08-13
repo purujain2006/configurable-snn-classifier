@@ -46,7 +46,7 @@ const R = [
  b:"Fan-in is k²·C_in and fan-out is ceil(k/s)²·C_out, except for the last convolution block, whose fan-out is the width of the first linear layer. An earlier version omitted the head from the check entirely."},
 
 {g:"§4 · Cost model"},
-{n:"count_neurons_and_synapses", k:"function", s:"count_neurons_and_synapses(cfg) -> {rows, totals, input_axons, neuron_updates_per_sample, plan}", o:"Counts spiking neurons, realised synapses and trainable parameters per layer and in total.",
+{n:"count_neurons_and_synapses", k:"function", s:"count_neurons_and_synapses(cfg) -> {rows, totals, input_axons, neuron_updates_per_sample, plan}", o:"Counts spiking neurons, realized synapses and trainable parameters per layer and in total.",
  b:"Neurons are counted once rather than per timestep. Connections exceed parameters because one filter is reused at every position. See <a href='architecture.html#cost'>3.3</a>."},
 {n:"format_summary", k:"function", s:"format_summary(cfg) -> str", o:"Renders the architecture table, the counts and the feasibility verdict as text.",
  b:"Includes the hardware neuron line with its integer threshold and leak, and the flush step count. This is the output of summary mode."},
@@ -178,11 +178,20 @@ for (const e of R) {
 list.innerHTML = html;
 
 const box = document.getElementById("ref-search");
-box.addEventListener("input", () => {
+const countEl = document.getElementById("ref-count");
+const emptyEl = document.getElementById("ref-empty");
+const TOTAL = document.querySelectorAll("#ref-list .ref").length;
+const GROUPS = document.querySelectorAll("#ref-list .ref-group-title").length;
+
+function applyFilter() {
   const q = box.value.trim().toLowerCase();
+  let shown = 0;
   document.querySelectorAll("#ref-list .ref").forEach(d => {
-    d.style.display = !q || d.dataset.search.includes(q) ? "" : "none";
-    if (q && d.dataset.search.includes(q)) d.open = q.length > 2;
+    const hit = !q || d.dataset.search.includes(q);
+    d.style.display = hit ? "" : "none";
+    if (hit) shown++;
+    if (q && hit) d.open = q.length > 2;
+    if (!q) d.open = false;
   });
   document.querySelectorAll("#ref-list .ref-group-title").forEach(t => {
     let el = t.nextElementSibling, any = false;
@@ -192,5 +201,14 @@ box.addEventListener("input", () => {
     }
     t.style.display = any || !q ? "" : "none";
   });
-});
+  if (emptyEl) emptyEl.hidden = shown !== 0;
+  if (countEl) {
+    countEl.textContent = q
+      ? `${shown} of ${TOTAL} entries match "${box.value.trim()}"`
+      : `${TOTAL} entries across ${GROUPS} sections of the file`;
+  }
+}
+
+box.addEventListener("input", applyFilter);
+applyFilter();
 })();

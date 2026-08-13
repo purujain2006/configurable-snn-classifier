@@ -28,7 +28,12 @@
 <main>
 <div class="wrap">
   <input type="text" class="search-box" id="ref-search" placeholder="Filter by name or keyword, for example fold, flush, tau, pickle">
+  <p class="ref-count" id="ref-count"></p>
   <div id="ref-list"></div>
+  <p class="ref-empty" id="ref-empty" hidden>
+    Nothing matches that. The index covers names, one-line descriptions and the notes inside each
+    entry, so a broader word usually finds it.
+  </p>
   <p class="footnote" style="margin-top:34px;">
     Names beginning with an underscore are internal helpers. Entries follow the order of the file.
   </p>

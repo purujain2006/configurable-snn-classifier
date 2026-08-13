@@ -123,8 +123,8 @@ NEURON_LIMITS = {
 
   <h3>w_alpha</h3>
   <p>
-    <code>w_alpha</code>  assigns the real
-    value that the largest integer (32767) should stand for.
+    <code>w_alpha</code> sets what real value the largest integer, 32767, stands for. That single
+    number fixes the whole mapping.
   </p>
   <div class="formula">
     store: &nbsp; <span class="o">n</span> = round( <span class="v">w</span> / <span class="c">w_alpha</span> &#215; 32767 )
@@ -142,8 +142,8 @@ NEURON_LIMITS = {
 
   <h3>Where it appears</h3>
   <p>
-    The value originates in the converter, which our file mirrors, so that training and
-    conversion agree.
+    The value originates in the converter. <code>Practice2.py</code> mirrors it rather than choosing
+    one of its own, so training and conversion agree on what each stored integer means.
   </p>
   <div class="code-block">
     <div class="code-head"><span class="file">Practice2.py</span><span class="loc">&#167;4b</span></div>
@@ -166,12 +166,15 @@ def quantized_threshold_int(th):
     range are truncated rather than mapped proportionally.
   </p>
   <p>
-    Thresholds are mapped to the same scale, which is why &#952; has to stay within (0, 1]. Giving weights their own scale would require rescaling every
-    threshold by the same factor to keep that comparison meaningful, since the threshold and weights are interlinked and must share the same sense of units.
+    Thresholds are mapped to the same scale, which is why &#952; has to stay within (0, 1]. A neuron
+    compares its membrane potential against &#952;, and that potential is a running sum of weights.
+    Giving weights a scale of their own would put the two sides of that comparison in different
+    units, so every threshold would need rescaling by the same factor to stay meaningful.
   </p>
   <p>
     Within the range, the grid is fine enough that rounding error is around 10<sup>&#8722;5</sup>,
-    which is negligible for a network. However, it is important to understand why weights breach past 1.0 (w_alpha) in magnitude.
+    which is negligible for a network. Truncation at the edge is the part that costs something, and
+    a trained weight rarely lands out there on its own. Something has to push it.
   </p>
 
   <div class="demo">
@@ -202,9 +205,9 @@ def quantized_threshold_int(th):
   <h2><span class="sec-num">4.3</span>Removing batch normalization</h2>
   <p>
     Batch normalization rescales each channel using running statistics and two learned parameters.
-    Networks here depend on it and while developing this hyperparameter search, a previous iteration found that configurations without normalization produced
-    networks that failed to learn at all. However, the chip has no such normalization layer capability, so it has to be removed
-    before deployment by folding the algorithm into the weights and thresholds.
+    Networks here depend on it. An earlier iteration of this search found that every configuration
+    built without normalization failed to learn at all. The chip provides no normalization layer, so
+    it has to be removed before deployment by folding it into the weights and thresholds.
   </p>
   <p>
     Removal is exact. A convolution followed by batch normalization is one linear map followed by
@@ -247,11 +250,10 @@ def quantized_threshold_int(th):
   </div>
 
   <p class="footnote">
-    That gives weight decay two jobs at once. Its usual one is regularization, and its second one
-    here is keeping the folded distribution inside the range, since the folded weight is the trained
-    weight times the channel scale. The search therefore tunes a single number against two goals.
-    Whether the second job is binding is measurable, and the runs recorded below say it currently is
-    not.
+    That gives weight decay two jobs at once. Alongside its usual regularization role it now also
+    holds the folded distribution inside the representable range, since a folded weight is the
+    trained weight times the channel scale. The search tunes one number against both. Whether the
+    second job binds is measurable, and in the runs recorded further down it does not.
   </p>
 
   <div class="motiv">
@@ -311,7 +313,7 @@ def quantized_threshold_int(th):
     </div>
   </div>
 
-  <h3>What the runs actually showed</h3>
+  <h3>What the runs showed</h3>
   <p>
     The two runs in <code>results/</code> that reached the deployment stage both failed, and both
     failed here rather than at the clamp of section 4.2.
@@ -504,8 +506,8 @@ def fake_quantize_weight(w):
     question the sections above leave open: whether training itself truncates.
   </p>
   <dl class="kv">
-    <dt>stored value</dt><dd>An ordinary parameter with no limits on it. This is what the optimizer updates. It lives at <code>module.parametrizations.weight.original</code>.</dd>
-    <dt>used value</dt><dd>The stored value after clamping and rounding. This is what the network multiplies with, and it is what reading <code>module.weight</code> returns.</dd>
+    <dt>stored value</dt><dd>An ordinary parameter with no limits on it, and the one the optimizer updates. It lives at <code>module.parametrizations.weight.original</code>.</dd>
+    <dt>used value</dt><dd>The stored value after clamping and rounding. The network multiplies with this one, and reading <code>module.weight</code> returns it.</dd>
   </dl>
   <p>
     Truncation applies to the used value alone. If the optimizer sets the stored value to 1.3, the
@@ -544,7 +546,7 @@ def fake_quantize_weight(w):
   <ul>
     <li>It rarely approaches the boundary at all. Trained convolution weights sit around 0.1 to 0.6, and only folding lifts them toward 1.0.</li>
     <li>Weight decay pulls every weight toward zero in proportion to its size, so the further out a stored value travels the harder it is pulled back.</li>
-    <li>Nothing is gained by travelling further, since the used value is already pinned at 1.0 and the network's output stops responding.</li>
+    <li>Nothing is gained by traveling further, since the used value is already pinned at 1.0 and the network's output stops responding.</li>
   </ul>
   <p>
     The third point holds for the network's output but not for the gradient. A true derivative would
@@ -621,10 +623,11 @@ def fake_quantize_weight(w):
     </div>
   </div>
   <p>
-    The distinction matters for how the range should be read. Under <code>ptq</code> the boundary
-    costs accuracy that could in principle be recovered. Under <code>inline</code> it is a
-    constraint the optimizer worked within, so widening it would not restore anything. It would
-    enlarge the set of solutions the optimizer can reach, which may or may not contain a better one.
+    The distinction changes how the range itself should be read. A <code>ptq</code> boundary costs
+    accuracy that could in principle be recovered. With <code>inline</code> the boundary was a
+    constraint the optimizer already worked within, so widening it restores nothing. What widening
+    does is enlarge the set of solutions the optimizer can reach, which may or may not contain a
+    better one.
   </p>
 
   <div class="demo">
