@@ -11,11 +11,12 @@ const TERMS = [
   ['axon',               'index.html',        '<dt>axon</dt>'],
   ['fan-in',             'index.html',        '<dt>fan-in</dt>'],
   ['fan-out',            'index.html',        '<dt>fan-out</dt>'],
-  ['connection limit',   'index.html',        'class="term">connection limits<'],
+  ['connection limit',   'index.html',        'connection/routing limits'],
+  ['routing',            'index.html',        "counts rows in the platform's routing table"],
   ['converter',          'index.html',        'class="term">converter<'],
-  ['truncat',            'index.html',        'class="term">truncation<'],
+  ['truncat',            'index.html',        'class="term">Truncation<'],
   ['membrane potential', 'index.html',        'class="term">membrane potential<'],
-  ['w_alpha',            'index.html',        'That rule is a constant called'],
+  ['w_alpha',            'index.html',        '<code>w_alpha</code> and fixes it at 1'],
   ['batch normalization','index.html',        'a layer that rescales each channel using statistics'],
   ['leaky integrate',    'index.html',        '<strong>leaky integrate-and-fire</strong>'],
   ['tdbn',               'architecture.html', '<code>tdbn</code> is a'],
@@ -29,8 +30,6 @@ const TERMS = [
 
 // Words that must never appear in prose at all.
 const BANNED = [
-  ['routing',      'use "connection" wording; "routing" is allowed only in the one naming footnote'],
-  ['routing table','use "connection table"'],
   ['synaptic',     'use "connection"'],
   ['receptive field', 'say what it means instead'],
   ['pre-neuron',   'say "input to the neuron"'],

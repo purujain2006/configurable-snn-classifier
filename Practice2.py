@@ -267,6 +267,18 @@ class TrainSpec:
     # behaviour. The margin is expressed as a fraction of theta: the constraint
     # is theta' >= fold_bias_margin * theta.
     fold_bias_margin: float = 0.05
+    # threshold mode only. HOW the folded bias is applied during inline QAT.
+    #   "threshold" -- compare against theta - b', which is what export_deployed
+    #                  writes and therefore what the chip runs.
+    #   "input"     -- add b' to the neuron's input. The older behaviour.
+    #
+    # These are not the same operation once tau > 1. A bias arrives every
+    # timestep and accumulates against the leak, reaching b'*tau, while a
+    # threshold shift is worth b' once. On results/probe.pth (tau=63) the two
+    # forms disagree on 9-35% of channel-timesteps, so training in "input" form
+    # and deploying in threshold form validates a network that never runs.
+    # tools/fold_bias_equivalence.py measures the gap on any checkpoint.
+    fold_bias_qat_form: str = "threshold"
 
 
 def parse_fc_widths(spec: str) -> list[int]:
@@ -989,13 +1001,28 @@ if _HAS_TORCH:
 
             # During inline-fold QAT (ConvBNFoldQuant, threshold mode) the folded
             # bias b' is delivered here each step instead of into the conv.
-            # Subtracting b' from the input is identical to comparing against a
-            # per-channel threshold (theta - b'), which is what the chip does --
-            # so the neuron trains against the exact deployed pre-activation.
+            #
+            # It has to be applied the way the chip applies it. Adding b' to the
+            # input and lowering the threshold by b' are NOT the same operation
+            # once tau > 1. A bias arrives every timestep and accumulates against
+            # the leak: the membrane offset after t steps without a spike is
+            #     d_t = b' * tau * (1 - (1 - 1/tau)^t)   ->  b' * tau
+            # while a threshold shift is worth b' once and never compounds. At
+            # tau=63 a bias of 0.01*theta already moves the membrane by 0.63.
+            # export_deployed writes theta - b', so QAT must do the same or the
+            # trained network is not the deployed one. Measured on
+            # results/probe.pth the two forms disagree on 9-35% of
+            # channel-timesteps; see tools/fold_bias_equivalence.py.
             fb = getattr(self, "_fold_bias", None)
             if fb is not None:
                 shape = [1, fb.shape[0]] + [1] * (x.dim() - 2)   # broadcast over (N,C,...)
-                x = x + fb.reshape(*shape)
+                fb_b = fb.reshape(*shape)
+                if getattr(self, "_fold_bias_form", "threshold") == "threshold":
+                    # quantize AFTER the shift, so the value is the one the chip
+                    # stores, including saturation if the band was not enforced.
+                    v_th = fake_quantize_threshold(v_th - fb_b)
+                else:
+                    x = x + fb_b            # legacy form, kept for A/B only
 
             # 1. fire on the membrane carried in from the previous timestep.
             #    The chip compares v > theta (strictly greater); one LSB of the
@@ -1064,8 +1091,10 @@ if _HAS_TORCH:
         """
 
         def __init__(self, conv, bn, bias_mode="threshold", quantize=True,
-                     fold_bias_margin: float = 0.05):
+                     fold_bias_margin: float = 0.05,
+                     fold_bias_qat_form: str = "threshold"):
             super().__init__()
+            self.fold_bias_qat_form = fold_bias_qat_form
             self.conv = conv                     # keep as trainable float params
             self.bn = bn                         # keep for gamma/beta + running stats
             self.bias_mode = bias_mode
@@ -1162,6 +1191,11 @@ if _HAS_TORCH:
             # represent (b' becomes the per-channel threshold at export).
             if self.bias_mode == "threshold" and self._bias_sink is not None:
                 self._bias_sink._fold_bias = b
+                # Tell the neuron HOW to apply it. "threshold" mirrors what
+                # export_deployed writes; "input" is the older form, which
+                # drifts from the deployed network as tau rises.
+                self._bias_sink._fold_bias_form = getattr(
+                    self, "fold_bias_qat_form", "threshold")
             return y
 
         @torch.no_grad()
@@ -1344,7 +1378,8 @@ class DVSGesturePuru(nn.Module):
     def forward(self, x: "torch.Tensor"):
         return self.conv_fc(x)
 
-    def to_qat_folded(self, bias_mode: str = "threshold", fold_bias_margin: float = 0.05):
+    def to_qat_folded(self, bias_mode: str = "threshold", fold_bias_margin: float = 0.05,
+                      fold_bias_qat_form: str = "threshold"):
         """
         Swap every (Conv2d, BatchNorm2d) pair for a single ConvBNFoldQuant, in
         place, so the whole subsequent run trains on the folded+quantized grid
@@ -1359,6 +1394,14 @@ class DVSGesturePuru(nn.Module):
         _require_torch()
         if getattr(self, "_qat_folded", False):
             return self
+        # Validate here rather than letting a typo fall through to the neuron,
+        # where anything != "threshold" silently selects the legacy input form.
+        if fold_bias_qat_form not in ("threshold", "input"):
+            raise ValueError(
+                f"fold_bias_qat_form must be 'threshold' or 'input', got "
+                f"{fold_bias_qat_form!r}. 'threshold' matches what "
+                f"export_deployed writes; 'input' is the older form and drifts "
+                f"from the deployed network as tau rises.")
         mods = list(self.conv_fc)
         new_mods, i = [], 0
         while i < len(mods):
@@ -1367,7 +1410,8 @@ class DVSGesturePuru(nn.Module):
             nxt2 = mods[i + 2] if i + 2 < len(mods) else None
             if isinstance(m, (layer.Conv2d, nn.Conv2d)) and isinstance(nxt, (layer.BatchNorm2d, nn.BatchNorm2d)):
                 block = ConvBNFoldQuant(m, nxt, bias_mode=bias_mode, quantize=True,
-                                        fold_bias_margin=fold_bias_margin)
+                                        fold_bias_margin=fold_bias_margin,
+                                        fold_bias_qat_form=fold_bias_qat_form)
                 block.step_mode = self.step_mode
                 new_mods.append(block)
                 # link the bias sink to the following neuron (threshold mode).
@@ -1572,9 +1616,25 @@ def fold_bn(net: "DVSGesturePuru", bias_mode: str = "conv") -> "DVSGesturePuru":
 
 def fold_bias_report(net: "DVSGesturePuru") -> list[dict]:
     """
-    Per-conv distribution of |b'|/theta -- the number that decides whether
-    bias_mode='threshold' is safe. (|b'| ~ 0.1*theta folds cleanly; ~0.5*theta
-    does not.) Call on the trained eval-mode net BEFORE folding.
+    Per-conv distribution of the folded bias, for deciding whether
+    bias_mode='threshold' is safe. Call on the trained eval-mode net BEFORE
+    folding.
+
+    Two different numbers matter, and only the second one tracks the leak:
+
+      |b'|/theta       whether theta' = theta - b' is STORABLE. Above 1 the
+                       threshold goes negative and the neuron fires every step.
+
+      |b'|*tau/theta   whether the threshold form BEHAVES like the bias form.
+                       A bias arrives every timestep and accumulates against the
+                       leak, settling at b'*tau, while a threshold shift is
+                       worth b' once. The old rule of thumb (0.1*theta folds
+                       cleanly, 0.5*theta does not) holds only at small tau: at
+                       tau=63 a bias of 0.01*theta already moves the membrane by
+                       0.63*theta. Keep this ratio below ~0.5, or set
+                       TrainSpec.fold_bias_qat_form='threshold' (the default) so
+                       training runs the deployed form and the ratio stops
+                       mattering.
     """
     _require_torch()
     rows = []
@@ -1588,6 +1648,10 @@ def fold_bias_report(net: "DVSGesturePuru") -> list[dict]:
                 bn.weight.data, bn.bias.data, bn.running_mean.data, bn.running_var.data, bn.eps)
             node = mods[i + 2] if i + 2 < len(mods) else None
             th = float(node.v_threshold) if node is not None and not torch.is_tensor(node.v_threshold) else 1.0
+            # the leak multiplies the bias's effect on the membrane, so the
+            # behavioural ratio carries tau while the storability ratio does not
+            tau = float(torch.as_tensor(node.hw_tau).item()) if node is not None \
+                and hasattr(node, "hw_tau") else 1.0
             ab = b_prime.abs()
             # theta' = theta - b' must land in (0, w_alpha] to be storable.
             # Report how far outside that band the raw fold would fall, which is
@@ -1595,9 +1659,13 @@ def fold_bias_report(net: "DVSGesturePuru") -> list[dict]:
             lo, hi = fold_bias_band(th, 0.0)
             below = (b_prime < lo)          # theta' > w_alpha, saturates at INT16_MAX
             above = (b_prime > hi)          # theta' <= 0, fires unconditionally
-            rows.append({"conv_index": i, "theta": th,
+            rows.append({"conv_index": i, "theta": th, "tau": tau,
                          "mean_abs_b_over_theta": (ab.mean() / th).item(),
                          "max_abs_b_over_theta": (ab.max() / th).item(),
+                         # behavioural ratio: how far the accumulated bias moves
+                         # the membrane, relative to the threshold it competes with
+                         "mean_abs_b_tau_over_theta": (ab.mean() * tau / th).item(),
+                         "max_abs_b_tau_over_theta": (ab.max() * tau / th).item(),
                          "theta_prime_min": (th - b_prime.max()).item(),
                          "theta_prime_max": (th - b_prime.min()).item(),
                          "frac_theta_prime_le_0": above.float().mean().item(),
@@ -2115,7 +2183,8 @@ def run_training(cfg: dict, data_dir: str, device=None, report_fn=None, ckpt_pat
             net.load_state_dict(best_state)          # grid-train from best warmup
         net.eval()                                   # fold from running stats
         net.to_qat_folded(bias_mode=train_cfg.fold_bias_mode,
-                          fold_bias_margin=getattr(train_cfg, "fold_bias_margin", 0.05))
+                          fold_bias_margin=getattr(train_cfg, "fold_bias_margin", 0.05),
+                          fold_bias_qat_form=getattr(train_cfg, "fold_bias_qat_form", "threshold"))
         net.to(device)
 
         grid_cfg = deepcopy(train_cfg)

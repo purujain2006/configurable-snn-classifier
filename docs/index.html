@@ -46,7 +46,7 @@
   <h2><span class="sec-num">1.2</span>Conversion from a trained model to hardware-executable one</h2>
   <p>
     A network is trained in PyTorch, where a layer is a compact object and every number is a
-    32-bit float. The platform has neither of these capabilities. This is the job of a 
+    32-bit float. The platform has neither of these capabilities. This is the job of a
     <span class="term">converter</span>, supplied as part of <code>hs_api</code>.
   </p>
 
@@ -160,7 +160,7 @@
         </tr>
         <tr>
           <td class="layer-name">available layers</td><td class="num">conv, linear, pool (restricted)</td>
-        <td>No bias terms are allowed as the platform only support's multiply-adds with weights, as in the routing table, bias is not stored.</td>
+        <td>No bias terms are allowed, as the platform only supports multiply-adds with weights and the routing table stores no bias. There is also no batch normalization, which is a layer that rescales each channel using statistics gathered during training.</td>
         </tr>
         <tr>
           <td class="layer-name">neuron update order</td><td class="num">N/A</td>

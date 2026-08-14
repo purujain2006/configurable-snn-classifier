@@ -219,4 +219,132 @@
     ["qt-ep", "qt-fr"].forEach(id => $(id).addEventListener("input", update));
     update();
   })();
+
+  /* ---------- 4.3 bias into input vs theta - b' ---------- */
+  (function foldBiasForm() {
+    if (!$("fx-canvas")) return;
+    const TAUS = SNN.HW_TAU_CHOICES;      // [2,3,4,6,8,16,32,63]
+    const STEPS = 19;                     // T=16 plus 3 flush steps, as deployed
+    const THETA = 1.0, W = 0.30;
+    let train = [];
+
+    function newTrain() {
+      const r = +$("fx-rate").value / 100;
+      train = Array.from({ length: STEPS }, () => (Math.random() < r ? 1 : 0));
+    }
+
+    // Runs the verified chip-order neuron. `bias` adds to the input each step;
+    // `thShift` lowers the threshold instead. Same intent, different operation.
+    function run(tau, bias, thShift) {
+      const st = { v: 0 }, p = { tau, v_threshold: THETA - thShift, v_reset: 0 };
+      const spikes = [], vs = [];
+      for (let t = 0; t < STEPS; t++) {
+        spikes.push(SNN.hardwareLIFStep(st, train[t] * W + bias, p));
+        vs.push(st.v);
+      }
+      return { spikes, vs };
+    }
+
+    function draw() {
+      const tau = TAUS[+$("fx-tau").value], b = +$("fx-b").value / 100;
+      $("fx-tau-out").textContent = tau;
+      $("fx-b-out").textContent = b.toFixed(2);
+      $("fx-rate-out").textContent = $("fx-rate").value + "%";
+
+      const A = run(tau, b, 0);        // bias into the input
+      const B = run(tau, 0, b);        // theta - b'
+      const nA = A.spikes.reduce((s, x) => s + x, 0);
+      const nB = B.spikes.reduce((s, x) => s + x, 0);
+      const agree = A.spikes.filter((s, i) => s === B.spikes[i]).length;
+
+      $("fx-na").textContent = nA;
+      $("fx-nb").textContent = nB;
+      const ag = $("fx-agree");
+      ag.textContent = `${agree}/${STEPS}`;
+      ag.className = "val " + (agree === STEPS ? "good" : agree < STEPS - 2 ? "bad" : "warn");
+      $("fx-gap").textContent = (b * tau).toFixed(2);
+
+      const P = window.Site.PALETTE;
+      const { ctx, w, h } = window.Site.setupCanvas($("fx-canvas"), 340);
+      ctx.fillStyle = P.bg; ctx.fillRect(0, 0, w, h);
+
+      const pad = 12, half = (w - pad * 3) / 2;
+      const vmax = Math.max(THETA * 1.6, ...A.vs, ...B.vs) * 1.05;
+
+      [[A, 0, "bias added to input", "what QAT trained", THETA],
+       [B, 1, "threshold lowered to θ − b′", "what the chip runs", THETA - b]
+      ].forEach(([R, side, title, sub, thLine]) => {
+        const x0 = pad + side * (half + pad), top = 46, ph = 150;
+        ctx.fillStyle = P.text; ctx.font = "600 14px Inter, sans-serif";
+        ctx.fillText(title, x0, 20);
+        ctx.fillStyle = P.axis; ctx.font = "12px Inter, sans-serif";
+        ctx.fillText(sub, x0, 36);
+
+        const cell = half / STEPS;
+        const Y = v => top + ph - Math.max(0, Math.min(1, v / vmax)) * ph;
+
+        // threshold line
+        ctx.strokeStyle = P.spike; ctx.setLineDash([4, 4]); ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.moveTo(x0, Y(thLine)); ctx.lineTo(x0 + half, Y(thLine)); ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.fillStyle = P.spike; ctx.font = "11px JetBrains Mono, monospace";
+        ctx.fillText("θ = " + thLine.toFixed(2), x0 + half - 62, Y(thLine) - 5);
+
+        // input ticks
+        for (let t = 0; t < STEPS; t++) {
+          if (!train[t]) continue;
+          ctx.fillStyle = "rgba(224,169,79,.30)";
+          ctx.fillRect(x0 + t * cell + cell * 0.3, top + ph + 6, cell * 0.4, 10);
+        }
+        ctx.fillStyle = P.axis; ctx.font = "11px Inter, sans-serif";
+        ctx.fillText("input", x0, top + ph + 30);
+
+        // membrane trace
+        ctx.strokeStyle = P.accent; ctx.lineWidth = 1.8; ctx.beginPath();
+        R.vs.forEach((v, t) => {
+          const px = x0 + t * cell + cell / 2, py = Y(v);
+          t ? ctx.lineTo(px, py) : ctx.moveTo(px, py);
+        });
+        ctx.stroke();
+
+        // spike band
+        for (let t = 0; t < STEPS; t++) {
+          const differ = A.spikes[t] !== B.spikes[t];
+          if (!R.spikes[t]) continue;
+          ctx.fillStyle = differ ? P.bad : P.good;
+          ctx.fillRect(x0 + t * cell + cell * 0.2, top + ph + 44, cell * 0.6, 14);
+        }
+        ctx.fillStyle = P.axis; ctx.font = "11px Inter, sans-serif";
+        ctx.fillText("output spikes", x0, top + ph + 74);
+      });
+
+      // accumulation curve d_t = b*tau*(1-(1-1/tau)^t)
+      const cy = 268, ch = 54, cw = w - pad * 2;
+      ctx.fillStyle = P.text; ctx.font = "600 13px Inter, sans-serif";
+      ctx.fillText("membrane offset the bias creates, dₜ = b′·τ·(1 − (1 − 1/τ)ᵗ)", pad, cy - 10);
+      const dmax = Math.max(b * tau, b * 1.2, 0.01);
+      ctx.strokeStyle = P.accent2; ctx.lineWidth = 2; ctx.beginPath();
+      for (let t = 0; t < STEPS; t++) {
+        const d = b * tau * (1 - Math.pow(1 - 1 / tau, t + 1));
+        const px = pad + (t / (STEPS - 1)) * cw, py = cy + ch - (d / dmax) * ch;
+        t ? ctx.lineTo(px, py) : ctx.moveTo(px, py);
+      }
+      ctx.stroke();
+      // what the threshold shift is worth, for comparison
+      const by = cy + ch - (b / dmax) * ch;
+      ctx.strokeStyle = P.spike; ctx.setLineDash([4, 4]); ctx.lineWidth = 1.4;
+      ctx.beginPath(); ctx.moveTo(pad, by); ctx.lineTo(pad + cw, by); ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.fillStyle = P.spike; ctx.font = "11px JetBrains Mono, monospace";
+      ctx.fillText("threshold shift is worth b′ = " + b.toFixed(2) + ", flat", pad + 4, by - 5);
+      ctx.fillStyle = P.accent2;
+      ctx.fillText("reaches " + (b * tau).toFixed(2), pad + cw - 96, cy + 12);
+    }
+
+    ["fx-tau", "fx-b"].forEach(id => $(id).addEventListener("input", draw));
+    $("fx-rate").addEventListener("input", () => { newTrain(); draw(); });
+    $("fx-new").addEventListener("click", () => { newTrain(); draw(); });
+    window.addEventListener("resize", draw);
+    newTrain(); draw();
+  })();
 })();

@@ -405,6 +405,116 @@ def constrain_fold_bias(b, v_th, margin: float = 0.05):
     by construction.
   </p>
 
+  <h3>A bias and a lower threshold are not the same thing</h3>
+  <p>
+    Everything above keeps &#952;&#8242; inside the range the chip can store. A second question sits
+    underneath it: whether swapping the bias for a threshold reproduces the behavior at all.
+  </p>
+  <p>
+    The swap looks like an even trade. A neuron that needs to reach 1.0 and receives a free +0.15
+    each step seems no different from one that only has to reach 0.85. That reasoning holds when
+    there is no leak. With a leak it breaks, and the size of the break is set by &#964;.
+  </p>
+
+  <div class="motiv">
+    <div class="m-row">
+      <span class="m-label">Observation</span>
+      <p>
+        A bias arrives every timestep and accumulates. The leak drains <code>v</code>/&#964; per
+        step, so the pile grows until draining balances arriving, which happens at
+        b&#8242;&#183;&#964;. A threshold shift is worth b&#8242; once and never compounds. At
+        &#964;=63 a bias of 0.15 lifts the membrane by 9.45 while the matching threshold shift is
+        worth 0.15.
+      </p>
+    </div>
+    <div class="m-row">
+      <span class="m-label">Consequence</span>
+      <p>
+        No single stored threshold can imitate the bias, because the offset is not constant. It
+        restarts at zero after every spike and climbs toward b&#8242;&#183;&#964; during silence.
+        The fix is to stop imitating. Training should apply the bias the way the chip will, so the
+        optimizer works against the deployed behavior rather than a version of it that only exists
+        during training.
+      </p>
+    </div>
+    <div class="m-row code">
+      <span class="m-label">In code</span>
+      <p>
+        <code>TrainSpec.fold_bias_qat_form</code> defaults to <code>"threshold"</code>, so
+        <code>HardwareLIFNode</code> compares against &#952; &#8722; b&#8242; during quantization-aware
+        training, which is what <code>export_deployed</code> writes. Setting it to
+        <code>"input"</code> restores the previous behavior for comparison.
+        <code>fold_bias_report</code> now also reports |b&#8242;|&#183;&#964;/&#952;, since the
+        older |b&#8242;|/&#952; ratio carries no leak term.
+      </p>
+    </div>
+  </div>
+
+  <div class="formula">
+    d<sub>t</sub> = <span class="v">b&#8242;</span> &#183; <span class="v">&#964;</span> &#183;
+    ( 1 &#8722; (1 &#8722; 1/<span class="v">&#964;</span>)<sup>t</sup> )
+    <span class="note">How far the bias has lifted the membrane after t timesteps without a spike. It starts at b&#8242; and approaches b&#8242;&#183;&#964;. Verified against the simulator in <code>tools/fold_bias_equivalence.py</code>.</span>
+  </div>
+
+  <div class="demo">
+    <div class="demo-head">
+      <span class="demo-tag">INTERACTIVE</span>
+      <span class="demo-title">The same neuron, two ways of applying b&#8242;</span>
+      <span class="demo-sub">Both panels receive an identical input train. The left adds b&#8242; to the input, which is what the older QAT form trained. The right lowers the threshold by b&#8242;, which is what the chip runs. Raise &#964; to watch them separate.</span>
+    </div>
+    <div class="demo-body">
+      <div class="controls">
+        <div class="ctl">
+          <label>leak &#964; <output id="fx-tau-out">63</output></label>
+          <input type="range" id="fx-tau" min="0" max="7" value="7" step="1">
+        </div>
+        <div class="ctl">
+          <label>folded bias b&#8242; <output id="fx-b-out">0.15</output></label>
+          <input type="range" id="fx-b" min="1" max="60" value="15">
+        </div>
+        <div class="ctl">
+          <label>input activity <output id="fx-rate-out">35%</output></label>
+          <input type="range" id="fx-rate" min="5" max="80" value="35">
+        </div>
+        <button class="btn primary" id="fx-new">New input train</button>
+      </div>
+      <canvas id="fx-canvas" height="340"></canvas>
+      <div class="stats">
+        <div class="stat"><div class="k">spikes, bias into input</div><div class="val" id="fx-na">0</div><div class="sub">what QAT used to train</div></div>
+        <div class="stat"><div class="k">spikes, &#952; &#8722; b&#8242;</div><div class="val" id="fx-nb">0</div><div class="sub">what the chip runs</div></div>
+        <div class="stat"><div class="k">timesteps agreeing</div><div class="val" id="fx-agree">&#8212;</div></div>
+        <div class="stat"><div class="k">membrane gap b&#8242;&#183;&#964;</div><div class="val acc" id="fx-gap">9.45</div><div class="sub">against a threshold of 1.0</div></div>
+      </div>
+    </div>
+    <div class="demo-note">
+      At &#964;=2 the two panels agree almost everywhere, which is why the substitution went
+      unnoticed. The disagreement grows with &#964;, and the deployed configuration uses 63.
+    </div>
+  </div>
+
+  <h3>Measured on the recorded run</h3>
+  <p>
+    <code>tools/fold_bias_equivalence.py</code> reads a checkpoint without needing PyTorch, recomputes
+    &#952; &#8722; b&#8242; from the stored batch normalization statistics, and checks it against the
+    thresholds the run exported. All 32 channels matched in both convolutions, which confirms the
+    deployed threshold is exactly &#952; &#8722; b&#8242;. Running both forms over the same input gave:
+  </p>
+  <div class="tbl-wrap">
+    <table class="tbl">
+      <thead><tr><th>Layer</th><th class="num">mean |b&#8242;|/&#952;</th><th class="num">channels with &#952;&#8242; &#8804; 0</th><th class="num">channels behaving differently</th></tr></thead>
+      <tbody>
+        <tr><td class="layer-name">conv_fc.0</td><td class="num">0.61</td><td class="num">0 / 32</td><td class="num">28 &#8211; 31 / 32</td></tr>
+        <tr><td class="layer-name">conv_fc.2</td><td class="num">0.79</td><td class="num">12 / 32</td><td class="num">12 &#8211; 28 / 32</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p class="footnote">
+    That checkpoint scored 0.114 against a chance level of 0.091 after three epochs, so its batch
+    normalization statistics were immature and these biases are larger than a converged run would
+    produce. The input driving each channel was synthetic. The threshold cross-check does not depend
+    on either caveat.
+  </p>
+
   <div class="callout">
     <span class="callout-title">The alternative, if the converter can be changed</span>
     <p>
