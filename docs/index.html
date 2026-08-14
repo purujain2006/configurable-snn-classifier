@@ -155,25 +155,23 @@
           <td>Firing thresholds, as mentioned earlier, have the same int16 limits. &#952; must stay within (0, 1].</td>
         </tr>
         <tr>
-          <td class="layer-name">leak</td><td class="num">integer register</td>
-          <td>The decay constant of a neuron is an integer. Fractional values do not survive conversion.</td>
+          <td class="layer-name">leak</td><td class="num">INT16</td>
+          <td>The decay constant of a neuron snaps to the nearest integer, which is extremely detrimental to accuracy. While developing this program, statistical analysis showed that tau had the greatest effect on the accuracy during floating-point training.</td>
         </tr>
         <tr>
-          <td class="layer-name">available layers</td><td class="num">conv, linear, pool</td>
-          <td>No bias term on convolutions or linear maps, and no batch normalization, which is a layer that rescales each channel using statistics gathered during training.</td>
+          <td class="layer-name">available layers</td><td class="num">conv, linear, pool (restricted)</td>
+        <td>No bias terms are allowed as the platform only support's multiply-adds with weights, as in the routing table, bias is not stored.</td>
         </tr>
         <tr>
-          <td class="layer-name">neuron update order</td><td class="num">fixed</td>
-          <td>The neuron fires on the state it carried in from the previous timestep, then resets, leaks, and integrates. Each layer therefore delays its output by one timestep.</td>
+          <td class="layer-name">neuron update order</td><td class="num">N/A</td>
+          <td>The neuron fires on the state it carried in from the previous timestep, resets, leaks, and integrates. Each layer therefore delays its output by one timestep.</td>
         </tr>
       </tbody>
     </table>
   </div>
 
   <p>
-    Two entries in that table reach further into the code than the rest. The first is quantization:
-    a network measured in floating point is not the network that runs. The second is the update
-    order, which shifts every spike time in a network that was trained against a different one.
+    Quantizing to int16 and the methodology of update order heavily impact the network are should be paid attention to.
   </p>
 </section>
 
