@@ -11,7 +11,8 @@
     ["hardware.html", "04", "Fitting the chip"],
     ["training.html", "05", "Training"],
     ["search.html", "06", "The search"],
-    ["reference.html", "07", "Reference"]
+    ["results.html", "07", "Results"],
+    ["reference.html", "08", "Reference"]
   ];
 
   function currentPage() {

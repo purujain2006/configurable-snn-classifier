@@ -1,0 +1,130 @@
+
+============================================================================
+SAMPLE
+============================================================================
+  82 trials across 4 runs
+    results (1)/search_01         41 trials  (13 feasible, 28 rejected)
+    results (2)/search_01         32 trials  (28 feasible, 4 rejected)
+    results (3)/results/search     4 trials  (4 feasible, 0 rejected)
+    results (4)/results/search     5 trials  (5 feasible, 0 rejected)
+  feasible: 50;  of those, scored: 43 (7 pruned before any score landed)
+  best recorded accuracy: 0.8352
+
+============================================================================
+CLAIM 1  channels drive infeasibility (recorded: chi-square p=6e-4, Cramer's V=0.59)
+============================================================================
+   channels    n  feasible    rate
+         32   32        30    94%
+         64    9         7    78%
+        128    7         0     0%
+        256    7         0     0%
+
+  chi2=39.42 dof=3  Cramer's V=0.85  permutation p=0.0000
+  [CONFIRMED] wider channels are less feasible
+      V=0.85 (recorded 0.59), p=0.0000 (recorded 6e-4)
+
+============================================================================
+CLAIM 2  shallow networks score better (recorded: Kruskal-Wallis q=0.08)
+============================================================================
+   depth    n   median     best
+       2   20   0.7188   0.8352
+       3   16   0.6420   0.7159
+       4    5   0.6761   0.6818
+       5    2   0.0682   0.0682
+  [CONFIRMED] depth affects accuracy
+      Kruskal-Wallis H=11.41, p=0.0046 (recorded q=0.08)
+
+============================================================================
+CLAIM 3  top models use 0 hidden FC layers (recorded: Kruskal-Wallis q=0.04)
+============================================================================
+   fc_layers    n   median     best
+           0   27   0.6818   0.8352
+           1   10   0.5710   0.7386
+           2    3   0.3182   0.5341
+           3    3   0.0682   0.5625
+
+  top 10 by accuracy: 9 of 10 used 0 hidden FC layers
+  [CONFIRMED] hidden FC layers do not help
+      9/10 of the best used none; Kruskal-Wallis p=0.0008 (recorded q=0.04)
+
+============================================================================
+CLAIM 4  removing normalization kills learning (recorded: Mann-Whitney p=0.0015, OR 21.8)
+============================================================================
+      norm    n   median     best  dead (<0.15)
+        bn   31   0.6705   0.8352             1
+      none    5   0.3182   0.7159             1
+      tdbn    7   0.6307   0.6818             2
+  [DOES NOT HOLD] normalization is required
+      p=0.1956 (recorded 0.0015), P(normalized > unnormalized)=0.68
+
+============================================================================
+CLAIM 5  learning rate correlates positively (recorded: Spearman q=0.04)
+============================================================================
+  n=43  Spearman rho=+0.412  permutation p=0.0054
+  top 10 lr range: 2.31e-03 to 4.86e-03
+  [CONFIRMED] higher lr scores better
+      rho=+0.412, p=0.0054 (recorded q=0.04)
+
+============================================================================
+CLAIM 6  tau's correlation does not survive the integer register (recorded: rho=-0.60)
+============================================================================
+  sampled tau range: 1.520 to 3.980
+  distinct sampled values : 41
+  distinct DEPLOYED values: 3  -> [np.int64(2), np.int64(3), np.int64(4)]
+
+  continuous tau vs accuracy: rho=-0.491  p=0.0008
+  deployed  tau vs accuracy: rho=-0.392  p=0.0100
+  [CONFIRMED] the continuous correlation is not something the chip can use
+      41 sampled values collapse to 3 on chip
+
+============================================================================
+CLAIM 7  every top-10 configuration used kernel 5 or 7
+============================================================================
+  kernel counts overall  : {5: 7, 7: 23}
+  kernel counts in top 10: {7: 10}
+  [CONFIRMED] the best models use kernel 5 or 7
+      10/10 of the best used 5 or 7
+
+============================================================================
+WHY CONFIGURATIONS WERE REJECTED
+============================================================================
+    4x  fc0 neuron_fan_in 21632
+    2x  block3 spatial size
+    1x  fc0 neuron_fan_in 10816
+    1x  block2 neuron_fan_out(->conv) 4096
+    1x  block2 neuron_fan_out(->conv) 6272
+    1x  block2 neuron_fan_in 12544
+    1x  classifier neuron_fan_in 230400
+    1x  classifier neuron_fan_in 107648
+    1x  block2 spatial size
+    1x  block4 spatial size
+    1x  block1 neuron_fan_in 12544
+    1x  classifier neuron_fan_in 8192
+    1x  fc0 neuron_fan_in 16384
+
+============================================================================
+DEPLOYMENT OUTCOMES  (only runs that report hw_val_accuracy reached this stage)
+============================================================================
+  trials that produced a deployment report: 2 of 66
+       trial                        run   float      hw     gap   clip  deployable
+    734747f0   sults (3)/results/search  0.6989  0.7443 -0.0455  0.000        True
+    973e6c46   sults (4)/results/search  0.5114  0.5284 -0.0170  0.000       False
+      973e6c46: folded threshold -0.5877 <= 0 -- neuron fires unconditionally
+
+  in the 2 runs that report it at all (9 trials):
+    produced a deployment report            : 2
+    pruned by ASHA before the deploy phase  : 5  (expected)
+    ran to completion yet produced no report: 2
+        2c3fb926  epochs_run=15
+        ac70662f  epochs_run=12
+  the other 57 trials predate the hardware metric entirely
+
+============================================================================
+THE CEILING REACHED
+============================================================================
+  target                 : 0.975 (search_config)
+  best float accuracy    : 0.8352
+  best trial             : c766d47e  (results (2)/search_01)
+  its configuration      : depth=2, channels=32.0, kernel_size=7.0, resize_to=64, T=16, tau=1.69, optimizer=adam, lr=0.0029, weight_decay=2e-07, scheduler=none, norm=bn, fc_layers=0
+  stopped early by ASHA  : 33/43
+  median epochs run      : 8

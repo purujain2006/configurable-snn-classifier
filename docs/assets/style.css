@@ -693,6 +693,15 @@ footer.site-foot a:hover { color: var(--text-dim); }
 .search-box::placeholder { color: var(--faint); }
 .search-box:focus { border-color: var(--accent); }
 
+/* verdict tags in result tables */
+.ok-tag, .bad-tag, .warn-tag {
+  font-family: var(--mono); font-size: 12.5px; letter-spacing: .04em;
+  padding: 3px 9px; border: 1px solid; white-space: nowrap;
+}
+.ok-tag   { color: var(--good); border-color: rgba(155, 177, 122, .45); }
+.bad-tag  { color: var(--bad);  border-color: rgba(207, 107, 88, .45); }
+.warn-tag { color: var(--warn); border-color: rgba(224, 169, 79, .45); }
+
 .ref-count {
   margin: -18px 0 0; font-family: var(--mono); font-size: 12.5px;
   letter-spacing: .12em; text-transform: uppercase; color: var(--faint);

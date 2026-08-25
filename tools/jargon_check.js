@@ -3,7 +3,7 @@
 const fs = require('fs'), path = require('path');
 const DOCS = path.join(__dirname, '..', 'docs');
 const ORDER = ['index.html', 'neurons.html', 'architecture.html', 'hardware.html',
-               'training.html', 'search.html', 'reference.html'];
+               'training.html', 'search.html', 'results.html', 'reference.html'];
 
 // term -> the exact markup that constitutes its definition
 const TERMS = [
@@ -43,13 +43,15 @@ const BANNED_EXEMPT = [/^\s*Hardware documentation calls the table the routing t
 function blank(html, re) {
   return html.replace(re, m => ' '.repeat(m.length));
 }
-function prose(html) {
+// `skipLede` drops the page's opening summary. A lede naming the topics its own
+// page goes on to define is doing its job, not using a term prematurely.
+function prose(html, skipLede) {
   let h = html;
-  for (const re of [/<script[\s\S]*?<\/script>/gi, /<style[\s\S]*?<\/style>/gi,
-                    /<pre[\s\S]*?<\/pre>/gi, /<svg[\s\S]*?<\/svg>/gi,
-                    /<div class="c-tags">[\s\S]*?<\/div>/gi, /<code[\s\S]*?<\/code>/gi]) {
-    h = blank(h, re);
-  }
+  const strip = [/<script[\s\S]*?<\/script>/gi, /<style[\s\S]*?<\/style>/gi,
+                 /<pre[\s\S]*?<\/pre>/gi, /<svg[\s\S]*?<\/svg>/gi,
+                 /<div class="c-tags">[\s\S]*?<\/div>/gi, /<code[\s\S]*?<\/code>/gi];
+  if (skipLede) strip.push(/<p class="lede">[\s\S]*?<\/p>/gi);
+  for (const re of strip) h = blank(h, re);
   const out = [];
   const re = /<(p|li|dd|dt|h1|h2|h3|td|span class="demo-sub")\b[^>]*>([\s\S]*?)<\/(?:p|li|dd|dt|h1|h2|h3|td|span)>/gi;
   let m;
@@ -74,7 +76,7 @@ for (const [term, defFile, defMark] of TERMS) {
   let firstPos = Infinity, firstEnd = Infinity, where = '';
   for (const f of ORDER) {
     if (!raw[f]) continue;
-    for (const b of prose(raw[f])) {
+    for (const b of prose(raw[f], true)) {
       if (rx.test(b.text)) {
         const pos = order[f] * 1e9 + b.at;
         if (pos < firstPos) { firstPos = pos; firstEnd = order[f] * 1e9 + b.end; where = `${f}:${lineOf(raw[f], b.at)}`; }

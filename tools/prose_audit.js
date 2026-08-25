@@ -1,7 +1,7 @@
 // Scans docs/*.html prose for AI-slop writing patterns.
 const fs = require('fs'), path = require('path');
 const DOCS = path.join(__dirname, '..', 'docs');
-const ORDER = ['index.html','neurons.html','architecture.html','hardware.html','training.html','search.html','reference.html'];
+const ORDER = ['index.html','neurons.html','architecture.html','hardware.html','training.html','search.html','results.html','reference.html'];
 
 function textBlocks(html) {
   // strip code/pre/script/style/svg entirely

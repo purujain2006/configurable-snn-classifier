@@ -1,0 +1,440 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>What the Trials Revealed — Configurable SNN Classifier</title>
+<meta name="description" content="Every search run on record, the statistics recomputed from the raw trial data, and the code changes each result produced.">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' fill='%23000'/><path d='M3 22h5l3-13 4 19 3-11h4l2 5h5' fill='none' stroke='%23e0a94f' stroke-width='2.4' stroke-linejoin='round'/></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:ital,wght@0,400;0,600;0,700;1,400&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+<header class="hero">
+  <div class="hero-inner">
+    <p class="kicker">Page 7</p>
+    <h1>What the trials revealed</h1>
+    <p class="lede">
+      Four search runs are on record, holding 82 trials. The comments in
+      <code>Practice2.py</code> that narrowed the search space cite statistics computed once, by
+      hand, and never checked back in. This page recomputes every one of them from the raw trial
+      files, reports which survive, and links each surviving result to the code it changed.
+    </p>
+  </div>
+</header>
+
+<main class="with-toc">
+<div class="wrap">
+
+<section id="record" class="reveal">
+  <h2><span class="sec-num">7.1</span>The record</h2>
+  <p>
+    Each run writes a leaderboard, a rejection log, and one JSON record per trial. Nothing here is
+    reconstructed from memory. The counts below come from those files.
+  </p>
+
+  <div class="tbl-wrap">
+    <table class="tbl">
+      <thead><tr><th>Run</th><th>Date</th><th>Space</th><th>Budget</th><th class="num">Scored</th><th class="num">Rejected up front</th><th class="num">Best</th></tr></thead>
+      <tbody>
+        <tr><td class="layer-name">search 1</td><td>2026-07-23</td><td>per-layer</td><td>30 &#215; 40 epochs</td><td class="num">13 / 27</td><td class="num">14</td><td class="num">0.7159</td></tr>
+        <tr><td class="layer-name">search 2</td><td>2026-07-24</td><td>uniform</td><td>30 &#215; 40 epochs</td><td class="num">28 / 30</td><td class="num">2</td><td class="num">0.8352</td></tr>
+        <tr><td class="layer-name">search 3</td><td>2026-07-28</td><td>uniform</td><td>12 &#215; 15 epochs</td><td class="num">1 / 4</td><td class="num">0</td><td class="num">0.7443</td></tr>
+        <tr><td class="layer-name">search 4</td><td>2026-07-29</td><td>uniform</td><td>8 &#215; 12 epochs</td><td class="num">1 / 5</td><td class="num">0</td><td class="num">0.5284</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <p>
+    Searches 1 and 2 predate the hardware objective. They score trials on floating-point validation
+    accuracy, so their numbers describe a network before conversion. Searches 3 and 4 report
+    <code>hw_val_accuracy</code>, which is the accuracy of the converted network, and are the only
+    runs whose scores mean what the project needs them to mean.
+  </p>
+  <div class="facts">
+    <ul class="facts">
+      <li><strong>82 trials</strong> in total, of which 50 passed the connection check and 43 produced a score.</li>
+      <li><strong>33 of 43</strong> scored trials were stopped early by ASHA. The median trial ran 8 epochs.</li>
+      <li><strong>2 trials</strong> in the entire record reached the deployment stage and reported a converted accuracy.</li>
+    </ul>
+  </div>
+  <p class="footnote">
+    The seven feasible trials without a score were pruned before their first validation report
+    landed. They count toward feasibility and cannot enter an accuracy comparison.
+  </p>
+</section>
+
+<section id="claims" class="reveal">
+  <h2><span class="sec-num">7.2</span>Recomputing the recorded statistics</h2>
+
+  <div class="motiv">
+    <div class="m-row">
+      <span class="m-label">Observation</span>
+      <p>
+        Several ranges in the search space were narrowed on the strength of statistics written into
+        comments. Those numbers decide which configurations the search is allowed to try, so a
+        wrong one silently removes good designs from consideration for the rest of the project.
+      </p>
+    </div>
+    <div class="m-row">
+      <span class="m-label">Consequence</span>
+      <p>
+        A claim that constrains future work has to be reproducible from the data that produced it.
+        Each one was recomputed from the raw trial files, using permutation tests rather than
+        asymptotic approximations, since 43 scored trials is too few for the usual large-sample
+        arguments.
+      </p>
+    </div>
+    <div class="m-row code">
+      <span class="m-label">In code</span>
+      <p>
+        <code>tools/trial_analysis.py</code> reads every leaderboard and rejection log, implements
+        chi-square, Cram&#233;r's V, Kruskal-Wallis, Spearman and Mann-Whitney directly, and prints a
+        verdict per claim. Its full output is kept alongside the site.
+      </p>
+    </div>
+  </div>
+
+  <div class="tbl-wrap">
+    <table class="tbl">
+      <thead><tr><th>Claim in the file</th><th>Recorded</th><th>Recomputed</th><th>Verdict</th></tr></thead>
+      <tbody>
+        <tr>
+          <td>Wide channels drive infeasibility</td>
+          <td class="num">V=0.59, p=6e&#8722;4</td>
+          <td class="num">V=0.85, p&lt;1e&#8722;4</td>
+          <td><span class="ok-tag">holds, and stronger</span></td>
+        </tr>
+        <tr>
+          <td>Shallow networks score better</td>
+          <td class="num">q=0.08</td>
+          <td class="num">H=11.41, p=0.005</td>
+          <td><span class="ok-tag">holds</span></td>
+        </tr>
+        <tr>
+          <td>Hidden fully connected layers do not help</td>
+          <td class="num">q=0.04</td>
+          <td class="num">p=0.0008, 9/10 best used none</td>
+          <td><span class="ok-tag">holds</span></td>
+        </tr>
+        <tr>
+          <td>Removing normalization kills learning</td>
+          <td class="num">p=0.0015, OR 21.8</td>
+          <td class="num">p=0.196, effect 0.68</td>
+          <td><span class="bad-tag">not supported here</span></td>
+        </tr>
+        <tr>
+          <td>Learning rate correlates with accuracy</td>
+          <td class="num">q=0.04</td>
+          <td class="num">&#961;=+0.41, p=0.005</td>
+          <td><span class="ok-tag">holds</span></td>
+        </tr>
+        <tr>
+          <td>Kernel 5 or 7 in every top model</td>
+          <td class="num">stated</td>
+          <td class="num">10/10 used kernel 7</td>
+          <td><span class="ok-tag">holds</span></td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>The one that does not reproduce</h3>
+  <p>
+    The normalization claim is the only recorded statistic the available data contradicts. Five
+    trials in the record ran without normalization, and their accuracies overlap the normalized
+    ones heavily:
+  </p>
+  <div class="term-block">
+    <div class="term-head">tools/trial_analysis.py &#183; claim 4</div>
+    <pre>      norm    n   median     best  dead (&lt;0.15)
+        bn   31   0.6705   0.8352             1
+      none    5   0.3182   <span class="hl">0.7159</span>             1
+      tdbn    7   0.6307   0.6818             2
+
+  permutation p=0.1956   P(normalized &gt; unnormalized)=0.68
+  <span class="err">[DOES NOT HOLD]</span> the recorded p=0.0015 and odds ratio of 21.8 are not
+  reproducible from these four runs</pre>
+  </div>
+  <p>
+    An unnormalized network reached 0.7159, which is close to the best result in its own run. The
+    original figure came from an earlier study whose records are not in this repository, so this is
+    a claim without recoverable evidence rather than a claim shown to be false. The practical
+    consequence is the same: the comment in <code>Practice2.py</code> cites a number the project
+    can no longer defend.
+  </p>
+
+  <h3>A nuance the comment misses</h3>
+  <p>
+    The file treats &#964;'s correlation with accuracy as an artifact of sampling a continuous value
+    that the chip rounds away. The first half is right and the second half is not.
+  </p>
+  <div class="term-block">
+    <div class="term-head">tools/trial_analysis.py &#183; claim 6</div>
+    <pre>  sampled tau range: 1.520 to 3.980
+  distinct sampled values : 41
+  distinct DEPLOYED values: 3   ->  [2, 3, 4]
+
+  continuous tau vs accuracy: rho=<span class="hl">-0.491</span>  p=0.0008
+  deployed  tau vs accuracy: rho=<span class="hl">-0.392</span>  p=0.0100</pre>
+  </div>
+  <p>
+    Forty-one sampled values collapse onto three, so the resolution the search was exploring is
+    indeed imaginary. The correlation survives the collapse: &#964;=2, 3 and 4 are genuinely
+    different networks and lower values score better. Reopening the range was the right call, but
+    the reason is that the search was measuring at the wrong resolution rather than measuring
+    nothing.
+  </p>
+</section>
+
+<section id="rejected" class="reveal">
+  <h2><span class="sec-num">7.3</span>Where configurations died</h2>
+  <p>
+    Sixteen configurations were rejected before any GPU time, by the arithmetic check of section
+    4.1. Their recorded violations show which limit actually binds:
+  </p>
+  <div class="tbl-wrap">
+    <table class="tbl">
+      <thead><tr><th class="num">Count</th><th>Violation</th><th>What it means</th></tr></thead>
+      <tbody>
+        <tr><td class="num">7</td><td class="layer-name">classifier / fc0 fan-in</td><td>The flattened feature vector is wider than 8,159, so the first linear layer cannot be wired. Values reached 230,400.</td></tr>
+        <tr><td class="num">4</td><td class="layer-name">spatial size</td><td>The feature map shrank below the kernel, so the layer cannot be built at all.</td></tr>
+        <tr><td class="num">3</td><td class="layer-name">conv fan-in</td><td>k&#178;&#183;C<sub>in</sub> above 8,159, from a wide input channel count.</td></tr>
+        <tr><td class="num">2</td><td class="layer-name">conv fan-out</td><td>Above 4,095 destinations from one neuron.</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p>
+    The flatten width dominates, and it is the one quantity a designer does not set directly. It
+    follows from the last convolution's output volume, which is why the fan budget calculator on
+    page 4 derives it rather than offering it as a control.
+  </p>
+  <p>
+    Channel count is what drove those failures. Across all four runs, feasibility falls off a cliff:
+  </p>
+  <div class="term-block">
+    <div class="term-head">tools/trial_analysis.py &#183; claim 1</div>
+    <pre>   channels    n  feasible    rate
+         32   32        30    <span class="ok">94%</span>
+         64    9         7    <span class="ok">78%</span>
+        128    7         0     <span class="err">0%</span>
+        256    7         0     <span class="err">0%</span>
+
+  chi2=39.42  dof=3  Cramer's V=0.85  permutation p&lt;1e-4</pre>
+  </div>
+  <p>
+    Not one configuration above 64 channels was buildable. That is what removed 128 and 256 from
+    the sampled set.
+  </p>
+</section>
+
+<section id="deploy" class="reveal">
+  <h2><span class="sec-num">7.4</span>The deployment stage</h2>
+
+  <div class="motiv">
+    <div class="m-row">
+      <span class="m-label">Observation</span>
+      <p>
+        Two trials in 82 produced a converted accuracy. Everything else was pruned by early
+        stopping, rejected by the connection check, or ran under the older objective that never
+        converted anything.
+      </p>
+    </div>
+    <div class="m-row">
+      <span class="m-label">Consequence</span>
+      <p>
+        Every statement about how the network behaves after conversion rests on two data points.
+        That is enough to have found two concrete failures and one working export, and nowhere near
+        enough to characterize the conversion in general.
+      </p>
+    </div>
+    <div class="m-row code">
+      <span class="m-label">In code</span>
+      <p>
+        The deploy-phase report carries <code>hw_val_accuracy</code>, <code>quant_gap</code>,
+        <code>weight_clip_frac</code>, <code>min_threshold</code> and <code>deployable</code>.
+        A configuration <code>deployment_report</code> marks undeployable scores zero whatever its
+        accuracy was.
+      </p>
+    </div>
+  </div>
+
+  <div class="tbl-wrap">
+    <table class="tbl">
+      <thead><tr><th>Trial</th><th class="num">Float</th><th class="num">Converted</th><th class="num">Gap</th><th class="num">Clipped</th><th>Deployable</th></tr></thead>
+      <tbody>
+        <tr><td class="layer-name">734747f0</td><td class="num">0.6989</td><td class="num">0.7443</td><td class="num">&#8722;0.0455</td><td class="num">0.0%</td><td><span class="ok-tag">yes</span></td></tr>
+        <tr><td class="layer-name">973e6c46</td><td class="num">0.5114</td><td class="num">0.5284</td><td class="num">&#8722;0.0170</td><td class="num">0.0%</td><td><span class="bad-tag">no</span></td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>Conversion did not cost accuracy</h3>
+  <p>
+    Both gaps are negative, meaning the converted network scored <em>higher</em> than the
+    floating-point one. That is the intended behavior of the inline schedule rather than a surprise.
+    The float figure is the best the warm-up phase reached before folding, and the remaining epochs
+    train on the folded and quantized network, so the on-grid network keeps improving after the
+    number it is being compared against stops moving.
+  </p>
+  <p>
+    Neither trial clipped a single weight. Combined with the largest folded weight sitting at 0.665
+    in the probe export, this is the evidence that the weight-range problem of section 4.3 is not
+    currently binding.
+  </p>
+
+  <h3>What blocked the second trial</h3>
+  <div class="term-block">
+    <div class="term-head">results (4) &#183; trial 973e6c46</div>
+    <pre>val_accuracy       0.0            <span class="dim">&#8592; scored zero for being undeployable</span>
+hw_val_accuracy    0.5284         <span class="dim">&#8592; what it would have achieved</span>
+weight_clip_frac   0.0
+deploy_reasons     <span class="err">folded threshold -0.5877 &lt;= 0 -- neuron fires unconditionally</span></pre>
+  </div>
+  <p>
+    The scoring rule is doing its job here. A network that fires unconditionally is worthless on
+    chip regardless of what it scored in simulation, so the search records zero and moves on. This
+    trial and the probe run are the two failures that motivated the folded-bias constraint in
+    section 4.3.
+  </p>
+
+  <h3>Two trials produced no report at all</h3>
+  <p>
+    Of the four trials that ran to completion under the hardware objective, two produced no
+    deployment report. Both stopped at exactly their configured epoch count:
+  </p>
+  <div class="tbl-wrap">
+    <table class="tbl">
+      <thead><tr><th>Trial</th><th class="num">Epoch budget</th><th class="num">Epochs run</th><th>Deployment report</th></tr></thead>
+      <tbody>
+        <tr><td class="layer-name">734747f0</td><td class="num">15</td><td class="num">16</td><td><span class="ok-tag">arrived</span></td></tr>
+        <tr><td class="layer-name">2c3fb926</td><td class="num">15</td><td class="num">15</td><td><span class="bad-tag">missing</span></td></tr>
+        <tr><td class="layer-name">ac70662f</td><td class="num">12</td><td class="num">12</td><td><span class="bad-tag">missing</span></td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p>
+    The trial that reported ran one iteration past its budget. The two that did not stopped exactly
+    on it. That pattern is the signature of the <code>max_t</code> problem described in section 6.3,
+    where a trial is stopped on its final epoch and the deployment report never lands. The logs do
+    not record a cause, so this is a matching symptom rather than a confirmed diagnosis, and it is
+    worth re-checking on the next run.
+  </p>
+</section>
+
+<section id="ceiling" class="reveal">
+  <h2><span class="sec-num">7.5</span>The ceiling so far</h2>
+  <div class="result-grid">
+    <div>
+      <div class="r-k">Target</div>
+      <div class="r-v accent">97.5%</div>
+      <div class="r-s">Converted validation accuracy required of a deployable configuration.</div>
+    </div>
+    <div>
+      <div class="r-k">Best float accuracy</div>
+      <div class="r-v">83.5%</div>
+      <div class="r-s">Trial c766d47e, search 2, before conversion.</div>
+    </div>
+    <div>
+      <div class="r-k">Best converted accuracy</div>
+      <div class="r-v">74.4%</div>
+      <div class="r-s">Trial 734747f0, search 3, the one deployable export on record.</div>
+    </div>
+  </div>
+  <p>
+    The best configuration found so far is small and plain:
+  </p>
+  <div class="code-block">
+    <div class="code-head"><span class="file">results (2) &#183; trial c766d47e</span><span class="loc">best float accuracy, 0.8352</span></div>
+    <pre><code class="language-bash">--input   resize_to=64 T=16
+--encoder depth=2 channels=32 kernel_size=7 stride=2 norm=bn
+--head    final_reduction=flatten fc_widths= dropout_rate=0.29
+--neuron  tau=2
+--train   optimizer=adam lr=0.0029 weight_decay=2e-7 scheduler=none</code></pre>
+  </div>
+  <p>
+    Two convolution layers, 32 channels, no hidden fully connected layer, no learning rate schedule.
+    Every direction the search was given room to explore, it declined to use.
+  </p>
+  <p>
+    The gap to the target is large, and these runs do not show whether it can be closed, because
+    nothing has been trained long enough to find out. The median trial ran eight epochs against a
+    budget of forty, and the two that converted ran thirteen and sixteen. Not one configuration in
+    the record has been given a full training run and then converted.
+  </p>
+</section>
+
+<section id="changed" class="reveal">
+  <h2><span class="sec-num">7.6</span>What each result changed</h2>
+  <p>
+    Every narrowing carries its evidence in a comment next to the line it constrains, so the reason
+    a range exists is readable from the file rather than from a separate document.
+  </p>
+
+  <div class="code-block">
+    <div class="code-head"><span class="file">Practice2.py &#183; DefineByRunSpace</span><span class="loc">&#167;10</span></div>
+    <pre><code class="language-python">#   channels: 128/256 were the dominant INFEASIBILITY driver (chi-square p=6e-4,
+#     Cramer's V=0.59: 32ch 88% feasible, 128ch 14%) and never beat 32
+
+# fc_layers 0-1 only: every top-10 model had 0 hidden FC (Kruskal-Wallis
+# q=0.04), so 2-3 hidden layers are pure waste. Keep 1 as a branch.
+
+# lr: positive correlation (Spearman q=0.04); winners are 1.6e-3..3.5e-3,
+# so drop the under-converging low end (was 1e-4).
+trial.suggest_float("lr", 5e-4, 5e-3, log=True)</code></pre>
+  </div>
+
+  <div class="tbl-wrap">
+    <table class="tbl">
+      <thead><tr><th>Result</th><th>Change it produced</th></tr></thead>
+      <tbody>
+        <tr><td>No configuration above 64 channels was buildable</td><td>Sampled channels reduced to 32 and 64.</td></tr>
+        <tr><td>Depth 5 never exceeded 0.07; depth 2 held the best result</td><td>Depth range narrowed to 2 through 4.</td></tr>
+        <tr><td>Nine of the ten best used no hidden layer</td><td>Hidden layers capped at one, kept only as a branch.</td></tr>
+        <tr><td>Learning rate correlated positively and the low end under-converged</td><td>Floor raised from 1e&#8722;4 to 5e&#8722;4.</td></tr>
+        <tr><td>Forty-one &#964; values deployed as three</td><td>&#964; sampled from <code>HW_TAU_CHOICES</code> integers instead of a continuous range.</td></tr>
+        <tr><td>Native resolution needs 32,768 axons against a limit of 16,383</td><td><code>resize_to</code> restricted to 32 and 64.</td></tr>
+        <tr><td>Two deploy-phase trials failed on a negative folded threshold</td><td><code>constrain_fold_bias</code> added, with <code>fold_bias_margin</code> in <code>TrainSpec</code>.</td></tr>
+        <tr><td>Selection silently fell back to float accuracy</td><td><code>max_t</code> changed from <code>epochs</code> to <code>epochs + 1</code>.</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>What the record does not support</h3>
+  <ul>
+    <li>The normalization statistic cited in the file cannot be reproduced from these four runs. The comment should either cite the study it came from or be re-derived.</li>
+    <li>No configuration has completed a full training budget and then been converted, so the converted accuracy ceiling is unknown rather than measured at 74.4%.</li>
+    <li>Both deploy-phase failures come from short runs whose batch normalization statistics were still immature, which inflates the folded bias. The size of that effect on a converged run has not been measured.</li>
+    <li><code>split_by</code> is fixed at <code>"number"</code> in every run. The alternative has never been tried.</li>
+  </ul>
+
+  <p class="footnote">
+    The full analysis output, including every test statistic and the per-run breakdown, is in
+    <code>docs/data/trial_analysis.txt</code>. It regenerates with
+    <code>python tools/trial_analysis.py &lt;results root&gt;</code> and needs only numpy and pandas.
+  </p>
+</section>
+
+</div>
+<aside class="toc"></aside>
+</main>
+
+<nav class="foot-nav">
+  <a class="prev" href="search.html"><span class="dir">Previous</span><span class="pg">06 &#183; The search</span></a>
+  <a class="next" href="reference.html"><span class="dir">Next</span><span class="pg">08 &#183; Reference</span></a>
+</nav>
+<footer class="site-foot">
+  <span>Documentation for <a href="https://github.com/purujain2006/configurable-snn-classifier">configurable-snn-classifier</a></span>
+  <span>Every figure on this page is recomputed from the raw trial files by <code>tools/trial_analysis.py</code>.</span>
+</footer>
+
+<script src="assets/snn.js"></script>
+<script src="assets/site.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-python.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-bash.min.js"></script>
+</body>
+</html>
