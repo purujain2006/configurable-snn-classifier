@@ -257,8 +257,7 @@
       <span class="m-label">Consequence</span>
       <p>
         The constraint has to be built into the parameterization rather than checked afterwards, so
-        that no optimizer step can produce an illegal threshold. 
-        One other thing moves the threshold: folding a batch normalization bias into it, covered in
+        that no optimizer step can produce an illegal threshold. One other thing moves the threshold: folding a batch normalization bias into it, covered in
         section 4.3. That shifted value is allowed to sit outside the legal range mid-run, as long
         as it lands inside by the end. Deployment checks therefore read the threshold through their
         own accessor. A clamp applied for numerical safety during training would otherwise hide the
