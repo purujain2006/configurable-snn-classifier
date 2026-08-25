@@ -114,18 +114,6 @@
       </p>
     </div>
   </div>
-
-  <div class="callout warn">
-    <span class="callout-title">A failure this wiring caused</span>
-    <p>
-      ASHA stops a trial once it has reported <code>max_t</code> times, and every report counts.
-      The conversion result is one extra report after the final epoch. With
-      <code>max_t = epochs</code> the trial was stopped on its last epoch and that extra report
-      never arrived, so <code>hw_val_accuracy</code> was missing for every trial and selection fell
-      back to floating-point accuracy. Nothing failed visibly. The setting is now
-      <code>max_t = epochs + 1</code>.
-    </p>
-  </div>
 </section>
 
 <section id="asha" class="reveal">
