@@ -18,10 +18,11 @@
     <p class="kicker">Page 7</p>
     <h1>What the trials revealed</h1>
     <p class="lede">
-      Four search runs are on record, holding 82 trials. The comments in
-      <code>Practice2.py</code> that narrowed the search space cite statistics computed once, by
-      hand, and never checked back in. This page recomputes every one of them from the raw trial
-      files, reports which survive, and links each surviving result to the code it changed.
+      Six search runs are on record across two sets: four in the results folder holding 82 trials,
+      and the two earlier searches, holding 65, that the comments in <code>Practice2.py</code> were
+      derived from. This page recomputes every recorded statistic against the data that produced it,
+      reports which survive, links each one to the code it changed, and states what the record still
+      cannot answer.
     </p>
   </div>
 </header>
@@ -123,8 +124,8 @@
         <tr>
           <td>Removing normalization kills learning</td>
           <td class="num">p=0.0015, OR 21.8</td>
-          <td class="num">p=0.196, effect 0.68</td>
-          <td><span class="bad-tag">not supported here</span></td>
+          <td class="num">p=0.196 on these runs; p=0.0015 on its own</td>
+          <td><span class="warn-tag">holds, other data</span></td>
         </tr>
         <tr>
           <td>Learning rate correlates with accuracy</td>
@@ -142,29 +143,36 @@
     </table>
   </div>
 
-  <h3>The one that does not reproduce</h3>
+  <h3>The one that needed its source</h3>
   <p>
-    The normalization claim is the only recorded statistic the available data contradicts. Five
-    trials in the record ran without normalization, and their accuracies overlap the normalized
-    ones heavily:
+    The normalization claim does not reproduce on these four runs. Only five trials here ran without
+    normalization and one of them reached 0.7159, so the permutation test returns p=0.196.
+  </p>
+  <p>
+    The claim comes from a different pair of searches, recorded in
+    <code>docs/data/DVS_Search_Statistical_Analysis.xlsx</code>. Those 65 trials are not in this
+    repository's results folder, which is why the recomputation missed them. In their own data the
+    original numbers are exact, and the strongest form of the result needs no pooling at all:
   </p>
   <div class="term-block">
-    <div class="term-head">tools/trial_analysis.py &#183; claim 4</div>
-    <pre>      norm    n   median     best  dead (&lt;0.15)
-        bn   31   0.6705   0.8352             1
-      none    5   0.3182   <span class="hl">0.7159</span>             1
-      tdbn    7   0.6307   0.6818             2
+    <div class="term-head">DVS_Search_Statistical_Analysis.xlsx &#183; run B alone, 35 feasible trials</div>
+    <pre>  normalization      n   median     best   dead (below chance)
+  ON                27    0.761    0.875   <span class="ok">0</span>
+  OFF                8    0.207    0.733   <span class="err">4</span>
 
-  permutation p=0.1956   P(normalized &gt; unnormalized)=0.68
-  <span class="err">[DOES NOT HOLD]</span> the recorded p=0.0015 and odds ratio of 21.8 are not
-  reproducible from these four runs</pre>
+  Mann-Whitney U=259.5  p=0.001524  rank-biserial r=0.674
+  Fisher exact p=0.001061  odds ratio 21.8</pre>
   </div>
   <p>
-    An unnormalized network reached 0.7159, which is close to the best result in its own run. The
-    original figure came from an earlier study whose records are not in this repository, so this is
-    a claim without recoverable evidence rather than a claim shown to be false. The practical
-    consequence is the same: the comment in <code>Practice2.py</code> cites a number the project
-    can no longer defend.
+    Every network that failed to learn lacked normalization, and none of the 27 normalized ones
+    failed. That holds inside a single run, so the pooling with the weaker second search is not
+    carrying the result.
+  </p>
+  <p>
+    The claim is sound. Its wording overstates it slightly. An unnormalized network reached 0.733 in
+    that study and 0.7159 in this one, so normalization is not a precondition for learning. What the
+    data supports is that half of the unnormalized configurations fail outright, which makes it a
+    question of risk rather than possibility.
   </p>
 
   <h3>A nuance the comment misses</h3>
@@ -190,8 +198,148 @@
   </p>
 </section>
 
+<section id="source" class="reveal">
+  <h2><span class="sec-num">7.3</span>The study the comments came from</h2>
+  <p>
+    The figures cited in <code>Practice2.py</code> were computed over two earlier searches, held in
+    a spreadsheet rather than in the results folder. That study is the origin of every narrowing,
+    and it reached a higher accuracy than anything in the runs above.
+  </p>
+
+  <div class="tbl-wrap">
+    <table class="tbl">
+      <thead><tr><th>Run</th><th>Space</th><th class="num">Trials</th><th class="num">Feasible</th><th class="num">Median</th><th class="num">Best</th></tr></thead>
+      <tbody>
+        <tr><td class="layer-name">B, uniform</td><td>One geometry for all layers, plain batch normalization on or off</td><td class="num">50</td><td class="num">35</td><td class="num">0.727</td><td class="num">0.875</td></tr>
+        <tr><td class="layer-name">A, per-layer</td><td>Adds tdBN, learnable &#964; and threshold, independent per-layer geometry</td><td class="num">15</td><td class="num">6</td><td class="num">0.068</td><td class="num">0.341</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p>
+    Run B is the one carrying the analysis. Run A had six feasible trials, a median below chance,
+    and its extra features are entirely confounded with the configurations that failed, so the
+    study treats it as descriptive only.
+  </p>
+
+  <h3>Its best configuration</h3>
+  <div class="result-grid">
+    <div>
+      <div class="r-k">Best accuracy on record</div>
+      <div class="r-v accent">87.5%</div>
+      <div class="r-s">Trial 1a70b753, run B. Higher than any trial in the four runs above.</div>
+    </div>
+    <div>
+      <div class="r-k">Size</div>
+      <div class="r-v">31,531</div>
+      <div class="r-s">Neurons, at 104,128 trainable parameters.</div>
+    </div>
+    <div>
+      <div class="r-k">Shape</div>
+      <div class="r-v">2 &#215; 32ch</div>
+      <div class="r-s">Kernel 7, stride 2, 64&#215;64 input, T=16, no hidden layer, batch normalization.</div>
+    </div>
+  </div>
+  <p>
+    All ten of the study's top configurations used depth 2 or 3, 32 or 64 channels, T=16 and
+    &#964; below 2.1. Eight of the ten used no hidden layer. The search converged on small networks
+    and stayed there.
+  </p>
+
+  <h3>What moved accuracy</h3>
+  <p>
+    Fifteen settings were tested at once, so the study applies a Benjamini-Hochberg correction and
+    reports q rather than p. That correction is why some effects with a low p are still marked
+    insignificant.
+  </p>
+  <div class="tbl-wrap">
+    <table class="tbl">
+      <thead><tr><th>Setting</th><th>Test</th><th class="num">Effect</th><th class="num">q</th><th>Reading</th></tr></thead>
+      <tbody>
+        <tr><td class="layer-name">batch norm</td><td>Mann-Whitney</td><td class="num">0.736</td><td class="num">0.014</td><td>Median 0.76 with, 0.21 without.</td></tr>
+        <tr><td class="layer-name">&#964;</td><td>Spearman</td><td class="num">&#8722;0.599</td><td class="num">0.002</td><td>Lower is better. Winners cluster at 1.5 to 1.9.</td></tr>
+        <tr><td class="layer-name">weight decay</td><td>Spearman</td><td class="num">&#8722;0.473</td><td class="num">0.020</td><td>Lower is better.</td></tr>
+        <tr><td class="layer-name">learning rate</td><td>Spearman</td><td class="num">+0.409</td><td class="num">0.044</td><td>Higher is better, up to 5e&#8722;3.</td></tr>
+        <tr><td class="layer-name">hidden layers</td><td>Kruskal-Wallis</td><td class="num">0.217</td><td class="num">0.044</td><td>None is best.</td></tr>
+        <tr><td class="layer-name">depth</td><td>Kruskal-Wallis</td><td class="num">0.185</td><td class="num">0.082</td><td>Shallow favored, short of significance.</td></tr>
+        <tr><td class="layer-name">kernel size</td><td>Kruskal-Wallis</td><td class="num">0.133</td><td class="num">0.094</td><td>Mild edge to 5 and 7.</td></tr>
+        <tr><td class="layer-name">channels</td><td>Kruskal-Wallis</td><td class="num">0.043</td><td class="num">0.256</td><td>No effect on accuracy. It decides feasibility instead.</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p>
+    The last row is the one worth pausing on. Channel count is the strongest predictor of whether a
+    network can be built and has no measurable effect on how well it scores. Width buys nothing here
+    except the risk of being unbuildable.
+  </p>
+
+  <div class="callout warn">
+    <span class="callout-title">The study's own caveats, which still apply</span>
+    <p>
+      Thirty-five feasible trials is exploratory. The document says so directly, and describes
+      itself as hypothesis-generating rather than confirmatory.
+    </p>
+    <p>
+      Early stopping censors the outcome. A pruned trial's best accuracy is a floor, biased low,
+      so the &#964; and learning-rate correlations may be partly measuring which configurations
+      survived pruning rather than which ones are better.
+    </p>
+    <p>
+      The sampler is not neutral. Optuna concentrates on promising regions, so low &#964;, batch
+      normalization and 32 channels co-occur in the winners and their individual effects cannot be
+      fully separated. The study recommends a controlled comparison, freezing the winner and varying
+      one setting at a time, which has not been run.
+    </p>
+  </div>
+</section>
+
+<section id="conflict" class="reveal">
+  <h2><span class="sec-num">7.4</span>Where two results disagree</h2>
+
+  <div class="motiv">
+    <div class="m-row">
+      <span class="m-label">Observation</span>
+      <p>
+        The study finds that lower weight decay scores better, with &#961;=&#8722;0.473 at q=0.020.
+        The folding work in section 4.3 raised the sampled floors on weight decay, because decay is
+        what holds the folded distribution inside the representable range.
+      </p>
+    </div>
+    <div class="m-row">
+      <span class="m-label">Consequence</span>
+      <p>
+        The two findings pull the same knob in opposite directions. The accuracy measurement was
+        taken before conversion, where a folded weight leaving the range costs nothing, so it cannot
+        see the reason the floors were raised. Neither result is wrong and they cannot both be
+        satisfied by one number.
+      </p>
+    </div>
+    <div class="m-row code">
+      <span class="m-label">In code</span>
+      <p>
+        The current floors are 1e&#8722;5 for <code>adamw</code> and 1e&#8722;7 for <code>adam</code>,
+        raised from 1e&#8722;8 because the old ranges were fitted against an objective that could not
+        observe clipping. Every measured run since then reports <code>weight_clip_frac</code> of 0.0,
+        so nothing yet shows the raise was needed.
+      </p>
+    </div>
+  </div>
+
+  <p>
+    This is the conflict section 4.3 describes as weight decay having two jobs, now with a number on
+    each side. The clean resolution is to stop asking one value to do both, either by excluding
+    normalization parameters from decay and controlling the folded range separately, or by moving
+    the folded bias onto the convolution where the range problem does not arise.
+  </p>
+  <p class="footnote">
+    Worth noting when reading the &#964; result alongside section 2.3: the study sampled &#964;
+    continuously and found &#961;=&#8722;0.599, and the winners sit between 1.5 and 1.9. Every value
+    in that interval deploys as 2. The correlation is real and the resolution it was measured at is
+    not available on chip.
+  </p>
+</section>
+
 <section id="rejected" class="reveal">
-  <h2><span class="sec-num">7.3</span>Where configurations died</h2>
+  <h2><span class="sec-num">7.5</span>Where configurations died</h2>
   <p>
     Sixteen configurations were rejected before any GPU time, by the arithmetic check of section
     4.1. Their recorded violations show which limit actually binds:
@@ -232,7 +380,7 @@
 </section>
 
 <section id="deploy" class="reveal">
-  <h2><span class="sec-num">7.4</span>The deployment stage</h2>
+  <h2><span class="sec-num">7.6</span>The deployment stage</h2>
 
   <div class="motiv">
     <div class="m-row">
@@ -326,7 +474,7 @@ deploy_reasons     <span class="err">folded threshold -0.5877 &lt;= 0 -- neuron 
 </section>
 
 <section id="ceiling" class="reveal">
-  <h2><span class="sec-num">7.5</span>The ceiling so far</h2>
+  <h2><span class="sec-num">7.7</span>The ceiling so far</h2>
   <div class="result-grid">
     <div>
       <div class="r-k">Target</div>
@@ -368,7 +516,7 @@ deploy_reasons     <span class="err">folded threshold -0.5877 &lt;= 0 -- neuron 
 </section>
 
 <section id="changed" class="reveal">
-  <h2><span class="sec-num">7.6</span>What each result changed</h2>
+  <h2><span class="sec-num">7.8</span>What each result changed</h2>
   <p>
     Every narrowing carries its evidence in a comment next to the line it constrains, so the reason
     a range exists is readable from the file rather than from a separate document.
@@ -405,9 +553,11 @@ trial.suggest_float("lr", 5e-4, 5e-3, log=True)</code></pre>
 
   <h3>What the record does not support</h3>
   <ul>
-    <li>The normalization statistic cited in the file cannot be reproduced from these four runs. The comment should either cite the study it came from or be re-derived.</li>
-    <li>No configuration has completed a full training budget and then been converted, so the converted accuracy ceiling is unknown rather than measured at 74.4%.</li>
-    <li>Both deploy-phase failures come from short runs whose batch normalization statistics were still immature, which inflates the folded bias. The size of that effect on a converged run has not been measured.</li>
+    <li>No configuration has completed a full training budget and then been converted. The converted accuracy ceiling is unknown rather than measured at 74.4%, and the 87.5% in section 7.3 was never put through conversion at all.</li>
+    <li>Both deployment failures come from short runs whose batch normalization statistics were still immature, which inflates the folded bias. The size of that effect on a converged run has not been measured.</li>
+    <li>The weight decay conflict in section 7.4 is unresolved. One number is currently serving two purposes that want opposite values.</li>
+    <li>tdBN and learnable neuron parameters have never been evaluated on a run healthy enough to judge them. Their only appearance is run A, where they are confounded with the configurations that failed.</li>
+    <li>No controlled comparison has been run. Every result here is observational, drawn from a sampler that deliberately concentrates on promising regions, so the winning settings co-occur and their individual contributions cannot be separated.</li>
     <li><code>split_by</code> is fixed at <code>"number"</code> in every run. The alternative has never been tried.</li>
   </ul>
 
