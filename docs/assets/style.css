@@ -693,6 +693,62 @@ footer.site-foot a:hover { color: var(--text-dim); }
 .search-box::placeholder { color: var(--faint); }
 .search-box:focus { border-color: var(--accent); }
 
+/* scrollable source excerpt with line numbers and highlights */
+.file-view {
+  margin: 30px 0; border: 1px solid var(--line);
+  background: #030303; overflow: hidden;
+}
+.file-view .fv-head {
+  display: flex; justify-content: space-between; align-items: center; gap: 16px;
+  padding: 12px 18px; border-bottom: 1px solid var(--line);
+  background: var(--surface-1); flex-wrap: wrap;
+}
+.file-view .fv-name {
+  font-family: var(--mono); font-size: 13.5px; color: var(--accent);
+}
+.file-view .fv-meta {
+  font-family: var(--mono); font-size: 11.5px; letter-spacing: .1em;
+  text-transform: uppercase; color: var(--faint);
+}
+.file-view .fv-body {
+  max-height: 420px; overflow: auto; padding: 14px 0;
+  font-family: var(--mono); font-size: 13.5px; line-height: 1.72;
+  scrollbar-width: thin; scrollbar-color: var(--line-strong) transparent;
+}
+.file-view .fv-body::-webkit-scrollbar { width: 10px; height: 10px; }
+.file-view .fv-body::-webkit-scrollbar-thumb { background: var(--line-strong); }
+.file-view .fv-line { display: flex; white-space: pre; }
+.file-view .fv-num {
+  flex: 0 0 58px; text-align: right; padding-right: 18px;
+  color: #4a4640; user-select: none;
+}
+.file-view .fv-code { color: #d5d0c8; padding-right: 24px; }
+.file-view .fv-hl { background: rgba(224, 169, 79, .10); box-shadow: inset 3px 0 0 var(--accent); }
+.file-view .fv-hl .fv-num { color: var(--accent); }
+.file-view .fv-hl .fv-code { color: #f6f4f1; }
+.file-view .fv-k { color: #c9a6d8; font-style: normal; }
+.file-view .fv-b { color: #8fb3c4; font-style: normal; }
+.file-view .fv-s { color: #9bb17a; font-style: normal; }
+.file-view .fv-n { color: #d9a86c; font-style: normal; }
+.file-view .fv-c { color: #6f6a63; font-style: italic; }
+.file-view .fv-note {
+  padding: 14px 18px; border-top: 1px solid var(--line-soft);
+  font-size: 15.5px; color: var(--muted); line-height: 1.6;
+}
+
+/* teaching aside: how to read a number, set apart from the finding itself */
+.teach {
+  margin: 30px 0; padding: 24px 26px;
+  border: 1px dashed var(--line-strong); background: rgba(255, 255, 255, .018);
+}
+.teach .t-title {
+  font-family: var(--mono); font-size: 11.5px; letter-spacing: .2em;
+  text-transform: uppercase; color: var(--accent); margin-bottom: 14px;
+}
+.teach p { margin: 0 0 14px; font-size: 17px; }
+.teach p:last-child { margin-bottom: 0; }
+.teach dl.kv { margin: 16px 0 0; }
+
 /* verdict tags in result tables */
 .ok-tag, .bad-tag, .warn-tag {
   font-family: var(--mono); font-size: 12.5px; letter-spacing: .04em;

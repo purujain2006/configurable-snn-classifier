@@ -18,11 +18,11 @@
     <p class="kicker">Page 7</p>
     <h1>What the trials revealed</h1>
     <p class="lede">
-      Six search runs are on record across two sets: four in the results folder holding 82 trials,
-      and the two earlier searches, holding 65, that the comments in <code>Practice2.py</code> were
-      derived from. This page recomputes every recorded statistic against the data that produced it,
-      reports which survive, links each one to the code it changed, and states what the record still
-      cannot answer.
+      Six search runs are on record. What a trial's score <em>means</em> is not the same in all of
+      them, because the objective changed partway through, and reading the record without that in
+      mind produces confident nonsense. This page separates the trials by what was actually
+      measured, works through how each statistic was chosen and what it licenses, and then reports
+      what the data supports and what it still cannot answer.
     </p>
   </div>
 </header>
@@ -30,46 +30,275 @@
 <main class="with-toc">
 <div class="wrap">
 
-<section id="record" class="reveal">
-  <h2><span class="sec-num">7.1</span>The record</h2>
+<section id="two-kinds" class="reveal">
+  <h2><span class="sec-num">7.1</span>Two kinds of trial</h2>
   <p>
-    Each run writes a leaderboard, a rejection log, and one JSON record per trial. Nothing here is
-    reconstructed from memory. The counts below come from those files.
+    Every trial reports a number called <code>val_accuracy</code>. In half the record that number
+    is the accuracy of a network that was never converted, and in the other half it is the accuracy
+    of the network the chip would actually run. Those are different quantities and they are not
+    comparable.
   </p>
 
+  <div class="teach">
+    <div class="t-title">Why the distinction decides everything else</div>
+    <p>
+      A network trained in floating point and the same network after conversion differ in weight
+      precision, threshold precision, leak resolution, neuron update order, and whether batch
+      normalization is still present. Each difference moves the output.
+    </p>
+    <p>
+      So a high score before conversion is a claim about a network that cannot be built. It still
+      tells you something, since a configuration that fails in floating point will not recover on
+      hardware, so the number works as a ceiling. Only a converted score answers the question the
+      project was set up to ask.
+    </p>
+  </div>
+
+  <h3>Trials scored before conversion</h3>
+  <p>
+    These runs stop at the end of training. Their score is floating-point validation accuracy, and
+    no conversion was attempted, so nothing in them can tell you whether the network was deployable.
+  </p>
   <div class="tbl-wrap">
     <table class="tbl">
-      <thead><tr><th>Run</th><th>Date</th><th>Space</th><th>Budget</th><th class="num">Scored</th><th class="num">Rejected up front</th><th class="num">Best</th></tr></thead>
+      <thead><tr><th>Run</th><th>Date</th><th>Space</th><th class="num">Trials</th><th class="num">Scored</th><th class="num">Best</th></tr></thead>
       <tbody>
-        <tr><td class="layer-name">search 1</td><td>2026-07-23</td><td>per-layer</td><td>30 &#215; 40 epochs</td><td class="num">13 / 27</td><td class="num">14</td><td class="num">0.7159</td></tr>
-        <tr><td class="layer-name">search 2</td><td>2026-07-24</td><td>uniform</td><td>30 &#215; 40 epochs</td><td class="num">28 / 30</td><td class="num">2</td><td class="num">0.8352</td></tr>
-        <tr><td class="layer-name">search 3</td><td>2026-07-28</td><td>uniform</td><td>12 &#215; 15 epochs</td><td class="num">1 / 4</td><td class="num">0</td><td class="num">0.7443</td></tr>
-        <tr><td class="layer-name">search 4</td><td>2026-07-29</td><td>uniform</td><td>8 &#215; 12 epochs</td><td class="num">1 / 5</td><td class="num">0</td><td class="num">0.5284</td></tr>
+        <tr><td class="layer-name">study, run B</td><td>earlier</td><td>uniform</td><td class="num">50</td><td class="num">35</td><td class="num">0.8750</td></tr>
+        <tr><td class="layer-name">study, run A</td><td>earlier</td><td>per-layer</td><td class="num">15</td><td class="num">6</td><td class="num">0.3409</td></tr>
+        <tr><td class="layer-name">search 1</td><td>2026-07-23</td><td>per-layer</td><td class="num">27</td><td class="num">13</td><td class="num">0.7159</td></tr>
+        <tr><td class="layer-name">search 2</td><td>2026-07-24</td><td>uniform</td><td class="num">30</td><td class="num">28</td><td class="num">0.8352</td></tr>
+        <tr class="total"><td>total</td><td></td><td></td><td class="num">122</td><td class="num">82</td><td class="num">0.8750</td></tr>
       </tbody>
     </table>
   </div>
 
+  <h3>Trials scored after conversion</h3>
   <p>
-    Searches 1 and 2 predate the hardware objective. They score trials on floating-point validation
-    accuracy, so their numbers describe a network before conversion. Searches 3 and 4 report
-    <code>hw_val_accuracy</code>, which is the accuracy of the converted network, and are the only
-    runs whose scores mean what the project needs them to mean.
+    These runs fold, quantize, export and re-evaluate before reporting. Their score is
+    <code>hw_val_accuracy</code>, and a configuration that cannot be represented on chip is scored
+    zero however well it trained.
   </p>
-  <div class="facts">
-    <ul class="facts">
-      <li><strong>82 trials</strong> in total, of which 50 passed the connection check and 43 produced a score.</li>
-      <li><strong>33 of 43</strong> scored trials were stopped early by ASHA. The median trial ran 8 epochs.</li>
-      <li><strong>2 trials</strong> in the entire record reached the deployment stage and reported a converted accuracy.</li>
-    </ul>
+  <div class="tbl-wrap">
+    <table class="tbl">
+      <thead><tr><th>Run</th><th>Date</th><th>Space</th><th class="num">Trials</th><th class="num">Reached conversion</th><th class="num">Best converted</th></tr></thead>
+      <tbody>
+        <tr><td class="layer-name">search 3</td><td>2026-07-28</td><td>uniform</td><td class="num">4</td><td class="num">1</td><td class="num">0.7443</td></tr>
+        <tr><td class="layer-name">search 4</td><td>2026-07-29</td><td>uniform</td><td class="num">5</td><td class="num">1</td><td class="num">0.5284</td></tr>
+        <tr class="total"><td>total</td><td></td><td></td><td class="num">9</td><td class="num">2</td><td class="num">0.7443</td></tr>
+      </tbody>
+    </table>
   </div>
-  <p class="footnote">
-    The seven feasible trials without a score were pruned before their first validation report
-    landed. They count toward feasibility and cannot enter an accuracy comparison.
+
+  <div class="result-grid">
+    <div>
+      <div class="r-k">Scored before conversion</div>
+      <div class="r-v">122 trials</div>
+      <div class="r-s">Every statistic quoted anywhere in this project comes from these.</div>
+    </div>
+    <div>
+      <div class="r-k">Scored after conversion</div>
+      <div class="r-v accent">2 trials</div>
+      <div class="r-s">The complete evidence base for how the network behaves on chip.</div>
+    </div>
+    <div>
+      <div class="r-k">Ratio</div>
+      <div class="r-v">61 : 1</div>
+      <div class="r-s">The imbalance is the main limitation of everything below.</div>
+    </div>
+  </div>
+
+  <p>
+    That imbalance is the single most important thing on this page. The search-space narrowings, the
+    statistics, and the best result on record all come from the first group. The second group has
+    two members. Every conclusion below inherits whichever of those two foundations it stands on,
+    and the text says which.
   </p>
 </section>
 
+<section id="scoring" class="reveal">
+  <h2><span class="sec-num">7.2</span>How a trial gets its number</h2>
+  <p>
+    The two kinds of score are produced by the same function, on two different occasions, and the
+    difference is easy to miss when reading the code.
+  </p>
+
+  <p>
+    During training, a report goes out every epoch. Both accuracy keys hold the same floating-point
+    number here, so <code>val_accuracy</code> is standing in for something it does not yet have.
+  </p>
+  <div class="file-view" id="fv-epoch-report" data-file="Practice2.py" data-start="2813" data-hl="6-7"
+       data-note="Reported every epoch during both phases. val_accuracy is a placeholder here, holding the same float number as float_val_accuracy.">
+    <pre class="fv-src">    def report_fn(epoch, train_loss, train_acc, val_acc, best_val_acc, lr, phase=&quot;float&quot;):
+        # Per-epoch progress across BOTH warmup (&quot;float&quot;) and on-grid (&quot;grid&quot;)
+        # phases. ASHA prunes on float_val_accuracy, which we report every epoch
+        # of both phases so the trajectory is continuous and a trial isn&#x27;t judged
+        # only on its pre-grid accuracy.
+        tune.report({&quot;val_accuracy&quot;: val_acc, &quot;float_val_accuracy&quot;: val_acc,
+                     &quot;best_val_accuracy&quot;: best_val_acc, &quot;phase&quot;: phase,
+                     &quot;train_accuracy&quot;: train_acc, &quot;train_loss&quot;: train_loss,
+                     &quot;lr&quot;: lr, &quot;epoch&quot;: epoch, **static})</pre>
+  </div>
+
+  <p>
+    After training finishes, one further report goes out, and <code>val_accuracy</code> stops
+    being a placeholder.
+  </p>
+  <div class="file-view" id="fv-deploy-report" data-file="Practice2.py" data-start="2827" data-hl="5,8-10"
+       data-note="Reported once, after training. This is where val_accuracy stops being a placeholder and becomes the converted accuracy, and an undeployable configuration is scored zero.">
+    <pre class="fv-src">    # This is the LAST report, so scope=&quot;last&quot; selection and Optuna&#x27;s
+    # on_trial_complete see the hardware number, not the float trajectory.
+    # An undeployable config scores 0: a fold that drives a threshold &lt;= 0 fires
+    # unconditionally on chip regardless of how good its float accuracy looked.
+    hw_acc = res[&quot;hw_val_accuracy&quot;] if res[&quot;deployable&quot;] else 0.0
+    tune.report({
+        &quot;val_accuracy&quot;: hw_acc,                 # &lt;- selection metric
+        &quot;hw_val_accuracy&quot;: res[&quot;hw_val_accuracy&quot;],
+        &quot;float_val_accuracy&quot;: res[&quot;float_val_accuracy&quot;],
+        &quot;quant_gap&quot;: res[&quot;quant_gap&quot;],
+        &quot;grid_val_accuracy&quot;: res.get(&quot;grid_val_accuracy&quot;),
+        &quot;weight_clip_frac&quot;: res[&quot;weight_clip_frac&quot;],
+        &quot;max_abs_weight&quot;: res[&quot;max_abs_weight&quot;],
+        &quot;min_threshold&quot;: res[&quot;min_threshold&quot;],
+        &quot;deployable&quot;: res[&quot;deployable&quot;],</pre>
+  </div>
+
+  <div class="teach">
+    <div class="t-title">Why one key carries two meanings</div>
+    <p>
+      Early stopping has to compare trials mid-flight, so it needs a value every epoch, and the only
+      value available every epoch is the floating-point one. Selection has to pick a winner, so it
+      needs the converted value, which exists once.
+    </p>
+    <p>
+      Rather than maintain two independent metrics, the code reports both keys every time and points
+      each consumer at the one it needs. The scheduler watches <code>float_val_accuracy</code> and
+      sees a curve. The sampler reads <code>val_accuracy</code> with <code>scope="last"</code>,
+      which ignores every report but the final one, so it sees the converted number and nothing else.
+    </p>
+    <p>
+      The cost of that arrangement is that a trial which never reaches its final report silently
+      contributes a floating-point number to a selection process that believes it is reading a
+      converted one. Section 7.8 shows two trials where exactly that happened.
+    </p>
+  </div>
+</section>
+
+<section id="reading" class="reveal">
+  <h2><span class="sec-num">7.3</span>How to read these numbers</h2>
+  <p>
+    The statistics on this page are not the ones a first course would reach for, and the reasons are
+    worth stating before any result is quoted.
+  </p>
+
+  <div class="teach">
+    <div class="t-title">Why no t-tests</div>
+    <p>
+      A t-test assumes the values are roughly bell-shaped around a mean. Accuracy here is not. There
+      is a cluster of networks sitting near chance, having failed to learn at all, and a spread of
+      networks that did learn. Two lumps, not one.
+    </p>
+    <p>
+      The source study measured this directly and reported a Shapiro-Wilk W of 0.80 at p=1.8e&#8722;5,
+      which is a firm rejection of normality. A mean over that distribution describes nothing real,
+      so every test used here works on <em>ranks</em> instead: sort the values, compare positions.
+      Rank tests do not care about the shape of the distribution.
+    </p>
+    <dl class="kv">
+      <dt>two groups</dt><dd>Mann-Whitney U. Asks whether one group tends to rank above the other.</dd>
+      <dt>three or more groups</dt><dd>Kruskal-Wallis H. The same idea generalized.</dd>
+      <dt>two continuous quantities</dt><dd>Spearman &#961;. Correlation computed on ranks rather than values.</dd>
+      <dt>a yes/no outcome</dt><dd>Chi-square, with Cram&#233;r's V as the effect size. Fisher's exact test when counts are small.</dd>
+    </dl>
+  </div>
+
+  <div class="teach">
+    <div class="t-title">What a permutation p-value is, and why it is used here</div>
+    <p>
+      The usual p-value comes from a formula that assumes a large sample. With 43 scored trials that
+      assumption is doing real work and cannot be checked. A permutation test avoids the formula
+      entirely.
+    </p>
+    <p>
+      Compute the statistic on the real data. Then shuffle the labels thousands of times, destroying
+      any true relationship, and compute it again each time. The p-value is simply the fraction of
+      shuffles that did as well as the real grouping. If one shuffle in a thousand matches it, the
+      p-value is about 0.001, and no distributional assumption was needed to say so.
+    </p>
+  </div>
+
+  <div class="file-view" id="fv-analysis-perm" data-file="tools/trial_analysis.py" data-start="86" data-hl="10-15"
+       data-note="Kruskal-Wallis with a permutation p-value. The statistic is computed on the real grouping, then on thousands of shuffles, and the p-value is the share of shuffles that did as well by chance.">
+    <pre class="fv-src">def kruskal(groups, n_perm=PERM):
+    groups = [np.asarray(g, float) for g in groups if len(g)]
+    if len(groups) &lt; 2:
+        return float(&quot;nan&quot;), float(&quot;nan&quot;)
+    allv = np.concatenate(groups)
+    sizes = [len(g) for g in groups]
+    n = len(allv)
+    def stat(v):
+        r, out, i = rank(v), 0.0, 0
+        for s in sizes:
+            out += (r[i:i + s].sum() ** 2) / s
+            i += s
+        return 12.0 / (n * (n + 1)) * out - 3 * (n + 1)
+    obs = stat(allv)
+    perm = np.array([stat(RNG.permutation(allv)) for _ in range(n_perm // 4)])
+    return obs, float((np.sum(perm &gt;= obs) + 1) / (len(perm) + 1))</pre>
+  </div>
+
+  <div class="teach">
+    <div class="t-title">Why the effect size matters more than the p-value</div>
+    <p>
+      A p-value answers one narrow question: could this pattern plausibly have come from noise. It
+      says nothing about whether the effect is large enough to act on. With enough samples a
+      meaningless difference becomes significant, and with few samples a large one may not.
+    </p>
+    <p>
+      So each result below carries a magnitude alongside its p-value. Cram&#233;r's V and
+      rank-biserial r run from 0 to 1. Spearman's &#961; runs from &#8722;1 to 1 and is its own
+      effect size. As a rough reading, 0.1 is small, 0.3 is moderate, 0.5 and above is large.
+    </p>
+  </div>
+
+  <div class="teach">
+    <div class="t-title">What FDR correction does, and why some strong-looking results are marked insignificant</div>
+    <p>
+      Testing fifteen settings at once means fifteen chances to find something by accident. At the
+      usual 5% threshold you would expect roughly one false positive per twenty tests, so a table of
+      fifteen raw p-values will contain apparent findings that are not there.
+    </p>
+    <p>
+      The Benjamini-Hochberg procedure adjusts for that, producing a corrected value written
+      <strong>q</strong>. Depth is the example in the source study: a raw p of 0.033 becomes
+      q=0.082, which falls short of the threshold. The recomputation on this page tests claims one
+      at a time rather than sweeping fifteen, so it reports p, and should be read as the more
+      permissive of the two.
+    </p>
+  </div>
+
+  <div class="teach">
+    <div class="t-title">The limit none of this can fix</div>
+    <p>
+      Every trial here was proposed by a sampler that deliberately concentrates on promising regions.
+      That is what makes the search efficient and what makes its output hard to interpret: the good
+      configurations resemble each other, so low &#964;, batch normalization and 32 channels arrive
+      together and their individual contributions cannot be separated.
+    </p>
+    <p>
+      Early stopping compounds it. A pruned trial's accuracy is a floor rather than a result, biased
+      low, and pruning is not random, so any setting correlated with surviving pruning will appear
+      correlated with accuracy.
+    </p>
+    <p>
+      The clean answer is a controlled comparison: freeze the best configuration, vary one setting,
+      run each to completion. That has not been done, so everything below is a hypothesis worth
+      testing rather than a measured effect.
+    </p>
+  </div>
+</section>
+
 <section id="claims" class="reveal">
-  <h2><span class="sec-num">7.2</span>Recomputing the recorded statistics</h2>
+  <h2><span class="sec-num">7.4</span>Recomputing the recorded statistics</h2>
 
   <div class="motiv">
     <div class="m-row">
@@ -97,6 +326,34 @@
         verdict per claim. Its full output is kept alongside the site.
       </p>
     </div>
+  </div>
+
+  <div class="file-view" id="fv-analysis-load" data-file="tools/trial_analysis.py" data-start="108" data-hl="9-18"
+       data-note="Leaderboards give the configuration and score. trials.jsonl is the only place the deployment fields appear, so the two have to be read together.">
+    <pre class="fv-src">def load(root):
+    &quot;&quot;&quot;Every trial from every search: feasible ones from the leaderboards,
+    rejected ones from infeasible.jsonl, tagged with which run they came from.&quot;&quot;&quot;
+    rows = []
+    for dirpath, _dirnames, filenames in os.walk(root):
+        run = os.path.relpath(dirpath, root).replace(os.sep, &quot;/&quot;)
+        if &quot;leaderboard.csv&quot; in filenames:
+            df = pd.read_csv(os.path.join(dirpath, &quot;leaderboard.csv&quot;))
+            df[&quot;run&quot;], df[&quot;source&quot;] = run, &quot;leaderboard&quot;
+            rows.append(df)
+        if &quot;trials.jsonl&quot; in filenames:
+            recs = []
+            with open(os.path.join(dirpath, &quot;trials.jsonl&quot;), encoding=&quot;utf-8&quot;) as fh:
+                for line in fh:
+                    line = line.strip()
+                    if line:
+                        recs.append(json.loads(line))
+            if recs:
+                dep = pd.DataFrame(recs)
+                keep = [c for c in (&quot;trial_id&quot;, &quot;hw_val_accuracy&quot;, &quot;float_val_accuracy&quot;,
+                                    &quot;quant_gap&quot;, &quot;weight_clip_frac&quot;, &quot;min_threshold&quot;,
+                                    &quot;deployable&quot;, &quot;deploy_reasons&quot;, &quot;epochs_run&quot;,
+                                    &quot;stopped_early&quot;) if c in dep.columns]
+                DEPLOY.append(dep[keep].assign(run=run))</pre>
   </div>
 
   <div class="tbl-wrap">
@@ -199,7 +456,7 @@
 </section>
 
 <section id="source" class="reveal">
-  <h2><span class="sec-num">7.3</span>The study the comments came from</h2>
+  <h2><span class="sec-num">7.5</span>The study the comments came from</h2>
   <p>
     The figures cited in <code>Practice2.py</code> were computed over two earlier searches, held in
     a spreadsheet rather than in the results folder. That study is the origin of every narrowing,
@@ -293,7 +550,7 @@
 </section>
 
 <section id="conflict" class="reveal">
-  <h2><span class="sec-num">7.4</span>Where two results disagree</h2>
+  <h2><span class="sec-num">7.6</span>Where two results disagree</h2>
 
   <div class="motiv">
     <div class="m-row">
@@ -339,7 +596,7 @@
 </section>
 
 <section id="rejected" class="reveal">
-  <h2><span class="sec-num">7.5</span>Where configurations died</h2>
+  <h2><span class="sec-num">7.7</span>Where configurations died</h2>
   <p>
     Sixteen configurations were rejected before any GPU time, by the arithmetic check of section
     4.1. Their recorded violations show which limit actually binds:
@@ -380,7 +637,7 @@
 </section>
 
 <section id="deploy" class="reveal">
-  <h2><span class="sec-num">7.6</span>The deployment stage</h2>
+  <h2><span class="sec-num">7.8</span>The deployment stage</h2>
 
   <div class="motiv">
     <div class="m-row">
@@ -474,7 +731,7 @@ deploy_reasons     <span class="err">folded threshold -0.5877 &lt;= 0 -- neuron 
 </section>
 
 <section id="ceiling" class="reveal">
-  <h2><span class="sec-num">7.7</span>The ceiling so far</h2>
+  <h2><span class="sec-num">7.9</span>The ceiling so far</h2>
   <div class="result-grid">
     <div>
       <div class="r-k">Target</div>
@@ -516,23 +773,22 @@ deploy_reasons     <span class="err">folded threshold -0.5877 &lt;= 0 -- neuron 
 </section>
 
 <section id="changed" class="reveal">
-  <h2><span class="sec-num">7.8</span>What each result changed</h2>
+  <h2><span class="sec-num">7.10</span>What each result changed</h2>
   <p>
     Every narrowing carries its evidence in a comment next to the line it constrains, so the reason
     a range exists is readable from the file rather than from a separate document.
   </p>
 
-  <div class="code-block">
-    <div class="code-head"><span class="file">Practice2.py &#183; DefineByRunSpace</span><span class="loc">&#167;10</span></div>
-    <pre><code class="language-python">#   channels: 128/256 were the dominant INFEASIBILITY driver (chi-square p=6e-4,
-#     Cramer's V=0.59: 32ch 88% feasible, 128ch 14%) and never beat 32
-
-# fc_layers 0-1 only: every top-10 model had 0 hidden FC (Kruskal-Wallis
-# q=0.04), so 2-3 hidden layers are pure waste. Keep 1 as a branch.
-
-# lr: positive correlation (Spearman q=0.04); winners are 1.6e-3..3.5e-3,
-# so drop the under-converging low end (was 1e-4).
-trial.suggest_float("lr", 5e-4, 5e-3, log=True)</code></pre>
+<div class="file-view" id="fv-claims" data-file="Practice2.py" data-start="2428" data-hl="2-5"
+       data-note="The narrowing and its evidence sit on the same screen, so the reason a range exists is readable from the file.">
+    <pre class="fv-src"># NARROWED to the regions the statistics said matter:
+#   channels: 128/256 were the dominant INFEASIBILITY driver (chi-square p=6e-4,
+#     Cramer&#x27;s V=0.59: 32ch 88% feasible, 128ch 14%) and never beat 32/64 on
+#     accuracy. Dropped.
+#   kernel: every top-10 model used k5 or k7; k3 dropped.
+CHANNEL_CHOICES = [32, 64]
+KERNEL_CHOICES = [5, 7]
+</pre>
   </div>
 
   <div class="tbl-wrap">
@@ -553,9 +809,9 @@ trial.suggest_float("lr", 5e-4, 5e-3, log=True)</code></pre>
 
   <h3>What the record does not support</h3>
   <ul>
-    <li>No configuration has completed a full training budget and then been converted. The converted accuracy ceiling is unknown rather than measured at 74.4%, and the 87.5% in section 7.3 was never put through conversion at all.</li>
+    <li>No configuration has completed a full training budget and then been converted. The converted accuracy ceiling is unknown rather than measured at 74.4%, and the 87.5% in section 7.5 was never put through conversion at all.</li>
     <li>Both deployment failures come from short runs whose batch normalization statistics were still immature, which inflates the folded bias. The size of that effect on a converged run has not been measured.</li>
-    <li>The weight decay conflict in section 7.4 is unresolved. One number is currently serving two purposes that want opposite values.</li>
+    <li>The weight decay conflict in section 7.6 is unresolved. One number is currently serving two purposes that want opposite values.</li>
     <li>tdBN and learnable neuron parameters have never been evaluated on a run healthy enough to judge them. Their only appearance is run A, where they are confounded with the configurations that failed.</li>
     <li>No controlled comparison has been run. Every result here is observational, drawn from a sampler that deliberately concentrates on promising regions, so the winning settings co-occur and their individual contributions cannot be separated.</li>
     <li><code>split_by</code> is fixed at <code>"number"</code> in every run. The alternative has never been tried.</li>
@@ -583,6 +839,7 @@ trial.suggest_float("lr", 5e-4, 5e-3, log=True)</code></pre>
 
 <script src="assets/snn.js"></script>
 <script src="assets/site.js"></script>
+<script src="assets/fileview.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-python.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-bash.min.js"></script>

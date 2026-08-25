@@ -39,7 +39,7 @@ const RULES = [
   { id:'inOtherWords', re:/\bin other words\b|\bput (?:simply|another way)\b|\bthink of (?:it|this) as\b|\bimagine\b/gi, label:'restatement filler' },
   { id:'fwdRef', re:/\b(?:as we(?:'ll| will)|we(?:'ll| will) (?:see|cover|get to|explore)|later (?:on|we)|coming up|in the next section|below,? we)\b/gi, label:'forward reference' },
   { id:'weRoyal', re:/\b(?:we|our|us|let'?s)\b/gi, label:'first person' },
-  { id:'crucial', re:/\b(?:crucial(?:ly)?|essential(?:ly)?|vital|key to|critical(?:ly)?|fundamental(?:ly)?|significant(?:ly)?|notably|importantly)\b/gi, label:'intensifier' },
+  { id:'crucial', re:/\b(?:crucial(?:ly)?|essential(?:ly)?|vital|key to|critical(?:ly)?|fundamental(?:ly)?|significantly|notably|importantly)\b/gi, label:'intensifier' },
   { id:'ensure', re:/\b(?:ensur\w+|facilitat\w+|utiliz\w+|myriad|plethora|comprehensive|holistic|streamlin\w+|optimiz\w+ for|in order to)\b/gi, label:'inflated diction' },
 ];
 
