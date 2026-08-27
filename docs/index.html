@@ -68,7 +68,7 @@
     <div class="m-row code">
       <span class="m-label">In code</span>
       <p>
-        The converter performs this expansion. However, more relevant to us, our <code>Practice2.py</code> mirrors its arithmetic
+        The converter performs this expansion. However, more relevant to us, our <code>snnsearch/quantgrid.py</code> mirrors its arithmetic
         exactly, so that a network is trained against the numbers the converter will produce
         rather than adjusted to them afterwards. This prevents massive losses in accuracy due to conversion and discourages dependence on high-precision weight values for storing information.
       </p>
@@ -389,18 +389,19 @@
 <section id="map" class="reveal">
   <h2><span class="sec-num">1.9</span>How the code is organized</h2>
   <p>
-    The implementation is a single file, <code>Practice2.py</code>, divided into numbered sections.
-    Sections 1 to 4 import no deep learning libraries, so architecture planning and the feasibility
-    check run on any machine without a GPU stack installed.
+    The implementation is a Python package, <code>snnsearch</code>, with one launcher beside it.
+    Modules are layered so the cheap parts stay cheap: the four that describe and check a
+    configuration import no deep learning library at all, so planning and the connection check run
+    on a laptop with nothing installed.
   </p>
   <p>
-    The diagram below maps those sections onto the four jobs the file performs. Each leaf links to
+    The diagram below maps the modules onto the four jobs the package performs. Each leaf links to
     the page that covers it.
   </p>
 
   <figure class="figure wide">
     <div class="figure-scroll">
-      <svg viewBox="0 0 900 620" role="img" aria-label="A left-to-right tree: Practice2.py branches into Describe, Check, Train and Search, each with its own components.">
+      <svg viewBox="0 0 900 620" role="img" aria-label="A left-to-right tree: the snnsearch package branches into Describe, Check, Train and Search, each with its own modules.">
         <g stroke="#413d38" stroke-width="1.4" fill="none">
           <path d="M174 274 H200"/>
           <path d="M200 72 V514"/>
@@ -414,8 +415,8 @@
         </g>
 
         <rect x="6" y="232" width="168" height="84" fill="rgba(255,255,255,.05)" stroke="#5a5550"/>
-        <text class="tree-node-title" x="90" y="267" font-size="19" text-anchor="middle">Practice2.py</text>
-        <text class="tree-node-sub" x="90" y="292" font-size="12.5" text-anchor="middle">one file &#183; ~3,200 lines</text>
+        <text class="tree-node-title" x="90" y="267" font-size="19" text-anchor="middle">snnsearch</text>
+        <text class="tree-node-sub" x="90" y="292" font-size="12.5" text-anchor="middle">a package &#183; run main.py</text>
 
         <g>
           <rect x="230" y="45" width="170" height="54" fill="rgba(255,255,255,.028)" stroke="#6b5530"/>
@@ -437,80 +438,117 @@
 
         <a href="architecture.html">
           <rect class="tree-leaf-box" x="456" y="27" width="438" height="38" fill="rgba(255,255,255,.022)" stroke="#3a3733"/>
-          <text class="tree-node-title" x="472" y="51" font-size="15.5" font-weight="500">Config Dataclasses</text>
-          <text class="tree-tag" x="878" y="51" font-size="12.5" text-anchor="end">&#167;1</text>
+          <text class="tree-node-title" x="472" y="51" font-size="15.5" font-weight="500">Seven config dataclasses</text>
+          <text class="tree-tag" x="878" y="51" font-size="12.5" text-anchor="end">config.py</text>
         </a>
         <a href="architecture.html">
           <rect class="tree-leaf-box" x="456" y="79" width="438" height="38" fill="rgba(255,255,255,.022)" stroke="#3a3733"/>
           <text class="tree-node-title" x="472" y="103" font-size="15.5" font-weight="500">Shape planning</text>
-          <text class="tree-tag" x="878" y="103" font-size="12.5" text-anchor="end">&#167;2</text>
+          <text class="tree-tag" x="878" y="103" font-size="12.5" text-anchor="end">planning.py</text>
         </a>
         <a href="hardware.html">
           <rect class="tree-leaf-box" x="456" y="131" width="438" height="38" fill="rgba(255,255,255,.022)" stroke="#3a3733"/>
-          <text class="tree-node-title" x="472" y="155" font-size="15.5" font-weight="500">Connection limits </text>
-          <text class="tree-tag" x="878" y="155" font-size="12.5" text-anchor="end">&#167;3</text>
+          <text class="tree-node-title" x="472" y="155" font-size="15.5" font-weight="500">Connection limits as arithmetic</text>
+          <text class="tree-tag" x="878" y="155" font-size="12.5" text-anchor="end">hardware.py</text>
         </a>
         <a href="architecture.html">
           <rect class="tree-leaf-box" x="456" y="183" width="438" height="38" fill="rgba(255,255,255,.022)" stroke="#3a3733"/>
-          <text class="tree-node-title" x="472" y="207" font-size="15.5" font-weight="500">HW Cost of model: neurons, connections, parameters</text>
-          <text class="tree-tag" x="878" y="207" font-size="12.5" text-anchor="end">&#167;4</text>
+          <text class="tree-node-title" x="472" y="207" font-size="15.5" font-weight="500">Cost: neurons, connections, parameters, SynOps</text>
+          <text class="tree-tag" x="878" y="207" font-size="12.5" text-anchor="end">cost.py</text>
         </a>
         <a href="training.html">
           <rect class="tree-leaf-box" x="456" y="235" width="438" height="38" fill="rgba(255,255,255,.022)" stroke="#3a3733"/>
-          <text class="tree-node-title" x="472" y="259" font-size="15.5" font-weight="500">Event stream to T binary frames</text>
-          <text class="tree-tag" x="878" y="259" font-size="12.5" text-anchor="end">&#167;6</text>
+          <text class="tree-node-title" x="472" y="259" font-size="15.5" font-weight="500">Any dataset, turned into spikes</text>
+          <text class="tree-tag" x="878" y="259" font-size="12.5" text-anchor="end">data/ &#183; encoders.py</text>
         </a>
         <a href="neurons.html">
           <rect class="tree-leaf-box" x="456" y="287" width="438" height="38" fill="rgba(255,255,255,.022)" stroke="#3a3733"/>
-          <text class="tree-node-title" x="472" y="311" font-size="15.5" font-weight="500">HardwareLIFNode: on-chip neuron</text>
-          <text class="tree-tag" x="878" y="311" font-size="12.5" text-anchor="end">&#167;5</text>
+          <text class="tree-node-title" x="472" y="311" font-size="15.5" font-weight="500">HardwareLIFNode: the on-chip neuron</text>
+          <text class="tree-tag" x="878" y="311" font-size="12.5" text-anchor="end">neuron.py</text>
         </a>
         <a href="training.html">
           <rect class="tree-leaf-box" x="456" y="339" width="438" height="38" fill="rgba(255,255,255,.022)" stroke="#3a3733"/>
           <text class="tree-node-title" x="472" y="363" font-size="15.5" font-weight="500">Training loop and pipeline flush</text>
-          <text class="tree-tag" x="878" y="363" font-size="12.5" text-anchor="end">&#167;8</text>
+          <text class="tree-tag" x="878" y="363" font-size="12.5" text-anchor="end">train.py</text>
         </a>
         <a href="hardware.html">
           <rect class="tree-leaf-box" x="456" y="391" width="438" height="38" fill="rgba(255,255,255,.022)" stroke="#3a3733"/>
-          <text class="tree-node-title" x="472" y="415" font-size="15.5" font-weight="500">Batch-norm and INT16 training</text>
-          <text class="tree-tag" x="878" y="415" font-size="12.5" text-anchor="end">&#167;5c</text>
+          <text class="tree-node-title" x="472" y="415" font-size="15.5" font-weight="500">Batch-norm folding and INT16 training</text>
+          <text class="tree-tag" x="878" y="415" font-size="12.5" text-anchor="end">folding.py &#183; quantize.py</text>
         </a>
         <a href="search.html">
           <rect class="tree-leaf-box" x="456" y="443" width="438" height="38" fill="rgba(255,255,255,.022)" stroke="#3a3733"/>
           <text class="tree-node-title" x="472" y="467" font-size="15.5" font-weight="500">Conditional search space</text>
-          <text class="tree-tag" x="878" y="467" font-size="12.5" text-anchor="end">&#167;10</text>
+          <text class="tree-tag" x="878" y="467" font-size="12.5" text-anchor="end">spaces.py</text>
         </a>
         <a href="search.html">
           <rect class="tree-leaf-box" x="456" y="495" width="438" height="38" fill="rgba(255,255,255,.022)" stroke="#3a3733"/>
-          <text class="tree-node-title" x="472" y="519" font-size="15.5" font-weight="500">Early stopping</text>
-          <text class="tree-tag" x="878" y="519" font-size="12.5" text-anchor="end">&#167;10</text>
+          <text class="tree-node-title" x="472" y="519" font-size="15.5" font-weight="500">Early stopping and selection</text>
+          <text class="tree-tag" x="878" y="519" font-size="12.5" text-anchor="end">search.py</text>
         </a>
-        <a href="search.html">
+        <a href="results.html">
           <rect class="tree-leaf-box" x="456" y="547" width="438" height="38" fill="rgba(255,255,255,.022)" stroke="#3a3733"/>
-          <text class="tree-node-title" x="472" y="571" font-size="15.5" font-weight="500">Selection on converted accuracy</text>
-          <text class="tree-tag" x="878" y="571" font-size="12.5" text-anchor="end">&#167;10</text>
+          <text class="tree-node-title" x="472" y="571" font-size="15.5" font-weight="500">Results written as they happen, then a report</text>
+          <text class="tree-tag" x="878" y="571" font-size="12.5" text-anchor="end">results.py &#183; report.py</text>
         </a>
       </svg>
     </div>
     <figcaption>
-      Section numbers refer to the numbered sections inside <code>Practice2.py</code>.
+      Tags name the module inside <code>snnsearch/</code>. The four boxes on the left are jobs, not
+      folders.
     </figcaption>
   </figure>
 
   <h3>Running it</h3>
+  <p>
+    A run is described by a configuration file and started by one command. Flags override the file,
+    so a saved config stays the record of intent while a flag varies one thing.
+  </p>
   <div class="code-block">
-    <div class="code-head"><span class="file">terminal</span><span class="loc">four modes</span></div>
-    <pre><code class="language-bash">python Practice2.py summary --input resize_to=64 T=16 --encoder depth=2 channels=32 kernel_size=7
-python Practice2.py single  --data-dir &lt;DVS128 root&gt; --ckpt best.pth
-python Practice2.py fold    --ckpt best.pth --data-dir &lt;DVS128 root&gt;
-python Practice2.py search  --compute local --trials 50 --data-dir &lt;DVS128 root&gt;</code></pre>
+    <div class="code-head"><span class="file">terminal</span><span class="loc">five modes</span></div>
+    <pre><code class="language-bash">python main.py check                              # what this machine is missing
+python main.py summary -c configs/dvs128.yaml     # no torch, no dataset needed
+python main.py single  -c configs/dvs128.yaml     # train one configuration
+python main.py search  -c configs/cifar10.yaml    # the automated search
+python main.py report  results/dvs128             # rebuild report.html</code></pre>
   </div>
   <ul>
-    <li><code>summary</code> prints the architecture table, the neuron and connection counts, and the feasibility verdict. It needs no GPU.</li>
-    <li><code>single</code> trains one configuration and reports both its float accuracy and its converted accuracy.</li>
-    <li><code>fold</code> loads a checkpoint, folds batch normalization into the convolutions, quantizes, verifies the result, and writes the per-layer tables the converter reads.</li>
-    <li><code>search</code> runs the automated search.</li>
+    <li><code>check</code> reports which packages, which GPU and which dataset files are present, and what each missing one blocks.</li>
+    <li><code>summary</code> prints the architecture table, the counts and the feasibility verdict. It imports no deep learning library, so it is the cheapest way to confirm an install works.</li>
+    <li><code>single</code> trains one configuration, folds it, quantizes it and reports both accuracies with the gap between them.</li>
+    <li><code>search</code> runs the automated search and writes results as it goes.</li>
+    <li><code>report</code> rebuilds the HTML report from a finished run directory.</li>
   </ul>
+
+  <h3>What a configuration file holds</h3>
+  <p>
+    Values live in the file. A dataset is code rather than values, so the file points at a Python
+    callable for that and carries everything else.
+  </p>
+  <div class="code-block">
+    <div class="code-head"><span class="file">configs/dvs128.yaml</span><span class="loc">abridged</span></div>
+    <pre><code class="language-yaml">dataset:
+  name: dvs128                 # or module: examples/my_data.py
+  root: /local_disk/$USER/DVS128Gesture
+
+encoding:
+  coding: passthrough          # already events; resize and binarize only
+  T: 16
+  resize_to: 64                # native 128x128 needs 32,768 axons, limit is 16,383
+
+search:
+  trials: 25
+  epochs: 40
+  gpu_fraction: 0.25           # the model needs ~250 MB, so four trials share a card
+
+objective:
+  mode: accuracy               # accuracy | constrained | weighted | pareto</code></pre>
+  </div>
+  <p class="footnote">
+    The format is YAML rather than JSON because every narrowed range in this project carries the
+    statistic that narrowed it, on the same line. JSON has no comments, so it would strip exactly
+    the property that makes the search space checkable.
+  </p>
 </section>
 
 <section id="pages" class="reveal">
@@ -570,7 +608,7 @@ python Practice2.py search  --compute local --trials 50 --data-dir &lt;DVS128 ro
 </nav>
 <footer class="site-foot">
   <span>Documentation for <a href="https://github.com/purujain2006/configurable-snn-classifier">configurable-snn-classifier</a></span>
-  <span>Interactive demonstrations use the same arithmetic as <code>Practice2.py</code>, verified against it.</span>
+  <span>Interactive demonstrations use the same arithmetic as <code>snnsearch</code>, verified against it.</span>
 </footer>
 
 <script src="assets/snn.js"></script>

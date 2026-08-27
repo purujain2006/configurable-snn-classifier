@@ -82,14 +82,13 @@
   </p>
   <div class="code-block">
     <div class="code-head"><span class="file">terminal</span><span class="loc">a fully specified configuration</span></div>
-    <pre><code class="language-bash">python Practice2.py summary \
-  --input   resize_to=64 T=16 \
+    <pre><code class="language-bash">python main.py summary -c configs/dvs128.yaml \
   --encoder depth=2 channels=32 kernel_size=7 stride=2 norm=bn \
   --head    fc_widths= dropout_rate=0.28 \
   --neuron  tau=2</code></pre>
   </div>
   <div class="code-block">
-    <div class="code-head"><span class="file">Practice2.py &#183; fill_from_kv</span><span class="loc">&#167;1</span></div>
+    <div class="code-head"><span class="file">snnsearch/config.py</span><span class="loc">fill_from_kv</span></div>
     <pre><code class="language-python">def fill_from_kv(schema_cls, values: list[str]):
     obj = schema_cls()                                    # start from defaults
     field_types = {f.name: f.type for f in fields(schema_cls)}
@@ -165,11 +164,11 @@
 </section>
 
 <section id="cost" class="reveal">
-  <h2><span class="sec-num">3.3</span>Three different measures of size</h2>
+  <h2><span class="sec-num">3.3</span>Four different measures of size</h2>
   <p>
-    Asking how large a network is has three answers here, and they differ by orders of magnitude.
-    For a convolution with kernel k, C<sub>in</sub> input channels, C<sub>out</sub> output channels
-    and an H&#215;W output map:
+    Asking how large a network is has four answers here, and they differ by orders of magnitude.
+    The first three come from the plan alone. For a convolution with kernel k, C<sub>in</sub> input
+    channels, C<sub>out</sub> output channels and an H&#215;W output map:
   </p>
   <div class="tbl-wrap">
     <table class="tbl">
@@ -187,9 +186,108 @@
           <td class="layer-name">parameters</td><td class="num">k&#178; &#183; C<sub>in</sub> &#183; C<sub>out</sub></td>
           <td>Trainable values in PyTorch. One filter is reused at every position, so this is far smaller than the connection count.</td>
         </tr>
+        <tr>
+          <td class="layer-name">SynOps</td><td class="num">&#8721; spikes &#215; fan-out</td>
+          <td>Accumulate events actually performed, measured on real data rather than derived from the shape. Covered below.</td>
+        </tr>
       </tbody>
     </table>
   </div>
+  <h3>The fourth measure, which the plan cannot give you</h3>
+
+  <div class="motiv">
+    <div class="m-row">
+      <span class="m-label">Observation</span>
+      <p>
+        The three counts above describe what a network <em>is</em>. None of them describe what it
+        <em>does</em>. A spiking network performs arithmetic only where a spike arrives, so two
+        networks with identical connection counts can do very different amounts of work depending
+        on how often their neurons fire.
+      </p>
+    </div>
+    <div class="m-row">
+      <span class="m-label">Consequence</span>
+      <p>
+        Work has to be measured on real data rather than derived from the shape. The accepted
+        measure is the synaptic operation: one accumulate at one downstream neuron, caused by one
+        arriving spike. Summed over a sample it is the quantity a neuromorphic chip spends energy
+        on, and it counts events rather than seconds, so it compares across platforms.
+      </p>
+    </div>
+    <div class="m-row code">
+      <span class="m-label">In code</span>
+      <p>
+        <code>SynOpsCounter</code> hooks every spiking layer during evaluation and multiplies the
+        spikes each emits by its fan-out. Every run reports <code>synops_per_sample</code> whether or not
+        the search is asked to act on it.
+      </p>
+    </div>
+  </div>
+
+  <div class="formula">
+    SynOps = &#8721;<sub>layers</sub> ( spikes emitted ) &#215; ( fan-out )
+    <span class="note">Counted from real spike activity, so it depends on the data as well as the architecture. An ANN of the same shape performs one multiply-accumulate per connection per inference regardless of activity, which is the comparison worth quoting.</span>
+  </div>
+
+  <p>
+    The name matters. SynOps counts events, not joules. Real energy also includes memory traffic,
+    data movement between cores and static power, and on an FPGA static power may dominate all of
+    them. The column is called <code>synops</code> for that reason, and calling it energy would be
+    a claim the measurement does not support.
+  </p>
+
+  <h3>Optimizing for it, or not</h3>
+  <p>
+    Reporting SynOps is free and always happens. Trading accuracy against it is a decision the tool
+    should not make on your behalf, so there are four modes:
+  </p>
+  <div class="tbl-wrap">
+    <table class="tbl">
+      <thead><tr><th>Mode</th><th>What it maximizes</th><th>When</th></tr></thead>
+      <tbody>
+        <tr><td class="layer-name">accuracy</td><td>Accuracy alone. SynOps is recorded and ignored.</td><td>The default, and what every run before this change used.</td></tr>
+        <tr><td class="layer-name">constrained</td><td>Accuracy, scoring zero above a SynOps budget.</td><td>Matches deployment: there is a power envelope and you fit or you do not.</td></tr>
+        <tr><td class="layer-name">weighted</td><td>accuracy &#8722; weight &#215; SynOps / reference</td><td>Only when you can defend the weight, since it encodes how much accuracy a halving of energy is worth.</td></tr>
+        <tr><td class="layer-name">pareto</td><td>Both, returning the front.</td><td>When the trade-off is not yet decided. Defers the choice until the front can be looked at.</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="file-view" id="fv-synops" data-file="snnsearch/synops.py" data-start="150" data-hl="13-22"
+       data-note="Four ways to combine accuracy with energy. The mode is a decision the user makes; nothing here can guess the trade-off for them.">
+    <pre class="fv-src">def score_with_energy(accuracy, synops, mode=&quot;accuracy&quot;,
+                      synops_budget=None, synops_reference=None, weight=0.0):
+    &quot;&quot;&quot;Combine accuracy and SynOps into whatever the search should maximize.
+
+    Four modes, because the right one depends on a decision the user has to
+    make rather than one this code can make for them:
+
+      &quot;accuracy&quot;    ignore SynOps entirely. The default, and what every
+                    previously recorded run used.
+
+      &quot;constrained&quot; maximize accuracy, but score 0 above `synops_budget`.
+                    Matches how deployment actually works: there is a power
+                    envelope and you either fit or you do not.
+
+      &quot;weighted&quot;    accuracy - weight * (synops / synops_reference). Requires
+                    choosing `weight`, which encodes how much accuracy a
+                    halving of energy is worth. Nothing here can guess it.
+
+      &quot;pareto&quot;      return both and let a multi-objective sampler handle it.
+                    Preferred when the trade-off is not yet decided, since it
+                    defers the choice until the front can be looked at.
+    &quot;&quot;&quot;
+    if synops is None or mode == &quot;accuracy&quot;:
+        return accuracy
+    if mode == &quot;constrained&quot;:
+        if synops_budget is None:</pre>
+  </div>
+
+  <p class="footnote">
+    A preference like "97.5% at lower energy beats 97.7% at higher, but not 98.2%" is a Pareto
+    preference. Collapsing it into a single weighted score forces a number to be invented before
+    the data exists to choose it, which is why <code>pareto</code> is the honest default.
+  </p>
+
   <p>
     In the two-layer configuration below, the second convolution holds 50,176 parameters and
     realizes 7.2 million connections, because the same filter is applied at 144 positions. Only the
@@ -199,7 +297,7 @@
   </p>
 
   <div class="term-block">
-    <div class="term-head">python Practice2.py summary --input resize_to=64 T=16 --encoder depth=2 channels=32 kernel_size=7 stride=2 --head fc_widths=</div>
+    <div class="term-head">python main.py summary -c configs/dvs128.yaml --encoder depth=2 channels=32 kernel_size=7 stride=2</div>
     <pre>==============================================================================
 DVS Gesture SNN -- architecture summary
 ==============================================================================
@@ -395,11 +493,12 @@ pipeline flush steps    : 3
 </nav>
 <footer class="site-foot">
   <span>Documentation for <a href="https://github.com/purujain2006/configurable-snn-classifier">configurable-snn-classifier</a></span>
-  <span>Interactive demonstrations use the same arithmetic as <code>Practice2.py</code>, verified against it.</span>
+  <span>Interactive demonstrations use the same arithmetic as <code>snnsearch</code>, verified against it.</span>
 </footer>
 
 <script src="assets/snn.js"></script>
 <script src="assets/site.js"></script>
+<script src="assets/fileview.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-python.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-bash.min.js"></script>

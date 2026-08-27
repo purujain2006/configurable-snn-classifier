@@ -45,7 +45,7 @@
   </p>
   <p>The chip performs the four operations in a fixed order, recorded in the code as:</p>
   <div class="code-block">
-    <div class="code-head"><span class="file">Practice2.py &#183; HardwareLIFNode docstring</span><span class="loc">&#167;5</span></div>
+    <div class="code-head"><span class="file">snnsearch/neuron.py</span><span class="loc">HardwareLIFNode docstring</span></div>
     <pre><code class="language-python">#   spike = v > theta ;  v = reset ;  v -= (v - v_reset)/tau ;  v += x</code></pre>
   </div>
   <ol class="steps">
@@ -365,7 +365,7 @@
   <h2><span class="sec-num">2.6</span>The forward pass</h2>
   <p>The four decisions above appear together in about fifteen lines.</p>
   <div class="code-block">
-    <div class="code-head"><span class="file">Practice2.py &#183; HardwareLIFNode.single_step_forward</span><span class="loc">&#167;5</span></div>
+    <div class="code-head"><span class="file">snnsearch/neuron.py</span><span class="loc">single_step_forward</span></div>
     <pre><code class="language-python">def single_step_forward(self, x: "torch.Tensor"):
     self.v_float_to_tensor(x)
     v_reset = 0.0 if self.v_reset is None else float(self.v_reset)
@@ -407,7 +407,7 @@
 </nav>
 <footer class="site-foot">
   <span>Documentation for <a href="https://github.com/purujain2006/configurable-snn-classifier">configurable-snn-classifier</a></span>
-  <span>Interactive demonstrations use the same arithmetic as <code>Practice2.py</code>, verified against it.</span>
+  <span>Interactive demonstrations use the same arithmetic as <code>snnsearch</code>, verified against it.</span>
 </footer>
 
 <script src="assets/snn.js"></script>

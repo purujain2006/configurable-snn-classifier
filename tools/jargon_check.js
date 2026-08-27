@@ -36,7 +36,13 @@ const BANNED = [
   ['logit',        'say "class score"'],
 ];
 // The one place the hardware term is named on purpose, matched on block text.
-const BANNED_EXEMPT = [/^\s*Hardware documentation calls the table the routing table/];
+const BANNED_EXEMPT = [
+  /^\s*Hardware documentation calls the table the routing table/,
+  // SynOps stands for synaptic operations. That is the term the literature
+  // uses and the reason the metric is comparable across platforms, so the
+  // house preference for "connection" does not apply to the name itself.
+  /synaptic operation/i,
+];
 
 // Blank out regions with equal-length spaces so every index stays valid
 // against the ORIGINAL file. Replacing with shorter text would shift them.

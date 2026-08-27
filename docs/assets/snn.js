@@ -1,11 +1,11 @@
 /* ============================================================
    snn.js — faithful JavaScript ports of the torch-free math in
-   Practice2.py (sections 1–4): shape planning, HiAER-Spike
+   the snnsearch package (config, planning, hardware, cost): shape planning,
    feasibility, the cost model, and the INT16 deployment grid.
 
    Every function mirrors its Python counterpart line-for-line so
    the interactive demos on this site compute the SAME numbers the
-   real code does. Verified against Practice2.py outputs (see
+   real code does. Verified against snnsearch outputs (see
    tools/test_snn_port.js in the repo).
    ============================================================ */
 (function (root, factory) {

@@ -60,7 +60,7 @@
   </div>
 
   <div class="code-block">
-    <div class="code-head"><span class="file">Practice2.py</span><span class="loc">&#167;3</span></div>
+    <div class="code-head"><span class="file">snnsearch/hardware.py</span><span class="loc">the limits</span></div>
     <pre><code class="language-python">AXON_LIMITS = {
     "total_axons": 16_383,
     "fan_out": 4_096,   # axonal fan-out: how many neurons one input axon feeds
@@ -143,11 +143,11 @@ NEURON_LIMITS = {
 
   <h3>Where it appears</h3>
   <p>
-    The value originates in the converter. <code>Practice2.py</code> mirrors it rather than choosing
+    The value originates in the converter. <code>snnsearch/hardware.py</code> mirrors it rather than choosing
     one of its own, so training and conversion agree on what each stored integer means.
   </p>
   <div class="code-block">
-    <div class="code-head"><span class="file">Practice2.py</span><span class="loc">&#167;4b</span></div>
+    <div class="code-head"><span class="file">snnsearch/hardware.py</span><span class="loc">the INT16 grid</span></div>
     <pre><code class="language-python">W_ALPHA   = 1.0                        # read off the converter, not chosen here
 INT16_MAX = 2 ** (W_BITS - 1) - 1      # 32767
 W_DELTA   = W_ALPHA / INT16_MAX        # 1/32767, the spacing between grid points
@@ -387,7 +387,7 @@ layer 2: scalar               32,767          leak 63</pre>
   </div>
 
   <div class="code-block">
-    <div class="code-head"><span class="file">Practice2.py &#183; the constraint</span><span class="loc">&#167;4b</span></div>
+    <div class="code-head"><span class="file">snnsearch/quantgrid.py</span><span class="loc">the constraint</span></div>
     <pre><code class="language-python">def fold_bias_band(v_th: float, margin: float = 0.05):
     lo = float(v_th) - W_ALPHA                 # keeps theta' <= w_alpha
     hi = float(v_th) * (1.0 - float(margin))   # keeps theta' >= margin*theta
@@ -592,7 +592,7 @@ def constrain_fold_bias(b, v_th, margin: float = 0.05):
   </div>
 
   <div class="code-block">
-    <div class="code-head"><span class="file">Practice2.py &#183; fake_quantize_weight</span><span class="loc">&#167;4b</span></div>
+    <div class="code-head"><span class="file">snnsearch/quantgrid.py</span><span class="loc">fake_quantize_weight</span></div>
     <pre><code class="language-python">def _ste(quantized, original):
     """Straight-through estimator: forward uses `quantized`, backward passes
     the gradient to `original` unchanged."""
@@ -811,7 +811,7 @@ def fake_quantize_weight(w):
 </nav>
 <footer class="site-foot">
   <span>Documentation for <a href="https://github.com/purujain2006/configurable-snn-classifier">configurable-snn-classifier</a></span>
-  <span>Interactive demonstrations use the same arithmetic as <code>Practice2.py</code>, verified against it.</span>
+  <span>Interactive demonstrations use the same arithmetic as <code>snnsearch</code>, verified against it.</span>
 </footer>
 
 <script src="assets/snn.js"></script>

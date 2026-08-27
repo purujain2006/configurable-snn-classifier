@@ -126,40 +126,43 @@
     During training, a report goes out every epoch. Both accuracy keys hold the same floating-point
     number here, so <code>val_accuracy</code> is standing in for something it does not yet have.
   </p>
-  <div class="file-view" id="fv-epoch-report" data-file="Practice2.py" data-start="2813" data-hl="6-7"
-       data-note="Reported every epoch during both phases. val_accuracy is a placeholder here, holding the same float number as float_val_accuracy.">
-    <pre class="fv-src">    def report_fn(epoch, train_loss, train_acc, val_acc, best_val_acc, lr, phase=&quot;float&quot;):
-        # Per-epoch progress across BOTH warmup (&quot;float&quot;) and on-grid (&quot;grid&quot;)
-        # phases. ASHA prunes on float_val_accuracy, which we report every epoch
-        # of both phases so the trajectory is continuous and a trial isn&#x27;t judged
-        # only on its pre-grid accuracy.
-        tune.report({&quot;val_accuracy&quot;: val_acc, &quot;float_val_accuracy&quot;: val_acc,
-                     &quot;best_val_accuracy&quot;: best_val_acc, &quot;phase&quot;: phase,
-                     &quot;train_accuracy&quot;: train_acc, &quot;train_loss&quot;: train_loss,
-                     &quot;lr&quot;: lr, &quot;epoch&quot;: epoch, **static})</pre>
+  <div class="file-view" id="fv-epoch-report" data-file="snnsearch/search.py" data-start="124" data-hl="2-3"
+       data-note="Reported every epoch. val_accuracy is a placeholder here, holding the same float number as float_val_accuracy.">
+    <pre class="fv-src">        def report_fn(epoch, train_loss, train_acc, val_acc, best_val, lr, phase=&quot;float&quot;):
+            tune.report({&quot;val_accuracy&quot;: val_acc, &quot;float_val_accuracy&quot;: val_acc,
+                         &quot;best_val_accuracy&quot;: best_val, &quot;phase&quot;: phase,
+                         &quot;train_accuracy&quot;: train_acc, &quot;train_loss&quot;: train_loss,
+                         &quot;lr&quot;: lr, &quot;epoch&quot;: epoch})</pre>
   </div>
 
   <p>
     After training finishes, one further report goes out, and <code>val_accuracy</code> stops
     being a placeholder.
   </p>
-  <div class="file-view" id="fv-deploy-report" data-file="Practice2.py" data-start="2827" data-hl="5,8-10"
+  <div class="file-view" id="fv-deploy-report" data-file="snnsearch/search.py" data-start="137" data-hl="6,10-11"
        data-note="Reported once, after training. This is where val_accuracy stops being a placeholder and becomes the converted accuracy, and an undeployable configuration is scored zero.">
-    <pre class="fv-src">    # This is the LAST report, so scope=&quot;last&quot; selection and Optuna&#x27;s
-    # on_trial_complete see the hardware number, not the float trajectory.
-    # An undeployable config scores 0: a fold that drives a threshold &lt;= 0 fires
-    # unconditionally on chip regardless of how good its float accuracy looked.
-    hw_acc = res[&quot;hw_val_accuracy&quot;] if res[&quot;deployable&quot;] else 0.0
-    tune.report({
-        &quot;val_accuracy&quot;: hw_acc,                 # &lt;- selection metric
-        &quot;hw_val_accuracy&quot;: res[&quot;hw_val_accuracy&quot;],
-        &quot;float_val_accuracy&quot;: res[&quot;float_val_accuracy&quot;],
-        &quot;quant_gap&quot;: res[&quot;quant_gap&quot;],
-        &quot;grid_val_accuracy&quot;: res.get(&quot;grid_val_accuracy&quot;),
-        &quot;weight_clip_frac&quot;: res[&quot;weight_clip_frac&quot;],
-        &quot;max_abs_weight&quot;: res[&quot;max_abs_weight&quot;],
-        &quot;min_threshold&quot;: res[&quot;min_threshold&quot;],
-        &quot;deployable&quot;: res[&quot;deployable&quot;],</pre>
+    <pre class="fv-src">        score = score_with_energy(
+            acc, synops, mode=obj.get(&quot;mode&quot;, &quot;accuracy&quot;),
+            synops_budget=obj.get(&quot;synops_budget&quot;),
+            synops_reference=obj.get(&quot;synops_reference&quot;),
+            weight=obj.get(&quot;weight&quot;, 0.0))
+        if isinstance(score, tuple):          # pareto mode returns both
+            score = score[0]
+
+        tune.report({
+            &quot;val_accuracy&quot;: score,            # &lt;- selection metric
+            &quot;hw_val_accuracy&quot;: hw,
+            &quot;float_val_accuracy&quot;: res.get(&quot;float_val_accuracy&quot;),
+            &quot;synops_per_sample&quot;: synops,
+            &quot;quant_gap&quot;: res.get(&quot;quant_gap&quot;),
+            &quot;weight_clip_frac&quot;: res.get(&quot;weight_clip_frac&quot;),
+            &quot;min_threshold&quot;: res.get(&quot;min_threshold&quot;),
+            &quot;deployable&quot;: deployable,
+            &quot;deploy_reasons&quot;: res.get(&quot;deploy_reasons&quot;),
+            &quot;phase&quot;: &quot;deploy&quot;,
+        })
+
+    return trainable</pre>
   </div>
 
   <div class="teach">
@@ -458,7 +461,7 @@
 <section id="source" class="reveal">
   <h2><span class="sec-num">7.5</span>The study the comments came from</h2>
   <p>
-    The figures cited in <code>Practice2.py</code> were computed over two earlier searches, held in
+    The figures cited in <code>snnsearch/spaces.py</code> were computed over two earlier searches, held in
     a spreadsheet rather than in the results folder. That study is the origin of every narrowing,
     and it reached a higher accuracy than anything in the runs above.
   </p>
@@ -779,7 +782,7 @@ deploy_reasons     <span class="err">folded threshold -0.5877 &lt;= 0 -- neuron 
     a range exists is readable from the file rather than from a separate document.
   </p>
 
-<div class="file-view" id="fv-claims" data-file="Practice2.py" data-start="2428" data-hl="2-5"
+<div class="file-view" id="fv-claims" data-file="snnsearch/spaces.py" data-start="77" data-hl="2-5"
        data-note="The narrowing and its evidence sit on the same screen, so the reason a range exists is readable from the file.">
     <pre class="fv-src"># NARROWED to the regions the statistics said matter:
 #   channels: 128/256 were the dominant INFEASIBILITY driver (chi-square p=6e-4,
@@ -787,8 +790,7 @@ deploy_reasons     <span class="err">folded threshold -0.5877 &lt;= 0 -- neuron 
 #     accuracy. Dropped.
 #   kernel: every top-10 model used k5 or k7; k3 dropped.
 CHANNEL_CHOICES = [32, 64]
-KERNEL_CHOICES = [5, 7]
-</pre>
+KERNEL_CHOICES = [5, 7]</pre>
   </div>
 
   <div class="tbl-wrap">

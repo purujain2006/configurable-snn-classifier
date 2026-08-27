@@ -1,7 +1,7 @@
 (function () {
 "use strict";
 const R = [
-{g:"§1 · Configuration dataclasses"},
+{g:"snnsearch/config.py"},
 {n:"InputSpec", k:"dataclass", s:"N=16, C=2, H=128, W=128, T=16, resize_to=0", o:"Shape of the input tensor: batch size, polarity channels, sensor resolution, timesteps, optional square resize.",
  b:"resize_to=0 feeds the native 128×128 through unchanged, which needs 32,768 input axons against a limit of 16,383, so working configurations set 32 or 64. T is the number of frames each recording is divided into. See <a href='architecture.html#configs'>3.1</a>."},
 {n:"effective_hw", k:"function", s:"effective_hw(input_cfg) -> (H, W)", o:"Resolves the native or resized question into one height and width.",
@@ -27,7 +27,7 @@ const R = [
 {n:"build_config_parser / parse_config", k:"function", s:"parse_config(argv) -> {'input': InputSpec, 'encoder': ..., ...}", o:"Defines the seven configuration flags and assembles the dictionary the rest of the program takes.",
  b:"Uses parse_known_args so the configuration parser can serve as a parent parser for each subcommand."},
 
-{g:"§2 · Shape planning"},
+{g:"snnsearch/planning.py"},
 {n:"InfeasibleConfig", k:"exception", s:"class InfeasibleConfig(ValueError)", o:"Raised when a configuration cannot be built, such as a kernel larger than the remaining feature map.",
  b:"Representing an impossible network as a typed exception lets the search record a score of zero instead of failing the trial."},
 {n:"conv_out_size", k:"function", s:"conv_out_size(size, k, s, p, d=1) -> int", o:"The convolution output size formula.",
@@ -39,19 +39,19 @@ const R = [
 {n:"plan_network", k:"function", s:"plan_network(input, encoder, output, downsample, head) -> NetPlan", o:"Adds the head to the encoder plan and computes the feature count entering the first linear layer.",
  b:"Flatten gives C×H×W features and GAP gives C. That number determines most feasibility outcomes."},
 
-{g:"§3 · Connection limits"},
+{g:"snnsearch/hardware.py"},
 {n:"AXON_LIMITS / NEURON_LIMITS", k:"constant", s:"16,383 axons · axon fan-out 4,096, fan-in 8,191 · neuron fan-out 4,095, fan-in 8,159", o:"The chip's connection budgets.",
  b:"The first block draws on the axon budgets because it reads the input. Later layers use the neuron budgets. See <a href='hardware.html#limits'>4.1</a>."},
 {n:"check_feasibility", k:"function", s:"check_feasibility(input, encoder, downsample, head, output) -> (bool, [violations])", o:"Applies the connection-limit formulas to every convolution block and linear layer in the plan.",
  b:"Fan-in is k²·C_in and fan-out is ceil(k/s)²·C_out, except for the last convolution block, whose fan-out is the width of the first linear layer. An earlier version omitted the head from the check entirely."},
 
-{g:"§4 · Cost model"},
+{g:"snnsearch/cost.py"},
 {n:"count_neurons_and_synapses", k:"function", s:"count_neurons_and_synapses(cfg) -> {rows, totals, input_axons, neuron_updates_per_sample, plan}", o:"Counts spiking neurons, connections and trainable parameters per layer and in total.",
  b:"Neurons are counted once rather than per timestep. Connections exceed parameters because one filter is reused at every position. See <a href='architecture.html#cost'>3.3</a>."},
 {n:"format_summary", k:"function", s:"format_summary(cfg) -> str", o:"Renders the architecture table, the counts and the feasibility verdict as text.",
  b:"Includes the hardware neuron line with its integer threshold and leak, and the flush step count. This is the output of summary mode."},
 
-{g:"§4b · The INT16 grid"},
+{g:"snnsearch/quantgrid.py"},
 {n:"W_BITS / W_ALPHA / INT16_MAX / W_DELTA", k:"constant", s:"16 · 1.0 · 32767 · 1/32767", o:"The numeric grid, taken from the conversion library rather than chosen here.",
  b:"Weights are clamped to [-1, 1] with no rescaling, thresholds must fall in (0, 1] to encode, and the leak is an integer. See <a href='hardware.html#int16'>4.2</a>."},
 {n:"HW_TAU_CHOICES", k:"constant", s:"[2, 3, 4, 6, 8, 16, 32, 63]", o:"The integer leak values the search samples.",
@@ -71,7 +71,7 @@ const R = [
 {n:"weight_clip_fraction", k:"function", s:"weight_clip_fraction(net) -> float", o:"Proportion of convolution and linear weights outside the representable range.",
  b:"Meaningful only on the folded network, since folding is what moves weights out of range. Compared against the 2% budget in DEPLOY_LIMITS."},
 
-{g:"§5 · The model"},
+{g:"snnsearch/neuron.py"},
 {n:"TdBatchNorm2d", k:"class", s:"TdBatchNorm2d(num_features, alpha, v_threshold)", o:"Batch normalization whose statistics span the time axis as well as the batch, with gamma initialized relative to the firing threshold.",
  b:"SpikingJelly's multi-step mode already flattens time into the batch axis before calling BatchNorm2d, which is the reduction tdBN specifies, so only the initialization differs. Folds at inference like ordinary batch normalization."},
 {n:"HardwareLIFNode", k:"class", s:"HardwareLIFNode(tau=2, v_threshold=1.0, v_reset=0.0, learn_tau, learn_threshold, ...)", o:"The neuron this project trains and deploys, matching the chip in update order, integer leak, quantized threshold and undecayed input.",
@@ -87,7 +87,7 @@ const R = [
 {n:"DVSGesturePuru", k:"class", s:"DVSGesturePuru(input, encoder, output, downsample, head, neuron)", o:"The network, constructed from the plan so that its shapes cannot diverge from the ones checked.",
  b:"Per block: convolution, normalization, neuron, optional pooling. Then flatten or global average pooling, then dropout, a bias-free linear layer and a neuron per head layer. to_qat_folded() fuses the pairs in place and export_deployed() freezes the result."},
 
-{g:"§5b · Folding"},
+{g:"snnsearch/folding.py"},
 {n:"_fold_conv_bn_params", k:"function", s:"(W, b, gamma, beta, mu, var, eps) -> (W', b')", o:"The fold arithmetic, written without depending on a specific array library.",
  b:"Usable from numpy for reference checks. Shown interactively on <a href='hardware.html#folding'>4.3</a>."},
 {n:"fold_bn", k:"function", s:"fold_bn(net, bias_mode='conv'|'threshold') -> folded copy", o:"Returns a batch-norm-free copy, with the folded bias either on the convolution or in per-channel thresholds.",
@@ -97,7 +97,7 @@ const R = [
 {n:"verify_fold", k:"function", s:"verify_fold(bn_net, folded_net, loader, device) -> {pred_agreement, max_abs_logit_diff, acc_bn, acc_folded, acc_delta}", o:"Compares a network against its folded copy at three levels of sensitivity.",
  b:"Prediction agreement should be exactly 1.0 for a bias-on-convolution fold, and the largest logit difference should be around 1e-5. Accuracy alone is too coarse to detect a subtly incorrect fold. See <a href='hardware.html#verify'>4.6</a>."},
 
-{g:"§5c · Deployment"},
+{g:"snnsearch/quantize.py"},
 {n:"DEPLOY_LIMITS", k:"constant", s:"min_threshold=0.0 (blocking) · max_weight_clip_frac=0.02 (warning)", o:"The two conditions the deployment audit checks.",
  b:"A folded threshold at or below zero makes the neuron fire unconditionally, so the network is unrepresentable and scores zero. Heavy clipping is reported but allowed, since quantization-aware training has already had the opportunity to work around it."},
 {n:"enable_weight_fake_quant / bake_weight_fake_quant", k:"function", s:"register and then collapse the weight parametrization", o:"Turns quantized weight reads on during training and writes the quantized values into the state dictionary at the end.",
@@ -109,7 +109,7 @@ const R = [
 {n:"deploy_and_measure", k:"function", s:"deploy_and_measure(net, cfg, train_loader, val_loader, device) -> (hw_net, metrics)", o:"The tail and ptq path: fold, measure, quantize, measure, optionally fine-tune, then report.",
  b:"Produces hw_val_accuracy, the value the search optimizes. The inline path reaches the same endpoint inside run_training."},
 
-{g:"§6–7 · Data and optimization"},
+{g:"snnsearch/data/ · encoders.py"},
 {n:"DVSResizeAndBinarize", k:"class", s:"(T, C, H, W) frames -> resized, binary", o:"Interpolates each frame and thresholds at zero.",
  b:"Any non-zero contribution becomes a full spike, so no event is lost and density per pixel rises as resolution falls. See <a href='training.html#binarize'>5.2</a>."},
 {n:"build_dataloaders", k:"function", s:"build_dataloaders(cfg, data_dir, val_fraction=0.15) -> (train, val, test)", o:"Loads DVS128 Gesture in frame mode with a seeded validation split.",
@@ -119,7 +119,7 @@ const R = [
 {n:"build_scheduler", k:"function", s:"build_scheduler(optimizer, train_cfg, steps_per_epoch) -> (scheduler, step_per_batch)", o:"Cosine, step, onecycle or constant, with optional linear warm-up.",
  b:"Returns whether the schedule advances per batch or per epoch. Shown on <a href='training.html#loop'>5.5</a>."},
 
-{g:"§8 · Training and evaluation"},
+{g:"snnsearch/train.py"},
 {n:"hardware_flush_steps", k:"function", s:"hardware_flush_steps(net) -> int", o:"The number of zero-input timesteps needed to drain the network, equal to the number of spiking layers.",
  b:"Without them the final frames of every clip never reach the classifier, and deployed accuracy falls below anything measured in training. See <a href='training.html#flush'>5.4</a>."},
 {n:"forward_over_time", k:"function", s:"forward_over_time(net, x, flush_steps=None) -> rates", o:"Runs T input timesteps and the flush steps, accumulates output spikes, divides by T and resets neuron state.",
@@ -129,7 +129,7 @@ const R = [
 {n:"run_training", k:"function", s:"run_training(cfg, data_dir, device, report_fn, ckpt_path) -> metrics", o:"The full run used by both single mode and every search trial: warm-up, inline fold, on-grid training, export and measurement.",
  b:"Splits the epoch budget by qat_warmup_frac, keeps the best weights from each phase, and reports every epoch so the early-stopping curve is continuous. The checkpoint holds both networks, the configuration, the metrics and the hardware table. See <a href='training.html#phases'>5.6</a>."},
 
-{g:"§9 · Dataset cache"},
+{g:"snnsearch/data/builtin.py"},
 {n:"_quiet_with_heartbeat", k:"context manager", s:"with _quiet_with_heartbeat('building cache'):", o:"Replaces the library's per-file output with one line every twenty seconds, restoring the full log on failure.",
  b:"Captures the real stdout before redirecting so the heartbeat thread can still write."},
 {n:"_class_dirs_have_npz and related probes", k:"function", s:"cache completeness checks", o:"Distinguish a finished cache from one that is present but incomplete.",
@@ -137,7 +137,7 @@ const R = [
 {n:"warmup_dataset_cache", k:"function", s:"warmup_dataset_cache(data_dir, T_values)", o:"Builds the frame cache for every T the search will sample, before any parallel trial starts.",
  b:"Two trials building the same directory can corrupt it. Caching depends only on the frame count and split mode, so warming T is sufficient. See <a href='training.html#dataset'>5.1</a>."},
 
-{g:"§10 · The search"},
+{g:"snnsearch/search.py"},
 {n:"config_to_specs", k:"function", s:"config_to_specs(flat_config) -> structured cfg", o:"Converts the sampler's flat parameter dictionary into the dataclass dictionary the rest of the program takes.",
  b:"Builds a per-layer encoder when per-layer keys are present, otherwise a uniform one. Also fixes the search-time invariants: the threshold starts at 1.0 and tau is rounded to an integer."},
 {n:"CHANNEL_CHOICES / KERNEL_CHOICES / FC_WIDTH_CHOICES", k:"constant", s:"[32, 64] · [5, 7] · [128, 256, 512]", o:"The narrowed sampling sets.",
@@ -159,8 +159,8 @@ const R = [
 {n:"run_search", k:"function", s:"run_search(args)", o:"Validates the dataset, warms the cache, starts Ray, checks that the search space pickles, wires the sampler and scheduler, runs, and exports.",
  b:"The sampler and the scheduler use different metrics on purpose, so the shared configuration is left without one. Selection uses scope='last', which is the conversion report. See <a href='search.html#metrics'>6.3</a>."},
 
-{g:"§11 · Entry points"},
-{n:"run_fold", k:"function", s:"python Practice2.py fold --ckpt ... --data-dir ...", o:"Loads a checkpoint, reports the folded bias ratios, folds, verifies, quantizes and writes the deployment artifacts.",
+{g:"snnsearch/cli.py"},
+{n:"run_fold", k:"function", s:"python main.py single -c configs/dvs128.yaml", o:"Loads a checkpoint, reports the folded bias ratios, folds, verifies, quantizes and writes the deployment artifacts.",
  b:"Saves the folded weights, a numpy archive of every convolution and linear array for use without PyTorch, and the per-layer neuron table with the required flush step count."},
 {n:"main", k:"function", s:"summary | single | fold | search", o:"Argument definitions for the four modes and the console output of single mode.",
  b:"Silences one deprecation warning raised by PyTorch's own scheduler composition, with a comment explaining why the fallback path is correct."}
@@ -205,7 +205,7 @@ function applyFilter() {
   if (countEl) {
     countEl.textContent = q
       ? `${shown} of ${TOTAL} entries match "${box.value.trim()}"`
-      : `${TOTAL} entries across ${GROUPS} sections of the file`;
+      : `${TOTAL} entries across ${GROUPS} modules`;
   }
 }
 

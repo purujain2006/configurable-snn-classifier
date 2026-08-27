@@ -67,7 +67,30 @@
 </section>
 
 <section id="binarize" class="reveal">
-  <h2><span class="sec-num">5.2</span>Resizing and binarizing the input</h2>
+  <h2><span class="sec-num">5.2</span>Turning an input into spikes</h2>
+  <p>
+    A spiking network reads events over <code>T</code> timesteps. An event camera already produces
+    those. A photograph does not, and the step that gives it a time axis is called
+    <span class="term">coding</span>. Which coding is used changes accuracy, latency and energy, so
+    it is a setting rather than an assumption.
+  </p>
+
+  <div class="tbl-wrap">
+    <table class="tbl">
+      <thead><tr><th>Coding</th><th>What it does</th><th>When it suits</th></tr></thead>
+      <tbody>
+        <tr><td class="layer-name">direct</td><td>Presents the same analog value at every timestep and lets the first layer's weights turn it into current.</td><td>The default for images. Nothing is lost at the input, so it converges fastest.</td></tr>
+        <tr><td class="layer-name">poisson</td><td>Emits a spike each timestep with probability equal to the intensity.</td><td>Spiking end to end, but the sampling noise costs accuracy at small <code>T</code> and two runs of one image differ.</td></tr>
+        <tr><td class="layer-name">temporal</td><td>Each unit fires once; brighter fires earlier.</td><td>One spike per pixel makes this the cheapest by SynOps, and the hardest to train.</td></tr>
+        <tr><td class="layer-name">passthrough</td><td>The input is already events. Resize, then binarize.</td><td>DVS and other event cameras.</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <p>
+    DVS128 Gesture uses <code>passthrough</code>, and the rest of this section is about the two
+    decisions that coding has to make.
+  </p>
 
   <div class="motiv">
     <div class="m-row">
@@ -89,16 +112,49 @@
     <div class="m-row code">
       <span class="m-label">In code</span>
       <p>
-        <code>DVSResizeAndBinarize</code> interpolates and then applies <code>&gt; 0</code>, so any
-        non-zero contribution becomes a full spike.
+        <code>PassthroughEncoder</code> interpolates and then applies <code>&gt; 0</code>, so any
+        non-zero contribution becomes a full spike. Every coding shares the same resize step and
+        differs only in what it emits, so switching between them changes one config field.
       </p>
     </div>
   </div>
 
   <div class="code-block">
-    <div class="code-head"><span class="file">Practice2.py &#183; DVSResizeAndBinarize</span><span class="loc">&#167;6</span></div>
+    <div class="code-head"><span class="file">snnsearch/encoders.py</span><span class="loc">PassthroughEncoder</span></div>
     <pre><code class="language-python">out[t] = F.interpolate(frames[t]..., size=self.size, mode="bilinear", ...)
 return (out > 0).float()   # any nonzero contribution becomes a full spike</code></pre>
+  </div>
+
+  <div class="file-view" id="fv-encoders" data-file="snnsearch/encoders.py" data-start="118" data-hl="6-13"
+       data-note="Poisson coding: a spike per timestep with probability equal to intensity. Every coding shares the resize step and differs only in what it emits.">
+    <pre class="fv-src">    analog = False
+
+    def encode(self, x):
+        x = self._resize(x).clamp(0.0, 1.0)
+        if x.dim() == 5:                     # collapse time we did not create
+            x = x.mean(dim=1)
+        # index of the timestep at which each unit fires
+        t_fire = ((1.0 - x) * (self.T - 1)).round().long()
+        out = torch.zeros(x.shape[0], self.T, *x.shape[1:], device=x.device, dtype=x.dtype)
+        out.scatter_(1, t_fire.unsqueeze(1), 1.0)
+        out = out * (x &gt; 0).unsqueeze(1).to(out.dtype)      # true zero stays silent
+        return out
+
+
+class PassthroughEncoder(Encoder):
+    &quot;&quot;&quot;The input is already events. Optionally resize, then binarize.
+
+    Averaging a sparse binary frame during resize produces small fractional
+    values a spiking input cannot represent, and isolated events vanish. So
+    anything non-zero after interpolation becomes a full spike: no event is
+    lost, and event density per pixel rises as resolution falls.
+    &quot;&quot;&quot;
+
+    name = &quot;passthrough&quot;
+    analog = False
+
+    def __init__(self, T, size=None, binarize=True):
+        super().__init__(T, size)</pre>
   </div>
 
   <div class="demo">
@@ -309,11 +365,12 @@ return (out > 0).float()   # any nonzero contribution becomes a full spike</code
 </nav>
 <footer class="site-foot">
   <span>Documentation for <a href="https://github.com/purujain2006/configurable-snn-classifier">configurable-snn-classifier</a></span>
-  <span>Interactive demonstrations use the same arithmetic as <code>Practice2.py</code>, verified against it.</span>
+  <span>Interactive demonstrations use the same arithmetic as <code>snnsearch</code>, verified against it.</span>
 </footer>
 
 <script src="assets/snn.js"></script>
 <script src="assets/site.js"></script>
+<script src="assets/fileview.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-python.min.js"></script>
 <script src="assets/demo-training.js"></script>
