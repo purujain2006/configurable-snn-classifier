@@ -156,6 +156,11 @@ def _make_trainable(cfg, out_dir):
 
         res = run_training(spec, loaders=loaders, report_fn=report_fn)
 
+        # Bounded: the spike rate settles within a few hundred samples, and
+        # this runs once per trial.
+        from .pipeline import measure_run_synops
+        res.update(measure_run_synops(res, loaders, spec, max_batches=8))
+
         # tier 3: the objective is the converted network, not the float one.
         hw = res.get("hw_val_accuracy")
         deployable = res.get("deployable", False)

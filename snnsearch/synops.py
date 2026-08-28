@@ -147,6 +147,53 @@ class SynOpsCounter:
         return {n: (fan[i] if i < len(fan) else 0) for i, n in enumerate(names)}
 
 
+def measure_synops(net, loader, device, spec=None, max_batches=None):
+    """Count SynOps per sample on the network that will actually deploy.
+
+    Measured after conversion rather than during training, because the float
+    network and the converted one do not fire identically: folding shifts every
+    threshold, and quantization moves weights onto the INT16 grid. The number
+    worth reporting is the one the chip would produce.
+
+    `max_batches` bounds the cost during a search. The spike rate settles within
+    a few hundred samples, so counting the whole validation set every trial buys
+    precision nobody reads.
+
+    Returns the summary dict, or a dict carrying `reason` when it could not
+    measure. Never raises: a missing SynOps figure should not lose a training
+    run that otherwise succeeded.
+    """
+    from .train import forward_over_time
+
+    try:
+        from .cost import count_neurons_and_synapses
+        cost_rows = count_neurons_and_synapses(spec)["rows"] if spec else None
+    except Exception as exc:                  # a plan that will not cost is not fatal
+        cost_rows = None
+        if spec is not None:
+            print(f"  synops: fan-out unavailable ({type(exc).__name__}), "
+                  "reporting spike counts only")
+
+    counter = SynOpsCounter()
+    was_training = net.training
+    net.eval()
+    try:
+        with counter.attach(net):
+            with torch.no_grad():
+                for i, batch in enumerate(loader):
+                    if max_batches is not None and i >= max_batches:
+                        break
+                    x = batch[0].to(device)
+                    forward_over_time(net, x)
+                    counter.add_samples(x.shape[0])
+    except Exception as exc:
+        return {"synops_per_sample": None, "reason": f"{type(exc).__name__}: {exc}"}
+    finally:
+        net.train(was_training)
+
+    return counter.summary(cost_rows=cost_rows)
+
+
 def score_with_energy(accuracy, synops, mode="accuracy",
                       synops_budget=None, synops_reference=None, weight=0.0):
     """Combine accuracy and SynOps into whatever the search should maximize.

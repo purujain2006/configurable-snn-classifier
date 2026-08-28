@@ -211,7 +211,10 @@ PLAN = {
         "from .neuron import HardwareLIFNode\n"
         "from .model import build_model\n"
         "from .quantize import deploy_and_measure, deployment_report, hardware_export\n"
-        "from .synops import SynOpsCounter\n"
+        # SynOps is measured after training, by pipeline.measure_run_synops, on
+        # the converted network. Importing the counter here made it look wired
+        # in when nothing called it.
+
         "from ._torch import _HAS_TORCH, _require_torch, torch, nn, F, functional\n",
         [(1990, 2241)],
     ),

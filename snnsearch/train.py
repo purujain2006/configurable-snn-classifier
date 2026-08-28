@@ -12,7 +12,6 @@ from .config import TrainSpec
 from .neuron import HardwareLIFNode
 from .model import build_model
 from .quantize import deploy_and_measure, deployment_report, hardware_export
-from .synops import SynOpsCounter
 from ._torch import _HAS_TORCH, _require_torch, torch, nn, F, functional
 
 

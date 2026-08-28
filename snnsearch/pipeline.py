@@ -51,6 +51,34 @@ def prepare(cfg):
     return bundle, encoder, loaders, spec
 
 
+def measure_run_synops(res, loaders, spec, max_batches=None):
+    """SynOps for a finished run, from the converted network it produced.
+
+    `single` and each search trial both need this, and both already hold the
+    same three things, so it lives here rather than in either caller. Returns a
+    dict to merge into the result, empty when there is no converted network to
+    measure.
+    """
+    from .synops import measure_synops
+
+    hw_net = res.get("hw_net")
+    if hw_net is None:
+        return {}
+    device = next(hw_net.parameters()).device
+    summary = measure_synops(hw_net, loaders[1], device, spec=spec,
+                             max_batches=max_batches)
+    out = {"synops_per_sample": summary.get("synops_per_sample"),
+           "spikes_per_sample": summary.get("spikes_per_sample")}
+    # The dense comparison is the argument for spiking at all, so keep it when
+    # the plan could be costed.
+    for k in ("dense_macs_per_inference", "synops_over_dense"):
+        if k in summary:
+            out[k] = summary[k]
+    if summary.get("reason"):
+        out["synops_reason"] = summary["reason"]
+    return out
+
+
 def results_dir(cfg):
     d = cfg["run"].get("results_dir") or os.path.join(
         "results", cfg["run"].get("name", "run"))
@@ -69,6 +97,8 @@ def run_single(cfg, ckpt="best.pth"):
     t0 = time.time()
     res = run_training(spec, loaders=loaders, ckpt_path=os.path.join(out, ckpt))
     mins = (time.time() - t0) / 60
+
+    res.update(measure_run_synops(res, loaders, spec))
 
     payload = {k: v for k, v in res.items() if k != "hw_net"}
     payload.update(wall_minutes=round(mins, 2), config=runconfig.describe(cfg))
