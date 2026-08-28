@@ -29,6 +29,50 @@ from .runconfig import describe
 from .synops import score_with_energy
 
 
+# AF_UNIX caps a socket path at 107 bytes. Ray appends roughly
+#     /session_2026-08-27_20-48-43_793189_2023486/sockets/plasma_store
+# to whatever temp dir it is given, which is about 64 characters, so the
+# directory itself has to fit in what is left.
+_SOCKET_PATH_MAX = 107
+_RAY_SUFFIX_BUDGET = 64
+
+
+def _ray_temp_dir(explicit, writer):
+    """A scratch directory for Ray, satisfying two constraints that conflict.
+
+    Ray's session directory, object store and spill files all go here, so it
+    must sit on a volume with room. But it also holds a unix domain socket, and
+    that path cannot exceed 107 bytes. A project directory on a lab filesystem
+    is usually long enough on its own to blow the limit once Ray adds its
+    session suffix, so "next to the results" is not a safe default.
+
+    Returns a path, or None to let Ray choose (which means /tmp).
+    """
+    room = _SOCKET_PATH_MAX - _RAY_SUFFIX_BUDGET
+    user = os.environ.get("USER") or os.environ.get("USERNAME") or "ray"
+
+    candidates = []
+    if explicit:
+        candidates.append(os.path.abspath(os.path.expanduser(explicit)))
+    # /local_disk/<user>/ray is 20-30 characters and is where the frame cache
+    # already lives on this cluster, so it has both the room and the length.
+    if os.path.isdir("/local_disk"):
+        candidates.append(f"/local_disk/{user}/ray")
+    candidates.append(os.path.expanduser("~/.snnsearch-ray"))
+
+    for path in candidates:
+        if len(path) <= room:
+            writer.log(f"[stream] ray scratch: {path}  ({len(path)}/{room} chars)")
+            return path
+        writer.log(f"[stream] ray scratch: skipping {path}, "
+                   f"{len(path)} chars leaves no room for Ray's socket path "
+                   f"(limit {room})")
+
+    writer.log("[stream] ray scratch: falling back to /tmp. If /tmp is small, "
+               "set search.ray_temp_dir to a SHORT path on a large volume.")
+    return None
+
+
 def _run_config_cls():
     """The RunConfig a Tuner accepts, across Ray versions."""
     import ray
@@ -59,10 +103,12 @@ def run_search(cfg, out_dir):
     # every trial lost. The results directory already lives somewhere with room
     # for the frame cache, so put Ray's scratch beside it.
     if not ray.is_initialized():
-        tmp = s.get("ray_temp_dir") or os.path.join(out_dir, "ray_tmp")
-        os.makedirs(tmp, exist_ok=True)
-        writer.log(f"[stream] ray scratch: {tmp}")
-        ray.init(_temp_dir=tmp, include_dashboard=False, log_to_driver=True)
+        tmp = _ray_temp_dir(s.get("ray_temp_dir"), writer)
+        kwargs = {"include_dashboard": False, "log_to_driver": True}
+        if tmp:
+            os.makedirs(tmp, exist_ok=True)
+            kwargs["_temp_dir"] = tmp
+        ray.init(**kwargs)
 
     # "uniform" shares one kernel/channel/stride across every layer; anything
     # else lets the sampler choose them per layer.
