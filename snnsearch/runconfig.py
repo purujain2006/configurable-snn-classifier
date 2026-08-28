@@ -29,6 +29,13 @@ DEFAULTS = {
     "dataset": {"name": "dvs128", "root": None},
     "encoding": {"coding": None, "T": 16, "resize_to": None},
     "limits": {},          # overrides for AXON_LIMITS / NEURON_LIMITS
+    # The network `single` builds. Empty means the dataclass defaults, which is
+    # what the search samples around. Field names match the dataclasses in
+    # config.py, and an unknown one is an error rather than a silent default.
+    # `single --from-best best.json` replaces this wholesale with a trial that
+    # actually ran, which is the reliable way to reproduce a search winner.
+    "architecture": {"encoder": {}, "downsample": {}, "head": {}, "neuron": {}},
+    "train": {},           # TrainSpec fields: optimizer, lr, scheduler, ...
     "search": {
         "trials": 25, "epochs": 40, "grace_period": 8, "reduction_factor": 3,
         "brackets": 1, "target": 0.975, "space": "uniform",
