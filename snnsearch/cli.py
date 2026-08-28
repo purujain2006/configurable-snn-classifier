@@ -140,7 +140,7 @@ def _summary(cfg, args):
         "downsample": DownsampleSpec(),
         "head": HeadSpec(fc_widths=""),
         "neuron": NeuronSpec(),
-        "train": TrainSpec(),
+        "train": runconfig.apply_train_overrides(cfg, TrainSpec()),
     }
     print(format_summary(spec))
     return 0

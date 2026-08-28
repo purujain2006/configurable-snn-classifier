@@ -64,7 +64,7 @@ def run_single(cfg, ckpt="best.pth"):
 
     bundle, encoder, loaders, spec = prepare(cfg)
     out = results_dir(cfg)
-    spec["train"].epochs = cfg["search"].get("epochs", 40)
+    runconfig.apply_train_overrides(cfg, spec["train"])
 
     t0 = time.time()
     res = run_training(spec, loaders=loaders, ckpt_path=os.path.join(out, ckpt))

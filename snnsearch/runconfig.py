@@ -54,6 +54,39 @@ def _deep_merge(base, over):
     return out
 
 
+def _expand(node):
+    """Expand $VAR and a leading ~ in every string in the config.
+
+    A shared lab config names paths like /local_disk/$USER/DVS128Gesture so one
+    file serves every account. Python does not expand that: open() takes the
+    dollar sign literally and reports a missing directory whose name contains
+    "$USER", which reads like a typo rather than a missing expansion. Doing it
+    once here means every consumer downstream receives a real path, so no call
+    site has to remember. os.path.expandvars leaves an unset variable in place
+    rather than replacing it with an empty string, so a genuine mistake stays
+    visible instead of collapsing to the filesystem root.
+    """
+    if isinstance(node, dict):
+        return {k: _expand(v) for k, v in node.items()}
+    if isinstance(node, list):
+        return [_expand(v) for v in node]
+    if isinstance(node, str):
+        return os.path.expanduser(os.path.expandvars(node))
+    return node
+
+
+def apply_train_overrides(cfg, train):
+    """Copy config values onto a TrainSpec, in one place.
+
+    `summary` and `single` each construct their own TrainSpec. An override
+    applied in one and missed in the other makes the summary describe a run
+    that will never happen, which is the opposite of what a cheap preview is
+    for. Both call this, so the two cannot disagree.
+    """
+    train.epochs = cfg["search"].get("epochs", train.epochs)
+    return train
+
+
 def load(path=None, overrides=None):
     """Read a config file, merge over the defaults, and sanity-check it."""
     raw = {}
@@ -64,6 +97,7 @@ def load(path=None, overrides=None):
         raw = _parse(path)
     cfg = _deep_merge(DEFAULTS, raw)
     cfg = _deep_merge(cfg, overrides or {})
+    cfg = _expand(cfg)
     _validate(cfg)
     cfg["_source"] = path
     return cfg
