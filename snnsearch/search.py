@@ -29,6 +29,13 @@ from .runconfig import describe
 from .synops import score_with_energy
 
 
+def _run_config_cls():
+    """The RunConfig a Tuner accepts, across Ray versions."""
+    import ray
+    from ray import tune
+    return getattr(tune, "RunConfig", None) or ray.train.RunConfig
+
+
 def run_search(cfg, out_dir):
     """Run the search described by `cfg`, writing into `out_dir`."""
     import ray
@@ -85,8 +92,16 @@ def run_search(cfg, out_dir):
             # metric/mode deliberately omitted: the searcher already has them
             # and passing them here as well makes Ray reject the scheduler.
         ),
-        run_config=ray.train.RunConfig(storage_path=os.path.join(out_dir, "ray"),
-                                       name=cfg["run"].get("name", "search")),
+        # ray.tune.RunConfig, NOT ray.train.RunConfig. From Ray 2.49 the Train
+        # V2 API is on by default, so ray.train.RunConfig became a different
+        # class whose `verbose` field holds the string "_DEPRECATED". Tune reads
+        # that field and calls .value on it, so a Train RunConfig reaches
+        # tuner.fit() and dies with
+        #     AttributeError: 'str' object has no attribute 'value'
+        # which names neither Ray version nor RunConfig. getattr keeps this
+        # working on Ray before 2.43, where tune.RunConfig did not exist yet.
+        run_config=_run_config_cls()(storage_path=os.path.join(out_dir, "ray"),
+                                     name=cfg["run"].get("name", "search")),
     )
     results = tuner.fit()
 
