@@ -106,6 +106,12 @@ def prepare(cfg, flat_config=None):
     loaders = build_dataloaders(bundle, batch_size=spec["input"].N, encoder=encoder,
                                 num_workers=cfg["search"].get("num_workers", 0),
                                 seed=cfg["run"].get("seed", 1))
+    # A trial and its replay must see the same number of gradient steps per
+    # epoch. If these differ the two are not the same experiment, whatever the
+    # configs say, and comparing their curves is meaningless.
+    print(f"loaders   : {len(loaders[0])} train / {len(loaders[1])} val / "
+          f"{len(loaders[2])} test batches, batch={spec['input'].N}, "
+          f"workers={cfg['search'].get('num_workers', 0)}")
     return bundle, encoder, loaders, spec
 
 
@@ -229,9 +235,14 @@ def run_single(cfg, ckpt="best.pth", from_best=None, epochs=None):
         with open(curve_path, "a", encoding="utf-8") as fh:
             fh.write(json.dumps(rec, default=str) + "\n")
         if rec["epoch"] is not None and rec["val_acc"] is not None:
+            # train_acc and loss are printed because the search records them and
+            # `single` did not. Comparing a trial against its replay on val
+            # alone cannot separate "trained differently" from "scored
+            # differently", and that was exactly the question.
             print(f"  epoch {rec['epoch']:>3} [{rec['phase']:<5}] "
                   f"val {rec['val_acc']:.4f}  best {rec['best_val_acc'] or 0:.4f}  "
-                  f"lr {rec['lr'] or 0:.2e}")
+                  f"train {rec['train_acc'] or 0:.4f}  "
+                  f"loss {rec['train_loss'] or 0:.4f}  lr {rec['lr'] or 0:.2e}")
 
     t0 = time.time()
     res = run_training(spec, loaders=loaders, report_fn=report_fn,
