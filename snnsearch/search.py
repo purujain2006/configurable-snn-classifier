@@ -46,6 +46,7 @@ def run_search(cfg, out_dir):
 
     from .spaces import make_define_by_run
     from .results import ResultsWriter
+    from .streaming import make_streaming_callback
 
     s = cfg["search"]
     obj = cfg["objective"]
@@ -92,6 +93,9 @@ def run_search(cfg, out_dir):
             # metric/mode deliberately omitted: the searcher already has them
             # and passing them here as well makes Ray reject the scheduler.
         ),
+        # Streams every result to disk as it arrives. Without it the only
+        # durable output is best.json at the very end, so a search that dies
+        # part-way leaves nothing to analyse and report.html has nothing to read.
         # ray.tune.RunConfig, NOT ray.train.RunConfig. From Ray 2.49 the Train
         # V2 API is on by default, so ray.train.RunConfig became a different
         # class whose `verbose` field holds the string "_DEPRECATED". Tune reads
@@ -101,7 +105,9 @@ def run_search(cfg, out_dir):
         # which names neither Ray version nor RunConfig. getattr keeps this
         # working on Ray before 2.43, where tune.RunConfig did not exist yet.
         run_config=_run_config_cls()(storage_path=os.path.join(out_dir, "ray"),
-                                     name=cfg["run"].get("name", "search")),
+                                     name=cfg["run"].get("name", "search"),
+                                     callbacks=[make_streaming_callback(
+                                         writer, target=s.get("target", 0.975))]),
     )
     results = tuner.fit()
 
