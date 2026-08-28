@@ -52,6 +52,35 @@ def prepare(cfg):
     return bundle, encoder, loaders, spec
 
 
+def evaluate_on_test(res, loaders):
+    """Score the converted network on the held-out test set.
+
+    DELIBERATELY NOT CALLED FROM THE SEARCH. The search selects on validation,
+    and a metric the selection process can see is no longer held out: run it
+    per trial and the best trial is partly chosen for fitting the test set,
+    which is how a search reports a number it cannot reproduce.
+
+    So this runs once, in `single`, on a configuration already chosen. That is
+    also the only number comparable to published results, which quote test
+    accuracy. Validation accuracy on a split carved from train is not the same
+    quantity and cannot be set beside it.
+    """
+    from .train import evaluate
+
+    hw_net = res.get("hw_net")
+    if hw_net is None or len(loaders) < 3 or loaders[2] is None:
+        return {}
+    device = next(hw_net.parameters()).device
+    was_training = hw_net.training
+    hw_net.eval()
+    try:
+        return {"hw_test_accuracy": evaluate(hw_net, loaders[2], device)}
+    except Exception as exc:
+        return {"hw_test_accuracy": None, "test_reason": f"{type(exc).__name__}: {exc}"}
+    finally:
+        hw_net.train(was_training)
+
+
 def measure_run_synops(res, loaders, spec, max_batches=None):
     """SynOps for a finished run, from the converted network it produced.
 
@@ -100,6 +129,7 @@ def run_single(cfg, ckpt="best.pth"):
     mins = (time.time() - t0) / 60
 
     res.update(measure_run_synops(res, loaders, spec))
+    res.update(evaluate_on_test(res, loaders))
 
     payload = {k: v for k, v in res.items() if k != "hw_net"}
     payload.update(wall_minutes=round(mins, 2), config=runconfig.describe(cfg))
@@ -107,10 +137,15 @@ def run_single(cfg, ckpt="best.pth"):
         json.dump(payload, fh, indent=2, default=str)
 
     print(f"\nfinished in {mins:.1f} min")
-    for k in ("float_val_accuracy", "hw_val_accuracy", "quant_gap",
-              "synops_per_sample", "deployable", "deploy_reasons"):
+    for k in ("float_val_accuracy", "pre_export_val_accuracy", "hw_val_accuracy",
+              "quant_gap", "end_to_end_gain", "synops_per_sample",
+              "deployable", "deploy_reasons"):
         if k in payload:
-            print(f"  {k:<20} {payload[k]}")
+            print(f"  {k:<24} {payload[k]}")
+    if payload.get("hw_test_accuracy") is not None:
+        print(f"\n  hw_test_accuracy         {payload['hw_test_accuracy']}")
+        print("    ^ the held-out test set. This is the number comparable to")
+        print("      published results; the validation figures above are not.")
 
     _maybe_report(cfg, out)
     return 0
