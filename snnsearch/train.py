@@ -227,6 +227,11 @@ def run_training(cfg: dict, data_dir: str = None, device=None, report_fn=None,
         grid_cfg.warmup_epochs = 0
         grid_cfg.scheduler = "cosine"
         grid_cfg.epochs = max(1, grid_epochs)
+        _qse = getattr(train_cfg, "qat_schedule_epochs", None)
+        if _qse:
+            grid_cfg.epochs = max(1, min(int(_qse), grid_epochs))
+        grid_cfg.scheduler = getattr(train_cfg, "qat_scheduler", None) \
+            or grid_cfg.scheduler
         gopt = build_optimizer(net, grid_cfg)
         gsched, gstep = build_scheduler(gopt, grid_cfg, len(train_loader))
 

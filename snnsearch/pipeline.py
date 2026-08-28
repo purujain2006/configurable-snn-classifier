@@ -213,8 +213,29 @@ def run_single(cfg, ckpt="best.pth", from_best=None, epochs=None):
         print(f"epochs    : {was} -> {epochs}  "
               f"({warm} float warmup, {epochs - warm} on the quantized grid)")
 
+    # Record the trajectory. The search streams this per trial; `single` did
+    # not, so a run that ended lower than expected offered two endpoints and no
+    # way to tell a plateau from an oscillation from a collapse. `phase` marks
+    # which side of the fold each epoch is on, which is the comparison that
+    # matters when the float and quantized halves behave differently.
+    curve_path = os.path.join(out, "progress.jsonl")
+    open(curve_path, "w").close()
+
+    def report_fn(**kw):
+        rec = {"epoch": kw.get("epoch"), "phase": kw.get("phase", "float"),
+               "val_acc": kw.get("val_acc", kw.get("hw_val_acc")),
+               "train_acc": kw.get("train_acc"), "train_loss": kw.get("train_loss"),
+               "lr": kw.get("lr"), "best_val_acc": kw.get("best_val_acc")}
+        with open(curve_path, "a", encoding="utf-8") as fh:
+            fh.write(json.dumps(rec, default=str) + "\n")
+        if rec["epoch"] is not None and rec["val_acc"] is not None:
+            print(f"  epoch {rec['epoch']:>3} [{rec['phase']:<5}] "
+                  f"val {rec['val_acc']:.4f}  best {rec['best_val_acc'] or 0:.4f}  "
+                  f"lr {rec['lr'] or 0:.2e}")
+
     t0 = time.time()
-    res = run_training(spec, loaders=loaders, ckpt_path=os.path.join(out, ckpt))
+    res = run_training(spec, loaders=loaders, report_fn=report_fn,
+                       ckpt_path=os.path.join(out, ckpt))
     mins = (time.time() - t0) / 60
 
     # Training is done and the checkpoint is on disk. Everything below is

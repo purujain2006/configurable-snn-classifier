@@ -168,6 +168,10 @@ class TrainSpec:
     qat_warmup_frac: float = 0.25
     qat_epochs: int = 4            # tail mode only
     qat_lr_scale: float = 0.5      # grid-phase lr = qat_lr_scale * lr
+    # Length of the quantized phase's LR schedule, independent of the
+    # epoch budget. None reproduces the old behaviour.
+    qat_schedule_epochs: Optional[int] = None
+    qat_scheduler: Optional[str] = None   # None = same as the float phase
     # "threshold" is the only mode the converter can currently deploy: it maps
     # conv/linear WEIGHTS only, with no bias, so a folded bias must live in the
     # per-channel threshold. "conv" is exact but needs on-chip conv bias.

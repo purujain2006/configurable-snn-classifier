@@ -37,6 +37,16 @@ Edit the behaviour here, not in the original.
 # hence a patch. Each entry raises if its `old` text is absent, so a change in
 # Practice2.py surfaces as a loud failure here rather than a silent no-op.
 PATCHES = {
+    "config.py": [
+        # The quantized phase's schedule length was tied to whatever the epoch
+        # budget left over. See the train.py patch for what that cost.
+        ("    qat_lr_scale: float = 0.5      # grid-phase lr = qat_lr_scale * lr\n",
+         "    qat_lr_scale: float = 0.5      # grid-phase lr = qat_lr_scale * lr\n"
+         "    # Length of the quantized phase's LR schedule, independent of the\n"
+         "    # epoch budget. None reproduces the old behaviour.\n"
+         "    qat_schedule_epochs: Optional[int] = None\n"
+         "    qat_scheduler: Optional[str] = None   # None = same as the float phase\n"),
+    ],
     "model.py": [
         ("        enable_weight_fake_quant(self)\n",
          "        # local import: quantize -> folding -> model, so a module-level\n"
@@ -73,6 +83,23 @@ PATCHES = {
     # the parameter changes from a path to the loaders themselves. data_dir is
     # kept as a fallback so Practice2.py's own calling convention still works.
     "train.py": [
+        # The quantized phase inherited its schedule length from the epoch
+        # budget: cosine with T_max = grid_epochs. Raising the budget from 40 to
+        # 100 stretched that decay from 30 epochs to 75, holding the learning
+        # rate high while weights were meant to be settling onto the INT16 grid.
+        # The same configuration scored 0.892 at 40 epochs and 0.756 at 100.
+        #
+        # qat_schedule_epochs decouples the two. Set it and the decay completes
+        # in that many epochs whatever the budget; leave it None for the old
+        # behaviour. Capped at grid_epochs because CosineAnnealingLR climbs back
+        # up past T_max, which would raise the rate at the end of training.
+        ('        grid_cfg.epochs = max(1, grid_epochs)\n',
+         '        grid_cfg.epochs = max(1, grid_epochs)\n'
+         '        _qse = getattr(train_cfg, "qat_schedule_epochs", None)\n'
+         '        if _qse:\n'
+         '            grid_cfg.epochs = max(1, min(int(_qse), grid_epochs))\n'
+         '        grid_cfg.scheduler = getattr(train_cfg, "qat_scheduler", None) \\\n'
+         '            or grid_cfg.scheduler\n'),
         # quant_gap subtracted a warmup-phase number from an end-of-training
         # one. With qat_warmup_frac=0.25 and epochs=40 those sit 30 epochs
         # apart, so the "gap" was dominated by training progress and came out
