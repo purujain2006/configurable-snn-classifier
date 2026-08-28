@@ -23,7 +23,13 @@ search:
   reduction_factor: 3
   target: 0.975          # published SNN accuracy on this task is 97-99%
   space: uniform
-  gpu_fraction: 0.25     # the model needs ~250 MB, so 4 trials share one card
+  # MEASURED, not estimated. A 400-trial run at 0.03125 put 27 trials on one
+  # L40S and filled 44.4 of 44.42 GiB; 266 of 400 died of CUDA OOM. Per trial
+  # the range was 0.7 to 3.6 GiB, averaging 1.65 -- far above the parameter
+  # count, because each process also carries a CUDA context, cuDNN workspace
+  # and allocator slack. Size for the 3.6 GiB tail, not the average:
+  # 8 x 3.6 = 29 GiB leaves headroom, 16 would not.
+  gpu_fraction: 0.125
 
 objective:
   mode: accuracy         # switch to pareto once SynOps have been recorded once

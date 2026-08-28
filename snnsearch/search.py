@@ -188,8 +188,10 @@ def _make_trainable(cfg, out_dir):
     """Build the per-trial function. Closes over plain data only, so it pickles."""
     obj = dict(cfg["objective"])
     run_cfg = {k: v for k, v in cfg.items() if not k.startswith("_")}
+    gpu_frac = cfg["search"].get("gpu_fraction", 1.0)
 
     def trainable(trial_cfg):
+        import torch
         from ray import tune
         from .spaces import config_to_specs
         from .hardware import check_feasibility
@@ -197,6 +199,19 @@ def _make_trainable(cfg, out_dir):
         from .train import run_training
 
         spec = config_to_specs(trial_cfg)
+
+        # Make gpu_fraction mean something. Ray's fraction is pure bookkeeping:
+        # it decides how many trials to schedule and then lets every one of them
+        # allocate the whole card. So the trials collectively overcommit, and
+        # the process that happens to ask next dies of OOM -- which is usually
+        # not the process that took too much. Capping each one at its declared
+        # share makes an over-large configuration fail on its own budget instead
+        # of starving its neighbours.
+        if gpu_frac and torch.cuda.is_available():
+            try:
+                torch.cuda.set_per_process_memory_fraction(float(gpu_frac))
+            except Exception:
+                pass                      # older torch: fall back to no cap
 
         # tier 1: arithmetic. Costs microseconds and never reaches a GPU.
         feasible, violations = check_feasibility(
@@ -239,7 +254,19 @@ def _make_trainable(cfg, out_dir):
                 "epoch": kw.get("epoch", 0),
             })
 
-        res = run_training(spec, loaders=loaders, report_fn=report_fn)
+        try:
+            res = run_training(spec, loaders=loaders, report_fn=report_fn)
+        except torch.cuda.OutOfMemoryError as exc:
+            # A configuration that will not fit is a finding about that
+            # configuration, not a failure of the search. Reported as a scored
+            # trial so Optuna learns to avoid that region, rather than raised so
+            # Ray marks it ERROR and the searcher learns nothing.
+            torch.cuda.empty_cache()
+            tune.report({"val_accuracy": 0.0, "float_val_accuracy": 0.0,
+                         "feasible": True, "deployable": False, "phase": "deploy",
+                         "oom": True,
+                         "deploy_reasons": f"CUDA OOM: {str(exc)[:200]}"})
+            return
 
         # Bounded: the spike rate settles within a few hundred samples, and
         # this runs once per trial.
