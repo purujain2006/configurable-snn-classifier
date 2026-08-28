@@ -18,7 +18,19 @@ python main.py report  results/dvs128             # rebuild report.html
 ```
 
 `summary` imports no deep-learning library. If it prints the architecture table,
-the install is sound and you have spent nothing.
+the config parser and the planner agree and you have spent nothing.
+
+That is a weaker claim than it looks, because Python binds names when a line
+runs rather than when a module loads, so a module can import cleanly while the
+functions inside it reference names that were never imported. Two checks cover
+what an import cannot:
+
+```bash
+python tools/check_static.py      # undefined names + call signatures, no torch
+python tools/smoke_test.py        # the whole pipeline on synthetic data, ~1 min
+```
+
+Run both before a real training run.
 
 ## Why it exists
 
@@ -124,6 +136,8 @@ snnsearch/
 docs/                    the explainer site (GitHub Pages serves this folder)
 tools/
   check_env.py           what a fresh machine still needs
+  check_static.py        undefined names and call signatures, without torch
+  smoke_test.py          the whole pipeline on synthetic data, one minute, CPU
   build_cache.py         build the frame cache without a GPU
   trial_analysis.py      recompute the recorded statistics from raw trial files
   fold_bias_equivalence.py   measure the train/deploy gap on a checkpoint

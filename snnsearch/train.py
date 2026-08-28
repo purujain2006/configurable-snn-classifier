@@ -6,12 +6,14 @@ Edit the behaviour here, not in the original.
 
 import math
 from copy import deepcopy
+from dataclasses import asdict
 
 from .config import TrainSpec
 from .neuron import HardwareLIFNode
-from .quantize import deploy_and_measure
+from .model import build_model
+from .quantize import deploy_and_measure, deployment_report, hardware_export
 from .synops import SynOpsCounter
-from ._torch import _HAS_TORCH, _require_torch, torch, nn, functional
+from ._torch import _HAS_TORCH, _require_torch, torch, nn, F, functional
 
 
 def build_optimizer(net, train_cfg: TrainSpec):
@@ -153,7 +155,8 @@ def evaluate(net, loader, device):
     return correct / max(1, total)
 
 
-def run_training(cfg: dict, data_dir: str, device=None, report_fn=None, ckpt_path: str = None) -> float:
+def run_training(cfg: dict, data_dir: str = None, device=None, report_fn=None,
+                 ckpt_path: str = None, loaders=None) -> float:
     """Shared training loop used by both `single` mode and each Ray trial.
     If ckpt_path is given, the best-val model weights are saved there for later
     folding/deployment."""
@@ -162,7 +165,13 @@ def run_training(cfg: dict, data_dir: str, device=None, report_fn=None, ckpt_pat
     train_cfg: TrainSpec = cfg["train"]
 
     net = build_model(cfg).to(device)
-    train_loader, val_loader, _ = build_dataloaders(cfg, data_dir=data_dir)
+    if loaders is None:
+        raise ValueError(
+            "run_training needs `loaders`. Build them with\n"
+            "    snnsearch.pipeline.prepare(cfg)\n"
+        "which resolves the dataset through the registry rather than "
+        "assuming one directory layout.")
+    train_loader, val_loader, _ = loaders
     criterion = nn.CrossEntropyLoss(label_smoothing=train_cfg.label_smoothing)
 
     mode = getattr(train_cfg, "qat_mode", "inline")

@@ -30,13 +30,70 @@ Edit the behaviour here, not in the original.
 # an absent name surfaces as "cannot import name '_ste'" -- which reads like a
 # bug in this package rather than a missing dependency. Binding it to None keeps
 # the import working and lets _require_torch() give the real message.
+# Exact-string replacements applied after extraction. Practice2.py is one
+# module, so it can call anything from anywhere; split into packages, some of
+# those calls point backwards and would import in a circle. The fix is a local
+# import at the point of use, which cannot be expressed as a module header --
+# hence a patch. Each entry raises if its `old` text is absent, so a change in
+# Practice2.py surfaces as a loud failure here rather than a silent no-op.
+PATCHES = {
+    "model.py": [
+        ("        enable_weight_fake_quant(self)\n",
+         "        # local import: quantize -> folding -> model, so a module-level\n"
+         "        # import here would close the circle.\n"
+         "        from .quantize import enable_weight_fake_quant\n"
+         "        enable_weight_fake_quant(self)\n"),
+        ("        bake_weight_fake_quant(self)          # collapse Linear fake-quant params\n",
+         "        from .quantize import bake_weight_fake_quant   # local: see above\n"
+         "        bake_weight_fake_quant(self)          # collapse Linear fake-quant params\n"),
+    ],
+    "folding.py": [
+        ("    _require_torch()\n    bn_net.eval(); folded_net.eval()\n",
+         "    _require_torch()\n"
+         "    from .train import forward_over_time    # local: train imports quantize\n"
+         "                                            # imports folding.\n"
+         "    bn_net.eval(); folded_net.eval()\n"),
+    ],
+    "quantize.py": [
+        ("    _require_torch()\n    train_cfg: TrainSpec = cfg[\"train\"]\n    net.eval()\n",
+         "    _require_torch()\n"
+         "    # local import: train.py imports deploy_and_measure from this module,\n"
+         "    # so these cannot be imported at module level.\n"
+         "    from .train import (evaluate, build_optimizer, build_scheduler,\n"
+         "                        train_one_epoch, hardware_flush_steps)\n"
+         "    train_cfg: TrainSpec = cfg[\"train\"]\n"
+         "    net.eval()\n"),
+        ("    _require_torch()\n    layers, li = [], 0\n",
+         "    _require_torch()\n"
+         "    from .train import hardware_flush_steps      # local: see deploy_and_measure\n"
+         "    layers, li = [], 0\n"),
+    ],
+    # run_training was written when a dataset meant one hard-coded directory.
+    # The package builds a DatasetBundle first and hands over ready loaders, so
+    # the parameter changes from a path to the loaders themselves. data_dir is
+    # kept as a fallback so Practice2.py's own calling convention still works.
+    "train.py": [
+        ("def run_training(cfg: dict, data_dir: str, device=None, report_fn=None, "
+         "ckpt_path: str = None) -> float:",
+         "def run_training(cfg: dict, data_dir: str = None, device=None, report_fn=None,\n"
+         "                 ckpt_path: str = None, loaders=None) -> float:"),
+        ("    train_loader, val_loader, _ = build_dataloaders(cfg, data_dir=data_dir)\n",
+         "    if loaders is None:\n"
+         "        raise ValueError(\n"
+         "            \"run_training needs `loaders`. Build them with\\n\"\n"
+         "            \"    snnsearch.pipeline.prepare(cfg)\\n\"\n"
+         "        \"which resolves the dataset through the registry rather than \"\n"
+         "        \"assuming one directory layout.\")\n"
+         "    train_loader, val_loader, _ = loaders\n"),
+    ],
+}
+
 TAIL = {
     "neuron.py": '''
 
 if not _HAS_TORCH:
     # Same reason as quantgrid: model.py imports these by name at load time.
     TdBatchNorm2d = ConvBNFoldQuant = None
-    enable_weight_fake_quant = bake_weight_fake_quant = None
 ''',
     "quantgrid.py": '''
 
@@ -100,7 +157,8 @@ PLAN = {
     ),
     "neuron.py": (
         "The neuron HiAER-Spike implements, and the layers around it.",
-        "import math\n\n"
+        "import math\n"
+        "from typing import Callable\n\n"
         "from .config import NeuronSpec\n"
         "from .hardware import W_ALPHA, W_DELTA, HW_TAU_CHOICES, HW_TAU_MIN, HW_TAU_MAX\n"
         "from .quantgrid import (_ste, fake_quantize_weight, fake_quantize_threshold,\n"
@@ -119,7 +177,7 @@ PLAN = {
         "                        quantized_threshold_int, fold_bias_band, constrain_fold_bias,\n"
         "                        weight_clip_fraction)\n"
         "from .neuron import (build_neuron, HardwareLIFNode, TdBatchNorm2d,\n"
-        "                     ConvBNFoldQuant, enable_weight_fake_quant)\n"
+        "                     ConvBNFoldQuant)\n"
         "from ._torch import (_HAS_TORCH, _HAS_HS_API, _require_torch, _no_grad,\n"
         "                     torch, nn, F, layer, functional, Custom_LIFNode, Custom_IFNode)\n",
         [(1297, 1477)],
@@ -129,6 +187,7 @@ PLAN = {
         "from .hardware import W_ALPHA, W_DELTA, INT16_MAX\n"
         "from .quantgrid import fake_quantize_weight, quantized_threshold_int, fold_bias_band\n"
         "from .neuron import HardwareLIFNode\n"
+        "from .model import DVSGesturePuru\n"
         "from ._torch import _HAS_TORCH, _require_torch, _no_grad, torch, nn, layer, functional\n\n"
 "# verify_fold needs the time loop from train.py. Imported inside the function\n"
 "# rather than at module scope, because train.py imports this module.\n",
@@ -136,22 +195,24 @@ PLAN = {
     ),
     "quantize.py": (
         "Quantization-aware training, the deployment audit, and the export.",
-        "import json\nimport os\n\n"
-        "from .hardware import W_ALPHA, W_DELTA, INT16_MAX\n"
+        "import json\nimport math\nimport os\nfrom copy import deepcopy\n\n"
+        "from .config import TrainSpec\n"
+        "from .hardware import W_ALPHA, W_DELTA, INT16_MAX, W_BITS\n"
         "from .quantgrid import fake_quantize_weight, weight_clip_fraction\n"
-        "from .neuron import HardwareLIFNode\n"
+        "from .neuron import HardwareLIFNode, _WeightFakeQuant\n"
         "from .folding import fold_bn, verify_fold, fold_bias_report\n"
         "from ._torch import _HAS_TORCH, _require_torch, _no_grad, torch, nn, layer\n",
         [(1725, 1921)],
     ),
     "train.py": (
         "Optimizer construction, the training loop, and the pipeline flush.",
-        "import math\nfrom copy import deepcopy\n\n"
+        "import math\nfrom copy import deepcopy\nfrom dataclasses import asdict\n\n"
         "from .config import TrainSpec\n"
         "from .neuron import HardwareLIFNode\n"
-        "from .quantize import deploy_and_measure\n"
+        "from .model import build_model\n"
+        "from .quantize import deploy_and_measure, deployment_report, hardware_export\n"
         "from .synops import SynOpsCounter\n"
-        "from ._torch import _HAS_TORCH, _require_torch, torch, nn, functional\n",
+        "from ._torch import _HAS_TORCH, _require_torch, torch, nn, F, functional\n",
         [(1990, 2241)],
     ),
     "spaces.py": (
@@ -161,7 +222,10 @@ PLAN = {
         "                     DownsampleSpec, HeadSpec, NeuronSpec, TrainSpec,\n"
         "                     parse_fc_widths)\n"
         "from .hardware import HW_TAU_CHOICES\n",
-        [(2366, 2578)],
+        # starts at 2360, not 2366: FC_WIDTH_CHOICES and the comment recording
+        # the trials that narrowed it belong to this module, not to the gap
+        # between modules.
+        [(2360, 2578)],
     ),
     "results.py": (
         "Incremental result writing, so an interrupted search keeps its work.",
@@ -209,6 +273,25 @@ def snap(spans, decs):
     return fixed
 
 
+def apply_patches(name, text):
+    """Apply this module's PATCHES, insisting each one matches exactly once.
+
+    A patch that silently fails to apply is worse than no patch: the module
+    still imports, and the missing local import only surfaces when the function
+    is finally called, which for a training path can be twenty minutes in. So a
+    miss and an ambiguous match are both errors.
+    """
+    for old, new in PATCHES.get(name, []):
+        hits = text.count(old)
+        if hits != 1:
+            sys.exit(
+                f"patch for {name} matched {hits} times, expected exactly 1.\n"
+                f"Practice2.py has changed under this patch. The text sought was:\n"
+                f"---\n{old}---")
+        text = text.replace(old, new)
+    return text
+
+
 def write_module(name, doc, imports, spans, lines):
     body = []
     for a, b in spans:
@@ -216,11 +299,14 @@ def write_module(name, doc, imports, spans, lines):
     span_txt = ", ".join(f"{a}-{b}" for a, b in spans)
     out = BANNER.format(doc=doc, span=span_txt) + "\n" + imports + "\n\n" + "\n\n\n".join(body) + "\n"
     out += TAIL.get(name, "")
+    out = apply_patches(name, out)
     dest = os.path.join(PKG, name)
     with open(dest, "w", encoding="utf-8", newline="") as fh:
         fh.write(out)
     n = out.count("\n")
-    print(f"  {name:<16} {span_txt:<20} {n:>5} lines")
+    npatch = len(PATCHES.get(name, []))
+    print(f"  {name:<16} {span_txt:<20} {n:>5} lines"
+          + (f"   +{npatch} patch" + ("es" if npatch > 1 else "") if npatch else ""))
     return n
 
 

@@ -5,11 +5,14 @@ Edit the behaviour here, not in the original.
 """
 
 import json
+import math
 import os
+from copy import deepcopy
 
-from .hardware import W_ALPHA, W_DELTA, INT16_MAX
+from .config import TrainSpec
+from .hardware import W_ALPHA, W_DELTA, INT16_MAX, W_BITS
 from .quantgrid import fake_quantize_weight, weight_clip_fraction
-from .neuron import HardwareLIFNode
+from .neuron import HardwareLIFNode, _WeightFakeQuant
 from .folding import fold_bn, verify_fold, fold_bias_report
 from ._torch import _HAS_TORCH, _require_torch, _no_grad, torch, nn, layer
 
@@ -126,6 +129,7 @@ def hardware_export(net) -> dict:
     (`self.userConnections[neuronKey][modelIdx]`).
     """
     _require_torch()
+    from .train import hardware_flush_steps      # local: see deploy_and_measure
     layers, li = [], 0
     for m in net.conv_fc:
         if isinstance(m, HardwareLIFNode):
@@ -153,6 +157,10 @@ def deploy_and_measure(net, cfg, train_loader, val_loader, device, report_fn=Non
     dynamics and pipeline latency.
     """
     _require_torch()
+    # local import: train.py imports deploy_and_measure from this module,
+    # so these cannot be imported at module level.
+    from .train import (evaluate, build_optimizer, build_scheduler,
+                        train_one_epoch, hardware_flush_steps)
     train_cfg: TrainSpec = cfg["train"]
     net.eval()
 

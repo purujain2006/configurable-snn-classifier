@@ -2,7 +2,7 @@
 
 Ray checkpoints the searcher by pickling it, so this cannot be a closure.
 
-Moved verbatim from Practice2.py lines 2366-2578 by build_from_practice2.py.
+Moved verbatim from Practice2.py lines 2360-2578 by build_from_practice2.py.
 Edit the behaviour here, not in the original.
 """
 
@@ -10,6 +10,12 @@ from .config import (InputSpec, ConvLayerSpec, EncoderSpec, OutputSpec,
                      DownsampleSpec, HeadSpec, NeuronSpec, TrainSpec,
                      parse_fc_widths)
 from .hardware import HW_TAU_CHOICES
+
+
+# NARROWED after the 65-trial analysis (see DVS_Search_Statistical_Analysis).
+# 512 was the only hidden-FC width that showed up in a strong trial; the head is
+# rarely used at all now (fc_layers capped at 1), so keep a small set.
+FC_WIDTH_CHOICES = [128, 256, 512]
 
 
 def config_to_specs(config: dict) -> dict:

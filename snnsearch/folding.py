@@ -7,6 +7,7 @@ Edit the behaviour here, not in the original.
 from .hardware import W_ALPHA, W_DELTA, INT16_MAX
 from .quantgrid import fake_quantize_weight, quantized_threshold_int, fold_bias_band
 from .neuron import HardwareLIFNode
+from .model import DVSGesturePuru
 from ._torch import _HAS_TORCH, _require_torch, _no_grad, torch, nn, layer, functional
 
 # verify_fold needs the time loop from train.py. Imported inside the function
@@ -198,6 +199,8 @@ def verify_fold(bn_net, folded_net, loader, device, max_batches: int = None) -> 
       3. both test accuracies, as the final headline number.
     """
     _require_torch()
+    from .train import forward_over_time    # local: train imports quantize
+                                            # imports folding.
     bn_net.eval(); folded_net.eval()
     n = agree = 0
     correct_bn = correct_fold = 0

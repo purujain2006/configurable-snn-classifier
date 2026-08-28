@@ -5,6 +5,7 @@ Edit the behaviour here, not in the original.
 """
 
 import math
+from typing import Callable
 
 from .config import NeuronSpec
 from .hardware import W_ALPHA, W_DELTA, HW_TAU_CHOICES, HW_TAU_MIN, HW_TAU_MAX
@@ -454,4 +455,3 @@ def build_neuron(neuron_cfg: NeuronSpec, tau, v_threshold: float):
 if not _HAS_TORCH:
     # Same reason as quantgrid: model.py imports these by name at load time.
     TdBatchNorm2d = ConvBNFoldQuant = None
-    enable_weight_fake_quant = bake_weight_fake_quant = None

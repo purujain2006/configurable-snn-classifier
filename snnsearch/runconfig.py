@@ -32,7 +32,13 @@ DEFAULTS = {
     "search": {
         "trials": 25, "epochs": 40, "grace_period": 8, "reduction_factor": 3,
         "brackets": 1, "target": 0.975, "space": "uniform",
-        "gpu_fraction": 1.0, "cpu_per_trial": 1,
+        "gpu_fraction": 1.0, "cpu_per_trial": 1, "batch_size": 16,
+        # Left unset, the search holds T at whatever `encoding` says. Listing
+        # more values here searches over them, which needs a frame cache per
+        # value: building those lazily inside parallel trials has several
+        # processes decoding the same events into the same directory. Build
+        # them first with tools/build_cache.py.
+        "T_choices": None,
     },
     "objective": {
         "mode": "accuracy",          # accuracy | constrained | weighted | pareto
@@ -120,7 +126,11 @@ def _mini_yaml(text):
     Enough for the shipped configs so that `summary` works before anyone has
     installed PyYAML. Anything more elaborate raises rather than guessing.
     """
-    root, stack = {}, [(-1, root)]
+    # Two statements, not one tuple assignment: the right-hand side of
+    # `root, stack = {}, [(-1, root)]` is evaluated before either name is
+    # bound, so the `root` inside the list refers to nothing yet.
+    root = {}
+    stack = [(-1, root)]
     for lineno, raw in enumerate(text.split("\n"), 1):
         line = raw.split("#", 1)[0].rstrip()
         if not line.strip():

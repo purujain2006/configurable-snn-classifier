@@ -38,7 +38,7 @@ def prepare(cfg):
         "input": InputSpec(C=bundle.C, H=bundle.H, W=bundle.W,
                            T=enc_cfg.get("T", 16),
                            resize_to=resize or 0,
-                           N=cfg.get("batch_size", 16)),
+                           N=cfg["search"].get("batch_size", 16)),
         "output": OutputSpec(num_classes=bundle.num_classes),
         "encoder": EncoderSpec(),
         "downsample": DownsampleSpec(),

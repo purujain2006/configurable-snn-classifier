@@ -11,7 +11,7 @@ from .quantgrid import (_ste, fake_quantize_weight, fake_quantize_threshold,
                         quantized_threshold_int, fold_bias_band, constrain_fold_bias,
                         weight_clip_fraction)
 from .neuron import (build_neuron, HardwareLIFNode, TdBatchNorm2d,
-                     ConvBNFoldQuant, enable_weight_fake_quant)
+                     ConvBNFoldQuant)
 from ._torch import (_HAS_TORCH, _HAS_HS_API, _require_torch, _no_grad,
                      torch, nn, F, layer, functional, Custom_LIFNode, Custom_IFNode)
 
@@ -150,6 +150,9 @@ class DVSGesturePuru(nn.Module):
             functional.set_step_mode(self.conv_fc, "m")
         # bias-free Linears are already on the grid; parametrize them too so the
         # FC weights train quantized alongside the folded convs.
+        # local import: quantize -> folding -> model, so a module-level
+        # import here would close the circle.
+        from .quantize import enable_weight_fake_quant
         enable_weight_fake_quant(self)
         self._qat_folded = True
         self._qat_bias_mode = bias_mode
@@ -167,6 +170,7 @@ class DVSGesturePuru(nn.Module):
         _require_torch()
         if not getattr(self, "_qat_folded", False):
             return self
+        from .quantize import bake_weight_fake_quant   # local: see above
         bake_weight_fake_quant(self)          # collapse Linear fake-quant params
         mods = list(self.conv_fc)
         new_mods = []

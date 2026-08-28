@@ -17,6 +17,8 @@ encoding:
 search:
   trials: 25
   epochs: 40
+  batch_size: 16
+  T_choices: [8, 16]     # build a frame cache for each: tools/build_cache.py
   grace_period: 8        # must stay > 1: cosine/onecycle improve late
   reduction_factor: 3
   target: 0.975          # published SNN accuracy on this task is 97-99%

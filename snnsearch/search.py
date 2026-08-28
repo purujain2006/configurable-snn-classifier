@@ -45,7 +45,15 @@ def run_search(cfg, out_dir):
     writer = ResultsWriter(out_dir)
     writer.log(f"[stream] {describe(cfg)}")
 
-    space = make_define_by_run(s.get("space", "uniform"))
+    # "uniform" shares one kernel/channel/stride across every layer; anything
+    # else lets the sampler choose them per layer.
+    space = make_define_by_run(
+        batch_size=s.get("batch_size", 16),
+        epochs=s["epochs"],
+        data_dir_abs=os.path.abspath(cfg["dataset"].get("root") or "."),
+        t_choices=s.get("T_choices") or [cfg["encoding"].get("T", 16)],
+        per_layer=(s.get("space", "uniform") != "uniform"),
+    )
     _assert_picklable(space)
 
     algo = OptunaSearch(space=space, metric="val_accuracy", mode="max")
@@ -121,11 +129,30 @@ def _make_trainable(cfg, out_dir):
         for k in ("input", "output"):
             spec[k] = base[k]                # dataset decides shape, not the sampler
 
-        def report_fn(epoch, train_loss, train_acc, val_acc, best_val, lr, phase="float"):
-            tune.report({"val_accuracy": val_acc, "float_val_accuracy": val_acc,
-                         "best_val_accuracy": best_val, "phase": phase,
-                         "train_accuracy": train_acc, "train_loss": train_loss,
-                         "lr": lr, "epoch": epoch})
+        def report_fn(**kw):
+            """Two callers with different keywords report through here.
+
+            The training loop sends a full epoch record; the QAT loop inside
+            deploy_and_measure sends only phase, epoch and hw_val_acc. Naming
+            the arguments explicitly would make one of the two a TypeError
+            twenty minutes into a trial, so this takes whatever arrives and
+            fills the rest.
+
+            float_val_accuracy must appear on EVERY report, because it is the
+            metric ASHA prunes on and Ray requires the pruning key to be
+            present each time.
+            """
+            acc = kw.get("val_acc", kw.get("hw_val_acc", 0.0))
+            tune.report({
+                "val_accuracy": acc,
+                "float_val_accuracy": kw.get("val_acc", acc),
+                "best_val_accuracy": kw.get("best_val_acc", acc),
+                "phase": kw.get("phase", "float"),
+                "train_accuracy": kw.get("train_acc", 0.0),
+                "train_loss": kw.get("train_loss", 0.0),
+                "lr": kw.get("lr", 0.0),
+                "epoch": kw.get("epoch", 0),
+            })
 
         res = run_training(spec, loaders=loaders, report_fn=report_fn)
 
