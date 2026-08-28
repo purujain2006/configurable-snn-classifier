@@ -1,2 +1,0 @@
-val_accuracy,float_val_accuracy,feasible,deployable,phase,violations,timestamp,checkpoint_dir_name,done,training_iteration,trial_id,date,time_this_iter_s,time_total_s,pid,hostname,node_ip,time_since_restore,iterations_since_restore
-0.0,0.0,False,False,deploy,classifier: neuron_fan_in 16384 > 8159,1787894557,,False,1,33818d9b,2026-08-27_22-22-37,0.5466270446777344,0.5466270446777344,2415010,kilby,169.228.33.68,0.5466270446777344,1
