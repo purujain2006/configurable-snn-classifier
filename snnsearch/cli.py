@@ -60,15 +60,23 @@ def build_parser():
 
     s = sub.add_parser("summary", help="architecture, limits and cost. No torch needed.")
     _add_common(s)
-    s.add_argument("--depth", type=int, default=2)
-    s.add_argument("--channels", type=int, default=32)
-    s.add_argument("--kernel-size", type=int, default=7)
-    s.add_argument("--stride", type=int, default=2)
+    # No defaults: unset means "take it from the config", so summary and single
+    # agree unless a flag is passed deliberately.
+    s.add_argument("--depth", type=int)
+    s.add_argument("--channels", type=int)
+    s.add_argument("--kernel-size", type=int)
+    s.add_argument("--stride", type=int)
+    s.add_argument("--from-best", dest="from_best", metavar="BEST_JSON",
+                   help="cost a winning trial without a GPU or a dataset")
 
     o = sub.add_parser("single", help="train one configuration end to end")
     _add_common(o)
     o.add_argument("--epochs", type=int)
     o.add_argument("--ckpt", default="best.pth")
+    o.add_argument("--from-best", dest="from_best", metavar="BEST_JSON",
+                   help="replay a winning trial: pass results/<run>/best.json. "
+                        "Reproduces its architecture and schedule exactly, and "
+                        "reports a held-out test accuracy the search never saw.")
 
     r = sub.add_parser("search", help="the automated search")
     _add_common(r)
@@ -109,7 +117,8 @@ def main(argv=None):
 
     if args.mode == "single":
         from .pipeline import run_single
-        return run_single(cfg, ckpt=args.ckpt)
+        return run_single(cfg, ckpt=args.ckpt,
+                          from_best=getattr(args, "from_best", None))
 
     if args.mode == "search":
         from .pipeline import run_search_mode
@@ -119,29 +128,53 @@ def main(argv=None):
 
 
 def _summary(cfg, args):
-    """Plan and cost a configuration without importing torch."""
-    from .config import (InputSpec, EncoderSpec, OutputSpec, DownsampleSpec,
-                         HeadSpec, NeuronSpec, TrainSpec)
+    """Plan and cost a configuration without importing torch.
+
+    Builds the SAME spec `single` would, from the same config keys. These two
+    used to disagree: summary read its architecture from its own CLI defaults
+    while single used the dataclass defaults, so one config file described two
+    different networks and the cheap preview was of a run that never happened.
+    """
+    from .config import InputSpec, OutputSpec, EncoderSpec, DownsampleSpec, \
+        HeadSpec, NeuronSpec, TrainSpec
     from .cost import format_summary
-    from .data.base import _REGISTRY
+    from .pipeline import apply_overrides, specs_from_flat, load_flat_config
 
     enc = cfg["encoding"]
-    ds = cfg["dataset"]
     # Shape comes from the dataset when it is known without loading it, so
     # `summary` still works with no data on disk.
-    C, H, W, ncls = _shape_hint(ds.get("name"))
+    C, H, W, ncls = _shape_hint(cfg["dataset"].get("name"))
 
-    spec = {
-        "input": InputSpec(C=C, H=H, W=W, T=enc.get("T", 16),
-                           resize_to=enc.get("resize_to") or 0),
-        "encoder": EncoderSpec(depth=args.depth, channels=args.channels,
-                               kernel_size=args.kernel_size, stride=args.stride),
-        "output": OutputSpec(num_classes=ncls),
-        "downsample": DownsampleSpec(),
-        "head": HeadSpec(fc_widths=""),
-        "neuron": NeuronSpec(),
-        "train": runconfig.apply_train_overrides(cfg, TrainSpec()),
-    }
+    flat = load_flat_config(args.from_best) if getattr(args, "from_best", None) else None
+    if flat:
+        spec = specs_from_flat(flat, batch_size=cfg["search"].get("batch_size", 16))
+        # Same reason as pipeline.prepare: the trial owns T and resize_to.
+        enc = dict(enc, T=int(flat.get("T", enc.get("T", 16))),
+                   resize_to=flat.get("resize_to", enc.get("resize_to")))
+    else:
+        arch = cfg.get("architecture") or {}
+        enc_over = dict(arch.get("encoder") or {})
+        # Explicit CLI flags win over the file, so the old one-off invocations
+        # still work; anything not passed comes from the config.
+        for flag, field in (("depth", "depth"), ("channels", "channels"),
+                            ("kernel_size", "kernel_size"), ("stride", "stride")):
+            val = getattr(args, flag, None)
+            if val is not None:
+                enc_over[field] = val
+        spec = {
+            "encoder": apply_overrides(EncoderSpec(), enc_over, "encoder"),
+            "downsample": apply_overrides(DownsampleSpec(), arch.get("downsample"),
+                                          "downsample"),
+            "head": apply_overrides(HeadSpec(), arch.get("head"), "head"),
+            "neuron": apply_overrides(NeuronSpec(), arch.get("neuron"), "neuron"),
+            "train": runconfig.apply_train_overrides(
+                cfg, apply_overrides(TrainSpec(), cfg.get("train"), "train")),
+        }
+
+    spec["input"] = InputSpec(C=C, H=H, W=W, T=enc.get("T", 16),
+                              resize_to=enc.get("resize_to") or 0,
+                              N=cfg["search"].get("batch_size", 16))
+    spec["output"] = OutputSpec(num_classes=ncls)
     print(format_summary(spec))
     return 0
 

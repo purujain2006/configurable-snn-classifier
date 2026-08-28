@@ -128,13 +128,20 @@ def main():
         with open(os.path.join(out, "single.json"), encoding="utf-8") as fh:
             p = json.load(fh)
         for k in ("float_val_accuracy", "hw_val_accuracy", "deployable",
-                  "synops_per_sample"):
+                  "synops_per_sample", "hw_test_accuracy", "quant_gap",
+                  "end_to_end_gain"):
             assert k in p, f"single.json is missing {k}"
+        # quant_gap compares the same weights before and after export, so it
+        # cannot be negative by more than float noise. A large negative value
+        # means it has drifted back to comparing different training phases.
+        if p["quant_gap"] is not None:
+            assert p["quant_gap"] > -0.05, \
+                f"quant_gap {p['quant_gap']} is negative; it is comparing the wrong pair"
         state["payload"] = p
-        return (f"float={p['float_val_accuracy']:.3f} "
-                f"hw={p['hw_val_accuracy']:.3f} "
-                f"synops={p['synops_per_sample']:,.0f} "
-                f"deployable={p['deployable']}")
+        return (f"hw={p['hw_val_accuracy']:.3f} "
+                f"test={p['hw_test_accuracy']:.3f} "
+                f"export cost={p['quant_gap']} "
+                f"synops={p['synops_per_sample']:,.0f}")
 
     def report():
         path = os.path.join(out, "report.html")

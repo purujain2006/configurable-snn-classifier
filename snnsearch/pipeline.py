@@ -18,38 +18,124 @@ from .encoders import build_encoder
 from ._torch import _require_torch, torch
 
 
-def prepare(cfg):
-    """Resolve a run config into (bundle, encoder, loaders, spec dict)."""
+def apply_overrides(obj, values, section):
+    """Set dataclass fields from a config dict, rejecting unknown names.
+
+    An unrecognised key is an error rather than a shrug. Silently ignoring
+    `chanels: 64` would train the default 128 and report success, and the
+    resulting number would be attributed to a configuration that never ran.
+    """
+    from dataclasses import fields
+    if not values:
+        return obj
+    known = {f.name for f in fields(obj)}
+    for key, val in values.items():
+        if key not in known:
+            raise SystemExit(
+                f"architecture.{section}: unknown field {key!r}\n"
+                f"  known fields: {', '.join(sorted(known))}")
+        setattr(obj, key, val)
+    return obj
+
+
+def specs_from_flat(flat, batch_size=None):
+    """Rebuild the full spec dict from a flat trial config.
+
+    best.json stores exactly what Optuna sampled, so reproducing a winning
+    trial means replaying that dict rather than transcribing twenty fields into
+    YAML by hand and getting one of them wrong.
+    """
+    from .spaces import config_to_specs
+    flat = dict(flat)
+    if batch_size:
+        flat["N"] = batch_size
+    flat.setdefault("epochs", 40)
+    flat.setdefault("data_dir", ".")
+    return config_to_specs(flat)
+
+
+def prepare(cfg, flat_config=None):
+    """Resolve a run config into (bundle, encoder, loaders, spec dict).
+
+    `flat_config`, when given, supplies the architecture: it is a trial config
+    as recorded in best.json, replayed through the same code the search used.
+    """
     _require_torch()
     enc_cfg = cfg["encoding"]
 
     bundle = build_dataset(cfg["dataset"])
     print(f"dataset   : {json.dumps(bundle.describe(), default=str)}")
 
+    # T and resize_to belong to the trial when one is being replayed. The
+    # search samples them, so reading them from the config file instead would
+    # rebuild the winning architecture at the wrong input size and time depth,
+    # which is a different network wearing the winner's name.
+    T = int(flat_config["T"]) if flat_config and "T" in flat_config \
+        else enc_cfg.get("T", 16)
+    resize = (flat_config.get("resize_to") if flat_config
+              else enc_cfg.get("resize_to"))
+    batch = cfg["search"].get("batch_size", 16)
+
     # Event data passes through; static data needs a coding to gain a time axis.
     coding = enc_cfg.get("coding") or ("passthrough" if bundle.is_event else "direct")
-    encoder = build_encoder(coding, T=enc_cfg.get("T", 16),
-                            resize_to=enc_cfg.get("resize_to"))
+    encoder = build_encoder(coding, T=T, resize_to=resize)
     print(f"encoding  : {json.dumps(encoder.describe(), default=str)}")
 
-    resize = enc_cfg.get("resize_to")
-    H = W = resize if resize else None
-    spec = {
-        "input": InputSpec(C=bundle.C, H=bundle.H, W=bundle.W,
-                           T=enc_cfg.get("T", 16),
-                           resize_to=resize or 0,
-                           N=cfg["search"].get("batch_size", 16)),
-        "output": OutputSpec(num_classes=bundle.num_classes),
-        "encoder": EncoderSpec(),
-        "downsample": DownsampleSpec(),
-        "head": HeadSpec(),
-        "neuron": NeuronSpec(),
-        "train": TrainSpec(),
-    }
+    if flat_config:
+        # Replaying a trial: the flat config already fixes the architecture,
+        # every neuron parameter and the whole training schedule.
+        spec = specs_from_flat(flat_config, batch_size=batch)
+        print(f"architecture: replayed from a trial config "
+              f"({len(flat_config)} fields)")
+    else:
+        arch = cfg.get("architecture") or {}
+        spec = {
+            "encoder": apply_overrides(EncoderSpec(), arch.get("encoder"), "encoder"),
+            "downsample": apply_overrides(DownsampleSpec(), arch.get("downsample"),
+                                          "downsample"),
+            "head": apply_overrides(HeadSpec(), arch.get("head"), "head"),
+            "neuron": apply_overrides(NeuronSpec(), arch.get("neuron"), "neuron"),
+            "train": apply_overrides(TrainSpec(), cfg.get("train"), "train"),
+        }
+
+    # The dataset decides the input shape and the class count, whatever the
+    # architecture says, because those are facts about the data.
+    spec["input"] = InputSpec(C=bundle.C, H=bundle.H, W=bundle.W,
+                              T=T, resize_to=resize or 0, N=batch)
+    spec["output"] = OutputSpec(num_classes=bundle.num_classes)
     loaders = build_dataloaders(bundle, batch_size=spec["input"].N, encoder=encoder,
                                 num_workers=cfg["search"].get("num_workers", 0),
                                 seed=cfg["run"].get("seed", 1))
     return bundle, encoder, loaders, spec
+
+
+def evaluate_on_test(res, loaders):
+    """Score the converted network on the held-out test set.
+
+    DELIBERATELY NOT CALLED FROM THE SEARCH. The search selects on validation,
+    and a metric the selection process can see is no longer held out: run it
+    per trial and the best trial is partly chosen for fitting the test set,
+    which is how a search reports a number it cannot reproduce.
+
+    So this runs once, in `single`, on a configuration already chosen. That is
+    also the only number comparable to published results, which quote test
+    accuracy. Validation accuracy on a split carved from train is not the same
+    quantity and cannot be set beside it.
+    """
+    from .train import evaluate
+
+    hw_net = res.get("hw_net")
+    if hw_net is None or len(loaders) < 3 or loaders[2] is None:
+        return {}
+    device = next(hw_net.parameters()).device
+    was_training = hw_net.training
+    hw_net.eval()
+    try:
+        return {"hw_test_accuracy": evaluate(hw_net, loaders[2], device)}
+    except Exception as exc:
+        return {"hw_test_accuracy": None, "test_reason": f"{type(exc).__name__}: {exc}"}
+    finally:
+        hw_net.train(was_training)
 
 
 def measure_run_synops(res, loaders, spec, max_batches=None):
@@ -87,19 +173,36 @@ def results_dir(cfg):
     return os.path.abspath(d)
 
 
-def run_single(cfg, ckpt="best.pth"):
+def load_flat_config(path):
+    """Read a trial config out of best.json, or out of a bare flat dict."""
+    with open(os.path.abspath(os.path.expanduser(path)), encoding="utf-8") as fh:
+        data = json.load(fh)
+    flat = data.get("flat_config") or data.get("config") or data
+    if not isinstance(flat, dict) or "depth" not in flat:
+        raise SystemExit(
+            f"{path} does not look like a trial config.\n"
+            "  Expected best.json from a search, which carries a 'flat_config'\n"
+            "  key holding the sampled hyperparameters.")
+    return flat
+
+
+def run_single(cfg, ckpt="best.pth", from_best=None):
     """Train one configuration, then fold, quantize and audit it."""
     from .train import run_training
 
-    bundle, encoder, loaders, spec = prepare(cfg)
+    flat = load_flat_config(from_best) if from_best else None
+    bundle, encoder, loaders, spec = prepare(cfg, flat_config=flat)
     out = results_dir(cfg)
-    runconfig.apply_train_overrides(cfg, spec["train"])
+    # A replayed trial brings its own epoch count; do not overwrite it.
+    if flat is None:
+        runconfig.apply_train_overrides(cfg, spec["train"])
 
     t0 = time.time()
     res = run_training(spec, loaders=loaders, ckpt_path=os.path.join(out, ckpt))
     mins = (time.time() - t0) / 60
 
     res.update(measure_run_synops(res, loaders, spec))
+    res.update(evaluate_on_test(res, loaders))
 
     payload = {k: v for k, v in res.items() if k != "hw_net"}
     payload.update(wall_minutes=round(mins, 2), config=runconfig.describe(cfg))
@@ -107,10 +210,15 @@ def run_single(cfg, ckpt="best.pth"):
         json.dump(payload, fh, indent=2, default=str)
 
     print(f"\nfinished in {mins:.1f} min")
-    for k in ("float_val_accuracy", "hw_val_accuracy", "quant_gap",
-              "synops_per_sample", "deployable", "deploy_reasons"):
+    for k in ("float_val_accuracy", "pre_export_val_accuracy", "hw_val_accuracy",
+              "quant_gap", "end_to_end_gain", "synops_per_sample",
+              "deployable", "deploy_reasons"):
         if k in payload:
-            print(f"  {k:<20} {payload[k]}")
+            print(f"  {k:<24} {payload[k]}")
+    if payload.get("hw_test_accuracy") is not None:
+        print(f"\n  hw_test_accuracy         {payload['hw_test_accuracy']}")
+        print("    ^ the held-out test set. This is the number comparable to")
+        print("      published results; the validation figures above are not.")
 
     _maybe_report(cfg, out)
     return 0
