@@ -217,8 +217,20 @@ def run_single(cfg, ckpt="best.pth", from_best=None, epochs=None):
     res = run_training(spec, loaders=loaders, ckpt_path=os.path.join(out, ckpt))
     mins = (time.time() - t0) / 60
 
-    res.update(measure_run_synops(res, loaders, spec))
-    res.update(evaluate_on_test(res, loaders))
+    # Training is done and the checkpoint is on disk. Everything below is
+    # measurement and reporting, and none of it is worth losing an hour of
+    # training over: a missing helper in one of these once raised ImportError
+    # after a 100-epoch run, discarding every metric at the moment they were
+    # about to be written. Each stage now records its own failure and the
+    # results file is written regardless.
+    for label, fn in (("synops", lambda: measure_run_synops(res, loaders, spec)),
+                      ("test", lambda: evaluate_on_test(res, loaders))):
+        try:
+            res.update(fn())
+        except Exception as exc:
+            res[f"{label}_error"] = f"{type(exc).__name__}: {exc}"
+            print(f"  [warn] {label} measurement failed: {type(exc).__name__}: {exc}")
+            print("         training is unaffected; the checkpoint is written.")
 
     payload = {k: v for k, v in res.items() if k != "hw_net"}
     payload.update(wall_minutes=round(mins, 2), config=runconfig.describe(cfg))
@@ -236,7 +248,10 @@ def run_single(cfg, ckpt="best.pth", from_best=None, epochs=None):
         print("    ^ the held-out test set. This is the number comparable to")
         print("      published results; the validation figures above are not.")
 
-    _maybe_report(cfg, out)
+    try:
+        _maybe_report(cfg, out)
+    except Exception as exc:
+        print(f"  [warn] report generation failed: {type(exc).__name__}: {exc}")
     return 0
 
 

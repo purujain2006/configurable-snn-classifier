@@ -108,6 +108,54 @@ def bad_calls(defs):
     return problems
 
 
+def broken_intra_imports():
+    """`from .mod import name` where mod does not define name.
+
+    pyflakes will not catch this: it checks names inside a file, not whether
+    another module in the package actually provides what is being imported.
+    And when the import sits inside a function -- which it must, wherever two
+    modules would otherwise import in a circle -- nothing fails until that
+    function is called. A reporting helper imported this way went missing from
+    its module and the ImportError arrived after a 28-minute training run, at
+    the one moment the results were about to be written.
+    """
+    provided, problems = {}, []
+    for path in py_files(PKG):
+        mod = os.path.relpath(path, ROOT)[:-3].replace(os.sep, ".")
+        tree = ast.parse(open(path, encoding="utf-8").read())
+        names = set()
+        for node in ast.walk(tree):
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                names.add(node.name)
+            elif isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store):
+                names.add(node.id)
+            elif isinstance(node, (ast.Import, ast.ImportFrom)):
+                for a in node.names:
+                    names.add(a.asname or a.name.split(".")[0])
+        provided[mod] = names
+
+    for path in py_files(PKG):
+        here = os.path.relpath(path, ROOT)[:-3].replace(os.sep, ".")
+        pkg_parts = here.split(".")[:-1]
+        tree = ast.parse(open(path, encoding="utf-8").read())
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.ImportFrom) or not node.level:
+                continue
+            base = pkg_parts[: len(pkg_parts) - node.level + 1]
+            target = ".".join(base + ([node.module] if node.module else []))
+            if target not in provided:
+                continue                      # a package __init__, not checkable here
+            for alias in node.names:
+                if alias.name == "*":
+                    continue
+                if alias.name not in provided[target]:
+                    problems.append(
+                        f"{os.path.relpath(path, ROOT)}:{node.lineno}  "
+                        f"from {'.' * node.level}{node.module or ''} import "
+                        f"{alias.name}  ->  {target} does not define it")
+    return problems
+
+
 def main():
     print("=" * 74)
     print("Static checks: what a successful import cannot tell you")
@@ -125,8 +173,12 @@ def main():
     problems = bad_calls(collect_defs())
     print("\n".join(f"  {p}" for p in problems) if problems else "  none")
 
+    print("\n-- imports between package modules --")
+    imports = broken_intra_imports()
+    print("\n".join(f"  {p}" for p in imports) if imports else "  none")
+
     print("\n" + "=" * 74)
-    ok = flake_ok and not problems
+    ok = flake_ok and not problems and not imports
     print("STATIC CHECKS PASSED" if ok else "STATIC CHECKS FAILED")
     return 0 if ok else 1
 
