@@ -80,6 +80,13 @@ def _run_config_cls():
     return getattr(tune, "RunConfig", None) or ray.train.RunConfig
 
 
+def _failure_config_cls():
+    """FailureConfig from the same module as the RunConfig that will hold it."""
+    import ray
+    from ray import tune
+    return getattr(tune, "FailureConfig", None) or ray.train.FailureConfig
+
+
 def run_search(cfg, out_dir):
     """Run the search described by `cfg`, writing into `out_dir`."""
     import ray
@@ -168,10 +175,18 @@ def run_search(cfg, out_dir):
         #     AttributeError: 'str' object has no attribute 'value'
         # which names neither Ray version nor RunConfig. getattr keeps this
         # working on Ray before 2.43, where tune.RunConfig did not exist yet.
-        run_config=_run_config_cls()(storage_path=os.path.join(out_dir, "ray"),
-                                     name=cfg["run"].get("name", "search"),
-                                     callbacks=[make_streaming_callback(
-                                         writer, target=s.get("target", 0.975))]),
+        run_config=_run_config_cls()(
+            storage_path=os.path.join(out_dir, "ray"),
+            name=cfg["run"].get("name", "search"),
+            callbacks=[make_streaming_callback(writer, target=s.get("target", 0.975))],
+            # A trial that hits CUDA OOM is retried rather than lost. Memory
+            # pressure is a property of the moment, so the same configuration
+            # usually succeeds once its neighbours have finished. Without this,
+            # transient pressure permanently removes configurations from the
+            # search for a reason unrelated to their quality.
+            failure_config=_failure_config_cls()(
+                max_failures=s.get("max_failures", 3)),
+        ),
     )
     results = tuner.fit()
 
@@ -256,17 +271,24 @@ def _make_trainable(cfg, out_dir):
 
         try:
             res = run_training(spec, loaders=loaders, report_fn=report_fn)
-        except torch.cuda.OutOfMemoryError as exc:
-            # A configuration that will not fit is a finding about that
-            # configuration, not a failure of the search. Reported as a scored
-            # trial so Optuna learns to avoid that region, rather than raised so
-            # Ray marks it ERROR and the searcher learns nothing.
+        except torch.cuda.OutOfMemoryError:
+            # Deliberately NOT scored zero, and deliberately re-raised.
+            #
+            # Two very different things can stop a configuration, and only one
+            # of them is a fact about the configuration. Failing the connection
+            # limits means it cannot exist on HiAER-Spike: permanent, scored
+            # zero at tier 1 above. Running out of GPU memory means it did not
+            # fit in the share we gave it while N other trials happened to be
+            # resident: an artifact of how densely this run packs the card,
+            # which would not occur at lower concurrency and says nothing about
+            # the network.
+            #
+            # Scoring it zero would teach Optuna that a good architecture is bad
+            # because of a scheduling decision. Raising it instead lets Ray
+            # retry the trial (see FailureConfig in run_search), usually once
+            # neighbours have finished and memory has freed.
             torch.cuda.empty_cache()
-            tune.report({"val_accuracy": 0.0, "float_val_accuracy": 0.0,
-                         "feasible": True, "deployable": False, "phase": "deploy",
-                         "oom": True,
-                         "deploy_reasons": f"CUDA OOM: {str(exc)[:200]}"})
-            return
+            raise
 
         # Bounded: the spike rate settles within a few hundred samples, and
         # this runs once per trial.
