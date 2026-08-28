@@ -17,9 +17,14 @@ kept exactly, because each was there for a reason:
                  with shuffle=False, always the same trailing ones -- biasing
                  every accuracy figure reported.
 
-  num_workers=0  Each search trial is already its own process with one CPU.
-                 Worker processes would nest multiprocessing, oversubscribing
-                 the CPUs and breaking on Windows.
+  num_workers    Was pinned to 0, on the reasoning that each trial is already
+                 its own process holding one CPU, so workers would nest
+                 multiprocessing and oversubscribe. That reasoning depends
+                 entirely on the "one CPU" part. On a 384-core box running 16
+                 trials, 368 cores sit idle while each trial decodes frames
+                 single-threaded and the GPU waits. It is a setting now, and
+                 the scheduler reserves num_workers + 1 CPUs per trial so the
+                 oversubscription the original comment feared cannot happen.
 """
 
 from .._torch import _require_torch, torch, DataLoader, Subset
@@ -47,6 +52,13 @@ def build_dataloaders(bundle: DatasetBundle, batch_size: int, encoder=None,
     collate = _make_collate(bundle, encoder)
     kwargs = dict(batch_size=batch_size, pin_memory=True,
                   collate_fn=collate, num_workers=num_workers)
+    if num_workers > 0:
+        # Workers are torn down and rebuilt every epoch by default. At 40 epochs
+        # and 16 trials that is 640 process spawns, each re-importing torch.
+        kwargs["persistent_workers"] = True
+        # Two batches queued per worker, so the GPU has something to start on
+        # while the next one is still being decoded and encoded.
+        kwargs["prefetch_factor"] = 2
 
     return (
         DataLoader(train_set, shuffle=True, drop_last=True, **kwargs),

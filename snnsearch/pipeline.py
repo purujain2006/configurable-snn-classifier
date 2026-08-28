@@ -47,6 +47,7 @@ def prepare(cfg):
         "train": TrainSpec(),
     }
     loaders = build_dataloaders(bundle, batch_size=spec["input"].N, encoder=encoder,
+                                num_workers=cfg["search"].get("num_workers", 0),
                                 seed=cfg["run"].get("seed", 1))
     return bundle, encoder, loaders, spec
 

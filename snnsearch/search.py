@@ -53,6 +53,17 @@ def run_search(cfg, out_dir):
     writer = ResultsWriter(out_dir)
     writer.log(f"[stream] {describe(cfg)}")
 
+    # Ray puts its session directory, object store and spill files under /tmp.
+    # On a shared cluster /tmp is usually a small partition, and Ray warns at
+    # 95% then fails object creation once spilling is needed -- hours in, with
+    # every trial lost. The results directory already lives somewhere with room
+    # for the frame cache, so put Ray's scratch beside it.
+    if not ray.is_initialized():
+        tmp = s.get("ray_temp_dir") or os.path.join(out_dir, "ray_tmp")
+        os.makedirs(tmp, exist_ok=True)
+        writer.log(f"[stream] ray scratch: {tmp}")
+        ray.init(_temp_dir=tmp, include_dashboard=False, log_to_driver=True)
+
     # "uniform" shares one kernel/channel/stride across every layer; anything
     # else lets the sampler choose them per layer.
     space = make_define_by_run(
@@ -82,10 +93,17 @@ def run_search(cfg, out_dir):
     if gpu and gpu < 1:
         writer.log(f"[stream] gpu_fraction={gpu} -> up to {int(1/gpu)} trials share one card")
 
+    # One core for the trial plus one per DataLoader worker. Reserving only 1
+    # while asking for 4 workers would let Ray schedule more trials than there
+    # are cores to run them, which is the oversubscription the loaders module
+    # was written to avoid.
+    workers = s.get("num_workers", 0)
+    cpus = s.get("cpu_per_trial") or (workers + 1)
+    writer.log(f"[stream] {cpus} CPU per trial ({workers} loader workers)")
+
     trainable = _make_trainable(cfg, out_dir)
     tuner = tune.Tuner(
-        tune.with_resources(trainable,
-                            resources={"cpu": s.get("cpu_per_trial", 1), "gpu": gpu}),
+        tune.with_resources(trainable, resources={"cpu": cpus, "gpu": gpu}),
         tune_config=tune.TuneConfig(
             num_samples=s["trials"],
             search_alg=algo,

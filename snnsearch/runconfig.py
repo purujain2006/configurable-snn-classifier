@@ -32,7 +32,12 @@ DEFAULTS = {
     "search": {
         "trials": 25, "epochs": 40, "grace_period": 8, "reduction_factor": 3,
         "brackets": 1, "target": 0.975, "space": "uniform",
-        "gpu_fraction": 1.0, "cpu_per_trial": 1, "batch_size": 16,
+        "gpu_fraction": 1.0, "batch_size": 16,
+        # DataLoader worker processes per trial. The frame cache is decoded,
+        # resized and encoded on the CPU, single-threaded, in step with the
+        # forward pass, so at 0 the GPU waits on one core per trial. Set
+        # cpu_per_trial to null to have the scheduler reserve num_workers + 1.
+        "num_workers": 4, "cpu_per_trial": None,
         # Left unset, the search holds T at whatever `encoding` says. Listing
         # more values here searches over them, which needs a frame cache per
         # value: building those lazily inside parallel trials has several
