@@ -1,0 +1,27 @@
+# CIFAR-10: static images, so the encoder has to invent the time axis.
+# Exists to prove the generalization works rather than merely claiming it.
+
+run:
+  name: cifar10
+  results_dir: results/cifar10
+
+dataset:
+  name: cifar10
+  root: ./data/cifar10
+  download: true
+
+encoding:
+  coding: direct         # analog value repeated each step; converges fastest
+  T: 8                   # static data needs fewer steps than event data
+  resize_to: null        # 32x32 x 3 = 3,072 axons, well inside the 16,383 limit
+
+search:
+  trials: 25
+  epochs: 40
+  grace_period: 8
+  target: 0.90
+  space: uniform
+  gpu_fraction: 0.25
+
+objective:
+  mode: pareto           # report the accuracy/SynOps front and choose after

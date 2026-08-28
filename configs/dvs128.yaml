@@ -1,0 +1,27 @@
+# DVS128 Gesture: the configuration this project was built around.
+# Every narrowed range carries the statistic that narrowed it.
+
+run:
+  name: dvs128
+  results_dir: results/dvs128
+
+dataset:
+  name: dvs128
+  root: /local_disk/$USER/DVS128Gesture
+
+encoding:
+  coding: passthrough    # already events; resize and binarize only
+  T: 16
+  resize_to: 64          # native 128x128 needs 32,768 axons against a limit of 16,383
+
+search:
+  trials: 25
+  epochs: 40
+  grace_period: 8        # must stay > 1: cosine/onecycle improve late
+  reduction_factor: 3
+  target: 0.975          # published SNN accuracy on this task is 97-99%
+  space: uniform
+  gpu_fraction: 0.25     # the model needs ~250 MB, so 4 trials share one card
+
+objective:
+  mode: accuracy         # switch to pareto once SynOps have been recorded once

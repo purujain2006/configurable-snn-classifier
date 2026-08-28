@@ -10,12 +10,9 @@ import html
 import os
 import sys
 
-# The package lives beside this repo rather than inside it. Point PKG_ROOT
-# elsewhere if the two are ever merged; nothing else needs to change.
+# The package now lives in this repo, so excerpts resolve against the repo root.
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-PKG_ROOT = os.environ.get(
-    "SNNSEARCH_ROOT",
-    os.path.join(os.path.dirname(ROOT), "SNNConfig"))
+PKG_ROOT = os.environ.get("SNNSEARCH_ROOT", ROOT)
 
 # (id, path, first line, last line, highlighted lines relative to the excerpt, note)
 EXCERPTS = [
