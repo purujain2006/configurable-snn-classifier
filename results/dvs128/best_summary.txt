@@ -1,0 +1,31 @@
+==============================================================================
+DVS Gesture SNN -- architecture summary
+==============================================================================
+input        : 2x32x32  (native 128x128, resize_to=32), T=8, batch=16
+encoder      : uniform, depth=2 bias=False norm=bn
+downsample   : mode=stride pool=avg k=2 s=2
+head         : reduction=flatten fc_widths=[512] dropout=0.15520192137508526
+neuron       : LIF leak=6 v_th=learned in (0,1] v_reset=0.0
+  -> hardware: LIF_neuron(threshold=32767, shift=0, leak=6)   [w_alpha=1, w_bits=16, weights clamped to +/-1]
+training     : adamw lr=0.000609628 wd=0.00067641 sched=cosine epochs=40 label_smoothing=0.105407 grad_clip=1
+
+layer        shape / detail                                    neurons    connections       params
+--------------------------------------------------------------------------------------------------
+conv0        2x32x32 -> 64x13x13  k=7 s=2 p=0                   10,816      1,059,968        6,272
+bn0          BatchNorm2d(64)                                         0              0          128
+conv1        64x13x13 -> 64x4x4  k=7 s=2 p=0                     1,024      3,211,264      200,704
+bn1          BatchNorm2d(64)                                         0              0          128
+fc0          1024 -> 512                                           512        524,288      524,288
+classifier   512 -> 11                                              11          5,632        5,632
+--------------------------------------------------------------------------------------------------
+TOTAL                                                           12,363      4,801,152      737,152
+
+input axons             : 2,048  (limit 16,383)
+spiking neurons         : 12,363
+synaptic connections    : 4,801,152
+trainable parameters    : 737,152
+neuron updates / sample : 98,904  (12,363 x T=8)
+pipeline flush steps    : 4  (1 per spiking layer; the converter's post-input zero steps)
+
+HiAER-Spike feasibility : PASS
+==============================================================================

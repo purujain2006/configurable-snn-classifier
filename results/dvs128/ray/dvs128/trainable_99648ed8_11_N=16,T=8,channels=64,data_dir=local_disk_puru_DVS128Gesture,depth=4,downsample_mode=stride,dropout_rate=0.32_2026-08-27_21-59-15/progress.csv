@@ -1,0 +1,2 @@
+val_accuracy,float_val_accuracy,feasible,deployable,phase,violations,timestamp,checkpoint_dir_name,done,training_iteration,trial_id,date,time_this_iter_s,time_total_s,pid,hostname,node_ip,time_since_restore,iterations_since_restore
+0.0,0.0,False,False,deploy,"block2: spatial size collapses to -1x-1 (in 4x4, k=7, s=2, p=0). Kernel is larger than the feature map.",1787893185,,False,1,99648ed8,2026-08-27_21-59-45,0.5519523620605469,0.5519523620605469,2363444,kilby,169.228.33.68,0.5519523620605469,1

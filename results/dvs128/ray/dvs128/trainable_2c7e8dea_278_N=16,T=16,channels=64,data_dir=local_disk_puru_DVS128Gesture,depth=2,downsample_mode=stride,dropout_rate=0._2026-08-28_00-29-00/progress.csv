@@ -1,0 +1,2 @@
+val_accuracy,float_val_accuracy,feasible,deployable,phase,violations,timestamp,checkpoint_dir_name,done,training_iteration,trial_id,date,time_this_iter_s,time_total_s,pid,hostname,node_ip,time_since_restore,iterations_since_restore
+0.0,0.0,False,False,deploy,fc0: neuron_fan_in 9216 > 8159,1787902160,,False,1,2c7e8dea,2026-08-28_00-29-20,0.4071965217590332,0.4071965217590332,2721188,kilby,169.228.33.68,0.4071965217590332,1
