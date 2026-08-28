@@ -260,7 +260,21 @@ def run_training(cfg: dict, data_dir: str = None, device=None, report_fn=None,
         hw_net, hw = deploy_and_measure(net, cfg, train_loader, val_loader, device)
 
     hw["float_val_accuracy"] = float_best
-    hw["quant_gap"] = float_best - hw["hw_val_accuracy"]
+
+    # What conversion cost: same weights, same point in training,
+    # measured before and after export. Positive means export lost
+    # accuracy, which is the only direction this can honestly go.
+    # inline mode names it grid_val_accuracy, tail/ptq names it
+    # qat_val_accuracy; both are the trained net just before export.
+    pre_export = hw.get("grid_val_accuracy") or hw.get("qat_val_accuracy")
+    hw["quant_gap"] = ((pre_export - hw["hw_val_accuracy"])
+                       if pre_export else None)
+    hw["pre_export_val_accuracy"] = pre_export
+
+    # What the whole schedule bought, warmup best to deployed. Useful,
+    # but it is a training-progress figure and not a conversion cost,
+    # so it gets a name that says so.
+    hw["end_to_end_gain"] = hw["hw_val_accuracy"] - float_best
 
     if ckpt_path is not None:
         torch.save({

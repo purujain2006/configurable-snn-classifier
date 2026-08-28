@@ -32,8 +32,9 @@ from dataclasses import asdict
 # Flat config columns pulled into the leaderboard, in a fixed order so the file
 # stays diffable across runs.
 LEADERBOARD_COLS = [
-    "trial_id", "status", "val_accuracy", "hw_val_accuracy", "float_val_accuracy",
-    "quant_gap", "deployable", "weight_clip_frac", "min_threshold", "feasible",
+    "trial_id", "status", "val_accuracy", "hw_val_accuracy",
+    "pre_export_val_accuracy", "float_val_accuracy",
+    "quant_gap", "end_to_end_gain", "deployable", "weight_clip_frac", "min_threshold", "feasible",
     "epochs_run", "stopped_early", "synops_per_sample", "neurons", "connections",
     "params",
     "depth", "channels", "kernel_size", "stride", "downsample_mode",
@@ -112,7 +113,9 @@ def make_streaming_callback(writer, target=0.975):
                     "trial_id": trial.trial_id,
                     "hw_val_accuracy": result.get("hw_val_accuracy"),
                     "float_val_accuracy": result.get("float_val_accuracy"),
+                    "pre_export_val_accuracy": result.get("pre_export_val_accuracy"),
                     "quant_gap": result.get("quant_gap"),
+                    "end_to_end_gain": result.get("end_to_end_gain"),
                     "synops_per_sample": result.get("synops_per_sample"),
                     "weight_clip_frac": result.get("weight_clip_frac"),
                     "min_threshold": result.get("min_threshold"),
@@ -127,8 +130,9 @@ def make_streaming_callback(writer, target=0.975):
                     writer.write_text("best_summary.txt", f"(summary failed: {exc})")
                 writer.log(
                     f"[stream] NEW BEST on hardware {acc:.4f}  "
-                    f"(float {result.get('float_val_accuracy') or 0.0:.4f}, "
-                    f"gap {result.get('quant_gap') or 0.0:+.4f}, {trial.trial_id})"
+                    f"(pre-export {result.get('pre_export_val_accuracy') or 0.0:.4f}, "
+                    f"export cost {result.get('quant_gap') or 0.0:+.4f}, "
+                    f"{trial.trial_id})"
                     + ("   TARGET REACHED" if acc >= target else ""))
 
         def on_trial_complete(self, iteration, trials, trial, **info):
@@ -149,7 +153,9 @@ def make_streaming_callback(writer, target=0.975):
                 "val_accuracy": r.get("val_accuracy"),
                 "hw_val_accuracy": r.get("hw_val_accuracy"),
                 "float_val_accuracy": r.get("float_val_accuracy"),
+                "pre_export_val_accuracy": r.get("pre_export_val_accuracy"),
                 "quant_gap": r.get("quant_gap"),
+                "end_to_end_gain": r.get("end_to_end_gain"),
                 "synops_per_sample": r.get("synops_per_sample"),
                 "deployable": r.get("deployable"),
                 "deploy_reasons": r.get("deploy_reasons"),
@@ -168,7 +174,9 @@ def make_streaming_callback(writer, target=0.975):
                 "val_accuracy": (r.get("hw_val_accuracy") if deployed else None),
                 "hw_val_accuracy": r.get("hw_val_accuracy"),
                 "float_val_accuracy": r.get("float_val_accuracy"),
+                "pre_export_val_accuracy": r.get("pre_export_val_accuracy"),
                 "quant_gap": r.get("quant_gap"),
+                "end_to_end_gain": r.get("end_to_end_gain"),
                 "deployable": r.get("deployable"),
                 "weight_clip_frac": r.get("weight_clip_frac"),
                 "min_threshold": r.get("min_threshold"),

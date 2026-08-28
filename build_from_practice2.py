@@ -73,6 +73,31 @@ PATCHES = {
     # the parameter changes from a path to the loaders themselves. data_dir is
     # kept as a fallback so Practice2.py's own calling convention still works.
     "train.py": [
+        # quant_gap subtracted a warmup-phase number from an end-of-training
+        # one. With qat_warmup_frac=0.25 and epochs=40 those sit 30 epochs
+        # apart, so the "gap" was dominated by training progress and came out
+        # NEGATIVE on good runs -- reading as though quantization had improved
+        # accuracy. The comparison that answers "what did conversion cost" uses
+        # the same weights at the same moment: the grid-trained network just
+        # before export against the exported one. Both numbers already existed.
+        ('    hw["float_val_accuracy"] = float_best\n'
+         '    hw["quant_gap"] = float_best - hw["hw_val_accuracy"]\n',
+         '    hw["float_val_accuracy"] = float_best\n'
+         '\n'
+         '    # What conversion cost: same weights, same point in training,\n'
+         '    # measured before and after export. Positive means export lost\n'
+         '    # accuracy, which is the only direction this can honestly go.\n'
+         '    # inline mode names it grid_val_accuracy, tail/ptq names it\n'
+         '    # qat_val_accuracy; both are the trained net just before export.\n'
+         '    pre_export = hw.get("grid_val_accuracy") or hw.get("qat_val_accuracy")\n'
+         '    hw["quant_gap"] = ((pre_export - hw["hw_val_accuracy"])\n'
+         '                       if pre_export else None)\n'
+         '    hw["pre_export_val_accuracy"] = pre_export\n'
+         '\n'
+         '    # What the whole schedule bought, warmup best to deployed. Useful,\n'
+         '    # but it is a training-progress figure and not a conversion cost,\n'
+         '    # so it gets a name that says so.\n'
+         '    hw["end_to_end_gain"] = hw["hw_val_accuracy"] - float_best\n'),
         ("def run_training(cfg: dict, data_dir: str, device=None, report_fn=None, "
          "ckpt_path: str = None) -> float:",
          "def run_training(cfg: dict, data_dir: str = None, device=None, report_fn=None,\n"

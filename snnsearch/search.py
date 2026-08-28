@@ -312,8 +312,11 @@ def _make_trainable(cfg, out_dir):
             "val_accuracy": score,            # <- selection metric
             "hw_val_accuracy": hw,
             "float_val_accuracy": res.get("float_val_accuracy"),
+            "pre_export_val_accuracy": res.get("pre_export_val_accuracy"),
             "synops_per_sample": synops,
+            # what export cost, not what the schedule gained
             "quant_gap": res.get("quant_gap"),
+            "end_to_end_gain": res.get("end_to_end_gain"),
             "weight_clip_frac": res.get("weight_clip_frac"),
             "min_threshold": res.get("min_threshold"),
             "deployable": deployable,
