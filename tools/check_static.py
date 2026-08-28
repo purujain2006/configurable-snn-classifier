@@ -39,9 +39,12 @@ def py_files(root):
 
 def undefined_names():
     """Run pyflakes over the package. Absent pyflakes is reported, not fatal."""
+    # tools/ is included because it is code the user runs. Leaving it out let a
+    # bad edit ship: two functions inserted mid-function silently absorbed the
+    # rest of main(), and check_env.py died on a name that had been local to it.
+    targets = [PKG, os.path.join(ROOT, "main.py"), os.path.join(ROOT, "tools")]
     try:
-        out = subprocess.run([sys.executable, "-m", "pyflakes", PKG,
-                              os.path.join(ROOT, "main.py")],
+        out = subprocess.run([sys.executable, "-m", "pyflakes"] + targets,
                              capture_output=True, text=True, timeout=120)
     except Exception as exc:
         print(f"  pyflakes unavailable ({type(exc).__name__}); skipping.")

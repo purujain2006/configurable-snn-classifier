@@ -120,6 +120,8 @@ def main():
             line(OK if frames else WARN, "frame caches",
                  ", ".join(frames) if frames else "none yet (one per value of T)")
 
+    verdict(py_ok, torch_ok, sj, ray_ok, optuna_ok, hs)
+
 
 def required_dvs_files():
     """Ask spikingjelly which files it wants, rather than assuming.
@@ -173,7 +175,8 @@ def check_dvs_files(root, built):
         print("          https://ibm.ent.box.com/s/3hiq58ww1pbbjrinh367ykfdf60xsfm8")
         print(f"        and put them in {dl}")
 
-    # ---- verdict -----------------------------------------------------------
+
+def verdict(py_ok, torch_ok, sj, ray_ok, optuna_ok, hs):
     print("\n" + "=" * 74)
     modes = [
         ("summary", py_ok, "architecture table + feasibility, no GPU or dataset needed"),

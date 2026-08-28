@@ -340,7 +340,7 @@ def main(root):
 
     # ---- the ceiling ----
     hdr("THE CEILING REACHED")
-    print(f"  target                 : 0.975 (search_config)")
+    print("  target                 : 0.975 (search_config)")
     print(f"  best float accuracy    : {feas['val_accuracy'].max():.4f}")
     best = feas.nlargest(1, "val_accuracy").iloc[0]
     print(f"  best trial             : {best['trial_id']}  ({best['run']})")
