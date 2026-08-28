@@ -80,15 +80,28 @@ def validate_dvs_root(data_dir: str) -> str:
     if os.path.isdir(os.path.join(abs_dir, "extract")) or \
        os.path.isdir(os.path.join(abs_dir, "events_np")):
         return abs_dir                       # caches exist; the archive is spent
-    tarball = os.path.join(abs_dir, "download", "DvsGesture.tar.gz")
-    if not os.path.isfile(tarball):
+    # spikingjelly wants four files, not just the archive, and reports a missing
+    # one from deep inside the library as "does not exist or is corrupted". Ask
+    # it for the list rather than hard-coding a guess that will drift.
+    dl = os.path.join(abs_dir, "download")
+    try:
+        from spikingjelly.datasets.dvs128_gesture import DVS128Gesture
+        wanted = [r[0] for r in DVS128Gesture.resource_url_md5()]
+    except Exception:
+        wanted = ["DvsGesture.tar.gz"]
+
+    missing = [n for n in wanted if not os.path.isfile(os.path.join(dl, n))]
+    if missing:
         try:
-            found = ", ".join(sorted(os.listdir(abs_dir))[:12]) or "(empty)"
+            found = ", ".join(sorted(os.listdir(dl))) or "(empty)"
         except OSError:
-            found = "(unreadable)"
+            found = "(no download/ directory)"
         raise SystemExit(
-            f"dataset root exists but holds no dataset:\n    {abs_dir}\n\n"
-            f"  Expected:\n      {tarball}\n  Found instead: {found}\n\n"
-            "  IBM gates the download behind a form, so this cannot be fetched\n"
-            "  automatically. If your root is one level deeper, point at the inner one.")
+            f"dataset root is missing files spikingjelly requires:\n    {abs_dir}\n\n"
+            f"  Missing from download/: {', '.join(missing)}\n"
+            f"  Present:                {found}\n\n"
+            "  All of them come from the same Box folder, and IBM gates it behind\n"
+            "  a click-through, so none can be fetched automatically:\n"
+            "      https://ibm.ent.box.com/s/3hiq58ww1pbbjrinh367ykfdf60xsfm8\n\n"
+            "  If your root is one level deeper, point at the inner one.")
     return abs_dir

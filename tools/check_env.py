@@ -112,20 +112,66 @@ def main():
             line(BAD, "root", f"{root} does not exist")
         else:
             line(OK, "root", root)
-            tar = os.path.join(root, "download", "DvsGesture.tar.gz")
-            csvf = os.path.join(root, "download", "gesture_mapping.csv")
             built = [d for d in ("extract", "events_np") if os.path.isdir(os.path.join(root, d))]
             frames = sorted(d for d in os.listdir(root) if d.startswith("frames_number_"))
-            line(OK if os.path.isfile(tar) else (WARN if built else BAD), "DvsGesture.tar.gz",
-                 "present" if os.path.isfile(tar) else
-                 ("absent, but caches exist so it is no longer needed" if built else
-                  "absent -- download it manually, spikingjelly cannot fetch it"))
-            line(OK if os.path.isfile(csvf) else WARN, "gesture_mapping.csv",
-                 "present" if os.path.isfile(csvf) else "absent")
+            check_dvs_files(root, built)
             line(OK if built else WARN, "caches",
                  ", ".join(built) if built else "none yet; the first run builds them")
             line(OK if frames else WARN, "frame caches",
                  ", ".join(frames) if frames else "none yet (one per value of T)")
+
+
+def required_dvs_files():
+    """Ask spikingjelly which files it wants, rather than assuming.
+
+    The list is longer than the obvious two: spikingjelly also insists on
+    LICENSE.txt and README.txt, and verifies every file by md5. Hard-coding the
+    names here once produced a check that reported a dataset as ready when it
+    was not, and the real failure only appeared in a stack trace from inside the
+    library. Returns [(filename, md5), ...] or None when unavailable.
+    """
+    try:
+        from spikingjelly.datasets.dvs128_gesture import DVS128Gesture
+        return [(r[0], r[-1]) for r in DVS128Gesture.resource_url_md5()]
+    except Exception:
+        return None
+
+
+def check_dvs_files(root, built):
+    """Report each file spikingjelly requires, verifying md5 where cheap."""
+    import hashlib
+
+    dl = os.path.join(root, "download")
+    wanted = required_dvs_files()
+    if wanted is None:
+        line(WARN, "required files", "spikingjelly unavailable, cannot ask for the list")
+        return
+
+    missing = []
+    for name, md5 in wanted:
+        path = os.path.join(dl, name)
+        if not os.path.isfile(path):
+            missing.append(name)
+            line(WARN if built else BAD, name,
+                 "absent, but caches exist so it is no longer needed" if built
+                 else "absent -- spikingjelly checks for this one too")
+            continue
+        size = os.path.getsize(path)
+        # Only hash the small files. The archive is 2 GB and spikingjelly will
+        # verify it anyway; re-reading it here would add minutes to a check
+        # meant to take seconds.
+        if size < 8 << 20 and md5:
+            got = hashlib.md5(open(path, "rb").read()).hexdigest()
+            ok = got == md5
+            line(OK if ok else BAD, name,
+                 f"{size:,} B  md5 ok" if ok else f"{size:,} B  MD5 MISMATCH (re-download)")
+        else:
+            line(OK, name, f"{size:,} B  (md5 checked by spikingjelly on first use)")
+
+    if missing and not built:
+        print("\n        Download the missing files from the same Box folder:")
+        print("          https://ibm.ent.box.com/s/3hiq58ww1pbbjrinh367ykfdf60xsfm8")
+        print(f"        and put them in {dl}")
 
     # ---- verdict -----------------------------------------------------------
     print("\n" + "=" * 74)
