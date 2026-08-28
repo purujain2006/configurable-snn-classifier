@@ -42,28 +42,75 @@ class SynOpsCounter:
     """
 
     def __init__(self):
-        self.spikes = {}        # layer name -> total spikes emitted
-        self.calls = {}         # layer name -> forward calls (timesteps x batches)
+        self.ops = {}           # weight layer name -> accumulate operations
+        self.spikes = {}        # spiking layer name -> spikes emitted
+        self.calls = {}         # weight layer name -> forward calls
         self.samples = 0
         self._handles = []
 
     # ---- collection -----------------------------------------------------
     def attach(self, net):
-        """Hook every spiking layer. Returns self so it can be chained."""
+        """Hook the WEIGHT-BEARING layers, and the spiking ones for reporting.
+
+        The obvious approach counts spikes at each neuron and multiplies by a
+        fan-out looked up from the cost table. That pairs two lists by position,
+        and the moment the model gains a layer the table does not describe the
+        same way -- a fully-connected head, say -- the pairing slides and the
+        result can exceed the number of connections that exist. It did: a run
+        reported 73.2M SynOps against a hard ceiling of 44.9M.
+
+        So fan-out is no longer looked up. Each Conv2d and Linear knows its own
+        arithmetic, and at hook time its input tensor says how much of that
+        arithmetic a spike actually triggered. Nothing is paired, nothing can
+        slide, and the number cannot exceed the layer's own dense cost.
+        """
         from .neuron import HardwareLIFNode
+        try:
+            from torch import nn as _nn
+        except Exception:                     # pragma: no cover - torch absent
+            return self
         self.detach()
         for name, mod in net.named_modules():
-            if isinstance(mod, HardwareLIFNode):
+            if isinstance(mod, (_nn.Conv2d, _nn.Linear)):
                 self._handles.append(
-                    mod.register_forward_hook(self._make_hook(name)))
+                    mod.register_forward_hook(self._make_op_hook(name)))
+            elif isinstance(mod, HardwareLIFNode):
+                self._handles.append(
+                    mod.register_forward_hook(self._make_spike_hook(name)))
         return self
 
-    def _make_hook(self, name):
+    @staticmethod
+    def _dense_macs(mod, inp, out):
+        """Multiply-accumulates this layer performs on a fully dense input."""
+        from torch import nn as _nn
+        if isinstance(mod, _nn.Linear):
+            return out.numel() * mod.in_features
+        # Conv2d: one MAC per output element per weight in the kernel window.
+        kh, kw = mod.kernel_size
+        return out.numel() * (mod.in_channels // mod.groups) * kh * kw
+
+    def _make_op_hook(self, name):
+        def hook(mod, inp, out):
+            x = inp[0]
+            if x is None or x.numel() == 0:
+                return
+            with torch.no_grad():
+                dense = self._dense_macs(mod, x, out)
+                # The share of the dense arithmetic that a spike drove. Exact
+                # for binary input; for analog input (the `direct` coding at the
+                # first layer) it degrades to the mean activation, which is the
+                # conventional treatment.
+                active = float(x.sum().item()) / float(x.numel())
+                self.ops[name] = self.ops.get(name, 0.0) + active * dense
+                self.calls[name] = self.calls.get(name, 0) + 1
+        return hook
+
+    def _make_spike_hook(self, name):
         def hook(_mod, _inp, out):
-            # `out` is the spike tensor: exactly 0 or 1, so sum == spike count
+            # `out` is the spike tensor: exactly 0 or 1, so sum == spike count.
+            # Reported for the firing rate; it no longer feeds the SynOps total.
             with torch.no_grad():
                 self.spikes[name] = self.spikes.get(name, 0) + float(out.sum().item())
-                self.calls[name] = self.calls.get(name, 0) + 1
         return hook
 
     def detach(self):
@@ -79,6 +126,7 @@ class SynOpsCounter:
         return False
 
     def reset(self):
+        self.ops.clear()
         self.spikes.clear()
         self.calls.clear()
         self.samples = 0
@@ -88,30 +136,23 @@ class SynOpsCounter:
 
     # ---- reporting ------------------------------------------------------
     def summary(self, plan=None, cost_rows=None):
-        """SynOps per sample, plus the dense-equivalent comparison.
+        """SynOps per sample, the firing rate, and the dense-equivalent ratio.
 
-        `cost_rows` is the `rows` list from count_neurons_and_synapses, which
-        already carries per-layer connection counts. Fan-out per spiking layer
-        is taken from the NEXT layer's connection count divided by its input
-        neuron count, because that is what one spike actually drives.
+        `cost_rows` is only used for the dense comparison and the ceiling check
+        now. The SynOps total comes from what the weight layers were actually
+        asked to do, so it does not depend on the cost table being lined up
+        with the module list.
         """
         if not self.samples:
             return {"synops_per_sample": None, "reason": "no samples counted"}
 
+        synops = sum(self.ops.values())
         total_spikes = sum(self.spikes.values())
-        per_layer = {}
-        synops = 0.0
-
-        fanouts = self._fanouts(cost_rows)
-        for name, spikes in self.spikes.items():
-            fan = fanouts.get(name, 0)
-            ops = spikes * fan
-            synops += ops
-            per_layer[name] = {
-                "spikes_per_sample": spikes / self.samples,
-                "fan_out": fan,
-                "synops_per_sample": ops / self.samples,
-            }
+        per_layer = {name: {"synops_per_sample": ops / self.samples,
+                            "calls": self.calls.get(name, 0)}
+                     for name, ops in self.ops.items()}
+        for name, sp in self.spikes.items():
+            per_layer.setdefault(name, {})["spikes_per_sample"] = sp / self.samples
 
         out = {
             "samples": self.samples,
@@ -122,76 +163,25 @@ class SynOpsCounter:
 
         # An ANN of the same shape performs one multiply-accumulate per
         # connection per inference, whether or not anything was active.
-        if cost_rows is not None:
+        if cost_rows:
             dense = sum(r.get("connections", 0) for r in cost_rows)
             out["dense_macs_per_inference"] = dense
             if dense:
                 out["synops_over_dense"] = (synops / self.samples) / dense
+                # Every weight layer is driven once per pass, and no pass can
+                # accumulate more than the layer's dense cost. So the total
+                # cannot exceed dense x passes. Exceeding it is not a surprising
+                # measurement, it is a broken one, and a broken number that
+                # reaches a leaderboard gets quoted.
+                passes = max(self.calls.values()) if self.calls else 1
+                ceiling = dense * passes
+                if synops / self.samples > ceiling * 1.001:
+                    out["synops_per_sample"] = None
+                    out["reason"] = (
+                        f"impossible: {synops / self.samples:,.0f} SynOps/sample "
+                        f"exceeds the ceiling of {ceiling:,.0f} "
+                        f"({dense:,} connections x {passes} passes)")
         return out
-
-    def _fanouts(self, cost_rows):
-        """Spikes from layer i drive the connections of layer i+1.
-
-        Without the cost rows there is nothing to multiply by, so fan-out is
-        reported as zero and only raw spike counts are meaningful.
-        """
-        if not cost_rows:
-            return {}
-        conn = [r.get("connections", 0) for r in cost_rows if r.get("neurons", 0) > 0]
-        neur = [r.get("neurons", 0) for r in cost_rows if r.get("neurons", 0) > 0]
-        fan = []
-        for i in range(len(conn)):
-            nxt = conn[i + 1] if i + 1 < len(conn) else 0
-            fan.append(nxt / neur[i] if neur[i] else 0)
-        names = list(self.spikes.keys())
-        return {n: (fan[i] if i < len(fan) else 0) for i, n in enumerate(names)}
-
-
-def measure_synops(net, loader, device, spec=None, max_batches=None):
-    """Count SynOps per sample on the network that will actually deploy.
-
-    Measured after conversion rather than during training, because the float
-    network and the converted one do not fire identically: folding shifts every
-    threshold, and quantization moves weights onto the INT16 grid. The number
-    worth reporting is the one the chip would produce.
-
-    `max_batches` bounds the cost during a search. The spike rate settles within
-    a few hundred samples, so counting the whole validation set every trial buys
-    precision nobody reads.
-
-    Returns the summary dict, or a dict carrying `reason` when it could not
-    measure. Never raises: a missing SynOps figure should not lose a training
-    run that otherwise succeeded.
-    """
-    from .train import forward_over_time
-
-    try:
-        from .cost import count_neurons_and_synapses
-        cost_rows = count_neurons_and_synapses(spec)["rows"] if spec else None
-    except Exception as exc:                  # a plan that will not cost is not fatal
-        cost_rows = None
-        if spec is not None:
-            print(f"  synops: fan-out unavailable ({type(exc).__name__}), "
-                  "reporting spike counts only")
-
-    counter = SynOpsCounter()
-    was_training = net.training
-    net.eval()
-    try:
-        with counter.attach(net):
-            with torch.no_grad():
-                for i, batch in enumerate(loader):
-                    if max_batches is not None and i >= max_batches:
-                        break
-                    x = batch[0].to(device)
-                    forward_over_time(net, x)
-                    counter.add_samples(x.shape[0])
-    except Exception as exc:
-        return {"synops_per_sample": None, "reason": f"{type(exc).__name__}: {exc}"}
-    finally:
-        net.train(was_training)
-
-    return counter.summary(cost_rows=cost_rows)
 
 
 def score_with_energy(accuracy, synops, mode="accuracy",
