@@ -1,0 +1,32 @@
+==============================================================================
+DVS Gesture SNN -- architecture summary
+==============================================================================
+input        : 2x32x32  (native 128x128, resize_to=32), T=8, batch=16
+encoder      : uniform, depth=2 bias=False norm=bn
+downsample   : mode=pool pool=avg k=2 s=2
+head         : reduction=flatten fc_widths=[] dropout=0.2930800528888514
+neuron       : LIF leak=8 v_th=1.0 v_reset=0.0
+  -> hardware: LIF_neuron(threshold=32767, shift=0, leak=8)   [w_alpha=1, w_bits=16, weights clamped to +/-1]
+training     : adam lr=0.001214 wd=1.20752e-06 sched=onecycle epochs=40 label_smoothing=0.175544 grad_clip=5
+
+layer        shape / detail                                    neurons    connections       params
+--------------------------------------------------------------------------------------------------
+conv0        2x32x32 -> 64x32x32  k=7 s=1 p=3                   65,536      6,422,528        6,272
+bn0          BatchNorm2d(64)                                         0              0          128
+pool0        avg k=2 s=2 -> 64x16x16                                 0         65,536            0
+conv1        64x16x16 -> 64x16x16  k=7 s=1 p=3                  16,384     51,380,224      200,704
+bn1          BatchNorm2d(64)                                         0              0          128
+pool1        avg k=2 s=2 -> 64x8x8                                   0         16,384            0
+classifier   4096 -> 11                                             11         45,056       45,056
+--------------------------------------------------------------------------------------------------
+TOTAL                                                           81,931     57,929,728      252,288
+
+input axons             : 2,048  (limit 16,383)
+spiking neurons         : 81,931
+synaptic connections    : 57,929,728
+trainable parameters    : 252,288
+neuron updates / sample : 655,448  (81,931 x T=8)
+pipeline flush steps    : 3  (1 per spiking layer; the converter's post-input zero steps)
+
+HiAER-Spike feasibility : PASS
+==============================================================================

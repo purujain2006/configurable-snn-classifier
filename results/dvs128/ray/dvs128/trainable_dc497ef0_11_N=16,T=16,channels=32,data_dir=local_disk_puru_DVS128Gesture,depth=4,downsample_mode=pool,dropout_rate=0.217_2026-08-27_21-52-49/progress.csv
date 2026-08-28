@@ -1,0 +1,2 @@
+val_accuracy,float_val_accuracy,best_val_accuracy,phase,train_accuracy,train_loss,lr,epoch,timestamp,checkpoint_dir_name,done,training_iteration,trial_id,date,time_this_iter_s,time_total_s,pid,hostname,node_ip,time_since_restore,iterations_since_restore
+0.4659090909090909,0.4659090909090909,0.4659090909090909,float,0.3004032258064516,2.2371655664136334,0.004497581765690204,0,1787892792,,False,1,dc497ef0,2026-08-27_21-53-12,18.984278440475464,18.984278440475464,2321327,kilby,169.228.33.68,18.984278440475464,1

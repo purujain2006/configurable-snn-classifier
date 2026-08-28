@@ -1,0 +1,100 @@
+{
+  "trial_id": "a3ad22f6",
+  "hw_val_accuracy": 0.8125,
+  "float_val_accuracy": 0.7556818181818182,
+  "pre_export_val_accuracy": 0.8125,
+  "quant_gap": 0.0,
+  "end_to_end_gain": 0.05681818181818177,
+  "synops_per_sample": 36815947.61631945,
+  "weight_clip_frac": 0.0,
+  "min_threshold": 0.6137492656707764,
+  "flat_config": {
+    "depth": 2,
+    "channels": 64,
+    "kernel_size": 5,
+    "downsample_mode": "stride",
+    "stride": 2,
+    "resize_to": 32,
+    "T": 8,
+    "fc_layers": 0,
+    "tau": 8,
+    "trainable_tau": false,
+    "trainable_threshold": true,
+    "dropout_rate": 0.11473216359597341,
+    "norm": "tdbn",
+    "tdbn_alpha": 0.9452595328374586,
+    "label_smoothing": 0.17968678799921506,
+    "grad_clip": 1.0,
+    "optimizer": "adam",
+    "lr": 0.0007875709087552086,
+    "weight_decay": 2.4864966024528912e-05,
+    "scheduler": "none",
+    "N": 16,
+    "epochs": 40,
+    "pool_type": "avg",
+    "final_reduction": "flatten"
+  },
+  "config": {
+    "input": {
+      "N": 16,
+      "C": 2,
+      "H": 128,
+      "W": 128,
+      "T": 8,
+      "resize_to": 32
+    },
+    "encoder": {
+      "depth": 2,
+      "channels": 64,
+      "kernel_size": 5,
+      "stride": 2,
+      "padding": 0,
+      "dilation": 1,
+      "layers_json": "",
+      "bias": false,
+      "norm": "tdbn",
+      "tdbn_alpha": 0.9452595328374586
+    },
+    "output": {
+      "num_classes": 11
+    },
+    "downsample": {
+      "mode": "stride",
+      "pool_type": "avg",
+      "pool_kernel_size": 2,
+      "pool_stride": 2
+    },
+    "head": {
+      "final_reduction": "flatten",
+      "fc_widths": "",
+      "dropout_rate": 0.11473216359597341
+    },
+    "neuron": {
+      "neuron_type": "LIF",
+      "tau": 8,
+      "v_threshold": 1.0,
+      "v_reset": 0.0,
+      "trainable_tau": false,
+      "trainable_threshold": true
+    },
+    "train": {
+      "epochs": 40,
+      "optimizer": "adam",
+      "lr": 0.0007875709087552086,
+      "weight_decay": 2.4864966024528912e-05,
+      "momentum": 0.9,
+      "scheduler": "none",
+      "step_gamma": 0.2,
+      "warmup_epochs": 0,
+      "label_smoothing": 0.17968678799921506,
+      "grad_clip": 1.0,
+      "qat_mode": "inline",
+      "qat_warmup_frac": 0.25,
+      "qat_epochs": 4,
+      "qat_lr_scale": 0.5,
+      "fold_bias_mode": "threshold",
+      "fold_bias_margin": 0.05,
+      "fold_bias_qat_form": "threshold"
+    }
+  }
+}

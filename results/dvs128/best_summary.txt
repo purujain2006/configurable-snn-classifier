@@ -1,0 +1,30 @@
+==============================================================================
+DVS Gesture SNN -- architecture summary
+==============================================================================
+input        : 2x32x32  (native 128x128, resize_to=32), T=8, batch=16
+encoder      : uniform, depth=2 bias=False norm=tdbn tdbn_alpha=0.9452595328374586
+downsample   : mode=stride pool=avg k=2 s=2
+head         : reduction=flatten fc_widths=[] dropout=0.11473216359597341
+neuron       : LIF leak=8 v_th=learned in (0,1] v_reset=0.0
+  -> hardware: LIF_neuron(threshold=32767, shift=0, leak=8)   [w_alpha=1, w_bits=16, weights clamped to +/-1]
+training     : adam lr=0.000787571 wd=2.4865e-05 sched=none epochs=40 label_smoothing=0.179687 grad_clip=1
+
+layer        shape / detail                                    neurons    connections       params
+--------------------------------------------------------------------------------------------------
+conv0        2x32x32 -> 64x14x14  k=5 s=2 p=0                   12,544        627,200        3,200
+tdbn0        tdBN(64) over (T,N,H,W)                                 0              0          128
+conv1        64x14x14 -> 64x5x5  k=5 s=2 p=0                     1,600      2,560,000      102,400
+tdbn1        tdBN(64) over (T,N,H,W)                                 0              0          128
+classifier   1600 -> 11                                             11         17,600       17,600
+--------------------------------------------------------------------------------------------------
+TOTAL                                                           14,155      3,204,800      123,456
+
+input axons             : 2,048  (limit 16,383)
+spiking neurons         : 14,155
+synaptic connections    : 3,204,800
+trainable parameters    : 123,456
+neuron updates / sample : 113,240  (14,155 x T=8)
+pipeline flush steps    : 3  (1 per spiking layer; the converter's post-input zero steps)
+
+HiAER-Spike feasibility : PASS
+==============================================================================

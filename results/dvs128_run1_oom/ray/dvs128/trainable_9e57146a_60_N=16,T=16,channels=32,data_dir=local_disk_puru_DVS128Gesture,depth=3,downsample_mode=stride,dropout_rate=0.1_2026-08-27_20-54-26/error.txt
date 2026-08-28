@@ -1,0 +1,45 @@
+Failure # 1 (occurred at 2026-08-27_20-54-35)
+[36mray::ImplicitFunc.train()[39m (pid=2094310, ip=169.228.33.68, actor_id=c43a4050e60b65efa81b593001000000, repr=trainable)
+  File "/local_disk/puru/miniconda3/envs/myenv/lib/python3.9/site-packages/ray/tune/trainable/trainable.py", line 331, in train
+    raise skipped from exception_cause(skipped)
+  File "/local_disk/puru/miniconda3/envs/myenv/lib/python3.9/site-packages/ray/air/_internal/util.py", line 107, in run
+    self._ret = self._target(*self._args, **self._kwargs)
+  File "/local_disk/puru/miniconda3/envs/myenv/lib/python3.9/site-packages/ray/tune/trainable/function_trainable.py", line 44, in <lambda>
+    training_func=lambda: self._trainable_func(self.config),
+  File "/local_disk/puru/miniconda3/envs/myenv/lib/python3.9/site-packages/ray/tune/trainable/function_trainable.py", line 249, in _trainable_func
+    output = fn()
+  File "/Volumes/export/isn/puru/myprojects/configurable-snn-classifier/snnsearch/search.py", line 242, in trainable
+    res = run_training(spec, loaders=loaders, report_fn=report_fn)
+  File "/Volumes/export/isn/puru/myprojects/configurable-snn-classifier/snnsearch/train.py", line 211, in run_training
+    best, best_state = run_phase(net, optimizer, scheduler, step_per_batch,
+  File "/Volumes/export/isn/puru/myprojects/configurable-snn-classifier/snnsearch/train.py", line 191, in run_phase
+    train_loss, train_acc = train_one_epoch(
+  File "/Volumes/export/isn/puru/myprojects/configurable-snn-classifier/snnsearch/train.py", line 131, in train_one_epoch
+    out = forward_over_time(net, x)
+  File "/Volumes/export/isn/puru/myprojects/configurable-snn-classifier/snnsearch/train.py", line 107, in forward_over_time
+    out = net(x).sum(0) / T
+  File "/local_disk/puru/miniconda3/envs/myenv/lib/python3.9/site-packages/torch/nn/modules/module.py", line 1736, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+  File "/local_disk/puru/miniconda3/envs/myenv/lib/python3.9/site-packages/torch/nn/modules/module.py", line 1747, in _call_impl
+    return forward_call(*args, **kwargs)
+  File "/Volumes/export/isn/puru/myprojects/configurable-snn-classifier/snnsearch/model.py", line 101, in forward
+    return self.conv_fc(x)
+  File "/local_disk/puru/miniconda3/envs/myenv/lib/python3.9/site-packages/torch/nn/modules/module.py", line 1736, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+  File "/local_disk/puru/miniconda3/envs/myenv/lib/python3.9/site-packages/torch/nn/modules/module.py", line 1747, in _call_impl
+    return forward_call(*args, **kwargs)
+  File "/local_disk/puru/miniconda3/envs/myenv/lib/python3.9/site-packages/torch/nn/modules/container.py", line 250, in forward
+    input = module(input)
+  File "/local_disk/puru/miniconda3/envs/myenv/lib/python3.9/site-packages/torch/nn/modules/module.py", line 1736, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+  File "/local_disk/puru/miniconda3/envs/myenv/lib/python3.9/site-packages/torch/nn/modules/module.py", line 1747, in _call_impl
+    return forward_call(*args, **kwargs)
+  File "/local_disk/puru/miniconda3/envs/myenv/lib/python3.9/site-packages/spikingjelly/activation_based/layer.py", line 465, in forward
+    return functional.seq_to_ann_forward(x, super().forward)
+  File "/local_disk/puru/miniconda3/envs/myenv/lib/python3.9/site-packages/spikingjelly/activation_based/functional.py", line 686, in seq_to_ann_forward
+    y = stateless_module(y)
+  File "/local_disk/puru/miniconda3/envs/myenv/lib/python3.9/site-packages/torch/nn/modules/batchnorm.py", line 193, in forward
+    return F.batch_norm(
+  File "/local_disk/puru/miniconda3/envs/myenv/lib/python3.9/site-packages/torch/nn/functional.py", line 2812, in batch_norm
+    return torch.batch_norm(
+torch.OutOfMemoryError: CUDA out of memory. Tried to allocate 38.00 MiB. GPU 0 has a total capacity of 44.42 GiB of which 18.62 MiB is free. Process 2054178 has 1.57 GiB memory in use. Process 2055436 has 1.42 GiB memory in use. Process 2055642 has 1.32 GiB memory in use. Process 2056648 has 3.62 GiB memory in use. Process 2057649 has 2.83 GiB memory in use. Process 2059679 has 2.31 GiB memory in use. Process 2063299 has 1.40 GiB memory in use. Process 2063923 has 1.30 GiB memory in use. Process 2066140 has 3.24 GiB memory in use. Process 2066597 has 1022.00 MiB memory in use. Process 2067943 has 2.17 GiB memory in use. Process 2070713 has 1.80 GiB memory in use. Process 2070901 has 2.42 GiB memory in use. Process 2071894 has 2.84 GiB memory in use. Process 2073026 has 926.00 MiB memory in use. Process 2074026 has 3.44 GiB memory in use. Process 2075021 has 938.00 MiB memory in use. Process 2076036 has 726.00 MiB memory in use. Process 2077030 has 902.00 MiB memory in use. Process 2078039 has 878.00 MiB memory in use. Process 2079468 has 988.00 MiB memory in use. Process 2082816 has 1.06 GiB memory in use. Process 2087251 has 978.00 MiB memory in use. Process 2088845 has 1022.00 MiB memory in use. Process 2092533 has 974.00 MiB memory in use. Process 2092738 has 938.00 MiB memory in use. Process 2093253 has 894.00 MiB memory in use. Including non-PyTorch memory, this process has 556.00 MiB memory in use. Process 2095323 has 24.00 MiB memory in use. Of the allocated memory 56.52 MiB is allocated by PyTorch, and 3.48 MiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://pytorch.org/docs/stable/notes/cuda.html#environment-variables)
