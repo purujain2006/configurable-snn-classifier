@@ -186,16 +186,32 @@ def load_flat_config(path):
     return flat
 
 
-def run_single(cfg, ckpt="best.pth", from_best=None):
-    """Train one configuration, then fold, quantize and audit it."""
+def run_single(cfg, ckpt="best.pth", from_best=None, epochs=None):
+    """Train one configuration, then fold, quantize and audit it.
+
+    `epochs` overrides whatever the config or the replayed trial says. The
+    search runs a short budget so that hundreds of trials fit in an evening;
+    that budget is a property of the search, not of the network, and the final
+    run of a chosen configuration usually wants a longer one.
+    """
     from .train import run_training
 
     flat = load_flat_config(from_best) if from_best else None
     bundle, encoder, loaders, spec = prepare(cfg, flat_config=flat)
     out = results_dir(cfg)
-    # A replayed trial brings its own epoch count; do not overwrite it.
+    # A replayed trial brings its own epoch count; an explicit flag still wins.
     if flat is None:
         runconfig.apply_train_overrides(cfg, spec["train"])
+    if epochs:
+        was = spec["train"].epochs
+        spec["train"].epochs = int(epochs)
+        # Both the LR schedule and the float/grid split are defined as
+        # fractions of the budget, so this lengthens the schedule rather than
+        # appending to it. cosine now decays to zero at the new end, and the
+        # quantization-aware phase grows with it.
+        warm = max(1, round(epochs * spec["train"].qat_warmup_frac))
+        print(f"epochs    : {was} -> {epochs}  "
+              f"({warm} float warmup, {epochs - warm} on the quantized grid)")
 
     t0 = time.time()
     res = run_training(spec, loaders=loaders, ckpt_path=os.path.join(out, ckpt))

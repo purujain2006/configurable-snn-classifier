@@ -118,7 +118,8 @@ def main(argv=None):
     if args.mode == "single":
         from .pipeline import run_single
         return run_single(cfg, ckpt=args.ckpt,
-                          from_best=getattr(args, "from_best", None))
+                          from_best=getattr(args, "from_best", None),
+                          epochs=getattr(args, "epochs", None))
 
     if args.mode == "search":
         from .pipeline import run_search_mode
