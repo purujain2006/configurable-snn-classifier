@@ -1,9 +1,0 @@
-{
-  "trials_completed": 134,
-  "infeasible_reports": 16,
-  "stopped_early_by_scheduler": 0,
-  "best_hw_val_accuracy": 0.8920454545454546,
-  "best_trial": "197ea54d",
-  "target": 0.975,
-  "target_reached": false
-}
