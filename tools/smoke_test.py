@@ -88,9 +88,12 @@ def main():
                 f"-> {len(tr)}/{len(va)}/{len(te)} batches")
 
     def one_batch():
-        x, y = next(iter(state["loaders"][0]))[:2]
-        assert x.ndim == 5, f"expected (T,N,C,H,W), got {tuple(x.shape)}"
-        assert x.shape[0] == 2, f"time axis should be T=2, got {x.shape[0]}"
+        # Three values, always. forward_over_time documents its input as
+        # (N, T, C, H, W) and transposes internally, so time sits at dim 1.
+        x, y, lengths = next(iter(state["loaders"][0]))
+        assert x.ndim == 5, f"expected (N,T,C,H,W), got {tuple(x.shape)}"
+        assert x.shape[1] == 2, f"time axis should be T=2, got {x.shape[1]}"
+        assert len(lengths) == x.shape[0], "lengths must have one entry per sample"
         return f"batch {tuple(x.shape)}  labels {tuple(y.shape)}"
 
     def model():
@@ -101,15 +104,18 @@ def main():
         return f"{n:,} parameters"
 
     def forward():
+        import torch
         from snnsearch.train import forward_over_time
         from snnsearch._torch import functional
-        x, y = next(iter(state["loaders"][0]))[:2]
+        x, y, _lengths = next(iter(state["loaders"][0]))
         net = state["net"].eval()
         functional.reset_net(net)
-        with __import__("torch").no_grad():
+        with torch.no_grad():
             o = forward_over_time(net, x)
-        assert o.shape == (x.shape[1], state["bundle"].num_classes), \
+        # x is (N, T, C, H, W), so N is dim 0. Time is summed away.
+        assert o.shape == (x.shape[0], state["bundle"].num_classes), \
             f"logits should be (N, classes), got {tuple(o.shape)}"
+        assert torch.isfinite(o).all(), "logits contain NaN or inf"
         return f"logits {tuple(o.shape)}"
 
     def full_run():

@@ -62,14 +62,25 @@ def _make_collate(bundle, encoder):
     in length. Static datasets use the default. Either way the encoder runs
     once per batch on the assembled tensor, which is where it belongs: doing it
     per-sample would repeat the same work T times.
+
+    ALWAYS RETURNS THREE VALUES.  The training loop, the evaluator and the fold
+    verifier all read `for x, y, lengths in loader`, because they were written
+    when the only dataset was DVS128 and pad_sequence_collate always supplied a
+    length. Returning a pair here works for event data and raises
+    "not enough values to unpack" on every static dataset. Padding the third
+    slot in one place beats editing three consumers, and keeps `lengths`
+    meaningful: real per-clip lengths when the dataset supplies them, and a
+    constant T when every sample genuinely has the same length.
     """
     base = bundle.collate_fn
 
     def collate(items):
+        lengths = None
         if base is not None:
             out = base(items)
-            # pad_sequence_collate returns (x, y, lengths)
             x, y = out[0], out[1]
+            if len(out) > 2:
+                lengths = out[2]
         else:
             xs, ys = zip(*items)
             x = torch.stack([_as_tensor(v) for v in xs])
@@ -77,7 +88,12 @@ def _make_collate(bundle, encoder):
         x = x.float()
         if encoder is not None:
             x = encoder(x)
-        return x, y
+        if lengths is None:
+            # x is (N, T, C, H, W) after encoding; before it, static input has
+            # no time axis at all and every sample is one step long.
+            T = x.shape[1] if x.dim() == 5 else 1
+            lengths = torch.full((x.shape[0],), T, dtype=torch.long)
+        return x, y, lengths
 
     return collate
 
