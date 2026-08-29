@@ -135,8 +135,8 @@ class DefineByRunSpace:
         if per_layer:
             # independent geometry per layer
             for i in range(depth):
-                trial.suggest_categorical(f"k_{i}", KERNEL_CHOICES)
-                trial.suggest_categorical(f"ch_{i}", CHANNEL_CHOICES)
+                trial.suggest_int(f"k_{i}", 3, 9, step=2)
+                trial.suggest_int(f"ch_{i}", 8, 128, log=True)
                 # each layer independently: downsample by stride-2, by pooling,
                 # or not at all (stride 1, no pool -> size-preserving).
                 # each layer independently: downsample by stride-2, by pooling,
@@ -148,8 +148,13 @@ class DefineByRunSpace:
                 elif ds == "pool":
                     trial.suggest_int(f"pool_{i}", 1, 1)
         else:
-            trial.suggest_categorical("channels", CHANNEL_CHOICES)
-            trial.suggest_categorical("kernel_size", KERNEL_CHOICES)
+            # log scale: the useful range spans 8 to 128 and the
+            # interesting differences are multiplicative. The paper
+            # reached its best with 6 and 16, which the old floor of 32
+            # excluded outright.
+            trial.suggest_int("channels", 8, 128, log=True)
+            # odd sizes only, so padding stays symmetric.
+            trial.suggest_int("kernel_size", 3, 9, step=2)
             mode = trial.suggest_categorical("downsample_mode", ["stride", "pool"])
             if mode == "stride":
                 # stride=1 never downsamples -> the flatten explodes and the
@@ -159,7 +164,9 @@ class DefineByRunSpace:
 
         # resize_to=0 (native 128x128) is omitted: 128*128*2 = 32,768 axons is
         # over the 16,383 limit, so it could never pass feasibility.
-        trial.suggest_categorical("resize_to", [32, 64])
+        # step=8 keeps the conv arithmetic on friendly sizes; 88 is the
+        # largest multiple of 8 under the axon limit (15,488 of 16,383).
+        trial.suggest_int("resize_to", 24, 88, step=8)
         trial.suggest_categorical("T", t_choices)
 
         # ---- head: GAP vs flatten, then variable-depth FC ----

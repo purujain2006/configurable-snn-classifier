@@ -47,6 +47,39 @@ PATCHES = {
          "    qat_schedule_epochs: Optional[int] = None\n"
          "    qat_scheduler: Optional[str] = None   # None = same as the float phase\n"),
     ],
+    "spaces.py": [
+        # resize_to and channels were two-value categoricals, which is not a
+        # search, it is an A/B test. Worse, the paper's best DVS model lives
+        # outside both: C(6)->C(16) at 90x90, meaning FEW channels at HIGH
+        # resolution, while the space only offered many channels at low
+        # resolution. It could not have found that model.
+        #
+        # 90x90 is legal: 2*90*90 = 16,200 axons against a 16,383 limit. The
+        # ceiling of 64 was never a hardware constraint.
+        #
+        # suggest_int rather than suggest_categorical, because these are
+        # ORDERED. TPE models a categorical as a set of unrelated labels, so
+        # learning "larger helped" tells it nothing about the value it has not
+        # tried yet. As an int it interpolates, which is how a search over 9
+        # sizes costs barely more than a search over 2.
+        ('        trial.suggest_categorical("resize_to", [32, 64])\n',
+         '        # step=8 keeps the conv arithmetic on friendly sizes; 88 is the\n'
+         '        # largest multiple of 8 under the axon limit (15,488 of 16,383).\n'
+         '        trial.suggest_int("resize_to", 24, 88, step=8)\n'),
+        ('            trial.suggest_categorical("channels", CHANNEL_CHOICES)\n',
+         '            # log scale: the useful range spans 8 to 128 and the\n'
+         '            # interesting differences are multiplicative. The paper\n'
+         '            # reached its best with 6 and 16, which the old floor of 32\n'
+         '            # excluded outright.\n'
+         '            trial.suggest_int("channels", 8, 128, log=True)\n'),
+        ('                trial.suggest_categorical(f"ch_{i}", CHANNEL_CHOICES)\n',
+         '                trial.suggest_int(f"ch_{i}", 8, 128, log=True)\n'),
+        ('                trial.suggest_categorical(f"k_{i}", KERNEL_CHOICES)\n',
+         '                trial.suggest_int(f"k_{i}", 3, 9, step=2)\n'),
+        ('            trial.suggest_categorical("kernel_size", KERNEL_CHOICES)\n',
+         '            # odd sizes only, so padding stays symmetric.\n'
+         '            trial.suggest_int("kernel_size", 3, 9, step=2)\n'),
+    ],
     "model.py": [
         ("        enable_weight_fake_quant(self)\n",
          "        # local import: quantize -> folding -> model, so a module-level\n"
