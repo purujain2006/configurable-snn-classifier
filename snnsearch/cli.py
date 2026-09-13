@@ -119,7 +119,9 @@ def main(argv=None):
         from .pipeline import run_single
         return run_single(cfg, ckpt=args.ckpt,
                           from_best=getattr(args, "from_best", None),
-                          epochs=getattr(args, "epochs", None))
+                          epochs=getattr(args, "epochs", None),
+                          input_overrides={"T": getattr(args, "T", None),
+                                           "resize_to": getattr(args, "resize_to", None)})
 
     if args.mode == "search":
         from .pipeline import run_search_mode
@@ -148,10 +150,14 @@ def _summary(cfg, args):
 
     flat = load_flat_config(args.from_best) if getattr(args, "from_best", None) else None
     if flat:
-        spec = specs_from_flat(flat, batch_size=cfg["search"].get("batch_size", 16))
-        # Same reason as pipeline.prepare: the trial owns T and resize_to.
-        enc = dict(enc, T=int(flat.get("T", enc.get("T", 16))),
-                   resize_to=flat.get("resize_to", enc.get("resize_to")))
+        # Match single: explicit flags, then recorded values, then the file.
+        enc = dict(enc)
+        for key in ("T", "resize_to"):
+            if getattr(args, key, None) is None and flat.get(key) is not None:
+                enc[key] = flat[key]
+        spec = specs_from_flat({**flat, "T": enc.get("T", 16),
+                                "resize_to": enc.get("resize_to") or 0},
+                               batch_size=cfg["search"].get("batch_size", 16))
     else:
         arch = cfg.get("architecture") or {}
         enc_over = dict(arch.get("encoder") or {})

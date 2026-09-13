@@ -49,7 +49,7 @@ DEFAULTS = {
         # more values here searches over them, which needs a frame cache per
         # value: building those lazily inside parallel trials has several
         # processes decoding the same events into the same directory. Build
-        # them first with tools/build_cache.py.
+        # them sequentially before Ray starts (or with tools/build_cache.py).
         "T_choices": None,
     },
     "objective": {

@@ -48,6 +48,15 @@ PATCHES = {
          "    qat_scheduler: Optional[str] = None   # None = same as the float phase\n"),
     ],
     "spaces.py": [
+        ('# NARROWED to the regions the statistics said matter:\n'
+         '#   channels: 128/256 were the dominant INFEASIBILITY driver (chi-square p=6e-4,\n'
+         "#     Cramer's V=0.59: 32ch 88% feasible, 128ch 14%) and never beat 32/64 on\n"
+         '#     accuracy. Dropped.\n'
+         '#   kernel: every top-10 model used k5 or k7; k3 dropped.\n',
+         '# Historical categorical choices, retained for callers that import them.\n'
+         '# The active space below samples channels from 8 through 128 on a log\n'
+         '# scale and odd kernels from 3 through 9. These lists no longer define\n'
+         '# the sampling ranges; the earlier narrowing used a fixed resolution.\n'),
         # resize_to and channels were two-value categoricals, which is not a
         # search, it is an A/B test. Worse, the paper's best DVS model lives
         # outside both: C(6)->C(16) at 90x90, meaning FEW channels at HIGH
@@ -76,6 +85,31 @@ PATCHES = {
          '                trial.suggest_int(f"ch_{i}", 8, 128, log=True)\n'),
         ('                trial.suggest_categorical(f"k_{i}", KERNEL_CHOICES)\n',
          '                trial.suggest_int(f"k_{i}", 3, 9, step=2)\n'),
+        # GAP was pinned off because it "cost about 40 points". That verdict
+        # was reached when resize_to never varied, so it compared GAP against
+        # flatten at ONE resolution and nowhere else.
+        #
+        # It has to come back, because pinning flatten makes the widened resize
+        # range unusable. Flatten sends H*W*C into the first FC layer, so
+        # resolution drives the fan-in directly: the current winner's shape
+        # busts the 8,159 limit above 56, and most of the 24-to-88 range would
+        # be rejected before training. GAP collapses H*W first, so the fan-in
+        # is just the channel count at any resolution.
+        #
+        # Searching it costs one binary dimension and is the only way the high
+        # resolutions are reachable at all.
+        ('        # final_reduction fixed to flatten (set in the constants below): every\n'
+         '        # top model used it, and GAP historically cost ~40 pts on this task.\n',
+         '        # final_reduction is searched again, at the bottom of this function. The\n'
+         '        # old "GAP costs ~40 points" result was measured when resolution never\n'
+         "        # varied, and flatten's fan-in is exactly what makes high resolution\n"
+         '        # infeasible, so the two have to be compared across resolutions.\n'),
+        ('        # final_reduction pinned here (not searched) -- see the head note above.\n'
+         '        return {"N": batch_size, "epochs": epochs, "data_dir": data_dir_abs,\n'
+         '                "pool_type": "avg", "final_reduction": "flatten"}\n',
+         '        trial.suggest_categorical("final_reduction", ["flatten", "gap"])\n'
+         '        return {"N": batch_size, "epochs": epochs, "data_dir": data_dir_abs,\n'
+         '                "pool_type": "avg"}\n'),
         ('            trial.suggest_categorical("kernel_size", KERNEL_CHOICES)\n',
          '            # odd sizes only, so padding stays symmetric.\n'
          '            trial.suggest_int("kernel_size", 3, 9, step=2)\n'),

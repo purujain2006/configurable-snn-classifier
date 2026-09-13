@@ -54,39 +54,59 @@ def specs_from_flat(flat, batch_size=None):
     return config_to_specs(flat)
 
 
-def prepare(cfg, flat_config=None):
-    """Resolve a run config into (bundle, encoder, loaders, spec dict).
+def resolve_specs(cfg, flat_config=None, quiet=False):
+    """Resolve a run config into (bundle, encoder, spec dict). No loaders yet.
 
-    `flat_config`, when given, supplies the architecture: it is a trial config
-    as recorded in best.json, replayed through the same code the search used.
+    `flat_config`, when given, supplies the architecture AND the input shape: it
+    is a trial config, either one recorded in best.json or the one Optuna just
+    sampled. Both callers go through here, which is the point.
+
+    SEPARATE FROM LOADER CONSTRUCTION because the connection-limit check needs
+    the final input spec and should run before anything expensive. Checking it
+    against a T and resize_to that the loaders then contradict validates a
+    network nobody trains.
     """
     _require_torch()
     enc_cfg = cfg["encoding"]
 
-    bundle = build_dataset(cfg["dataset"])
-    print(f"dataset   : {json.dumps(bundle.describe(), default=str)}")
-
-    # T and resize_to belong to the trial when one is being replayed. The
-    # search samples them, so reading them from the config file instead would
-    # rebuild the winning architecture at the wrong input size and time depth,
-    # which is a different network wearing the winner's name.
-    T = int(flat_config["T"]) if flat_config and "T" in flat_config \
-        else enc_cfg.get("T", 16)
-    resize = (flat_config.get("resize_to") if flat_config
-              else enc_cfg.get("resize_to"))
+    # T and resize_to belong to the trial whenever there is one. The search
+    # samples them, so reading them from the config file instead builds the
+    # architecture at the wrong input size and time depth, which is a different
+    # network wearing the trial's name.
+    # A trial that did not sample one of them falls back to the file, rather
+    # than to nothing: an absent resize_to means native resolution, which on
+    # DVS128 is 128x128 and twice the axon limit.
+    flat = flat_config or {}
+    T = int(flat["T"]) if flat.get("T") else int(enc_cfg.get("T", 16))
+    resize = flat["resize_to"] if flat.get("resize_to") is not None \
+        else enc_cfg.get("resize_to")
     batch = cfg["search"].get("batch_size", 16)
+
+    # T reaches the DATASET, not only the encoder. Event data is cached as a
+    # fixed number of frames per clip, so the frame count is decided when the
+    # dataset is built. Passing it only to the encoder leaves every run on
+    # whichever cache the dataset defaults to, and the sampled T becomes a label
+    # on a run that ignored it.
+    bundle = build_dataset({**cfg["dataset"], "T": T})
+    if not quiet:
+        print(f"dataset   : {json.dumps(bundle.describe(), default=str)}")
 
     # Event data passes through; static data needs a coding to gain a time axis.
     coding = enc_cfg.get("coding") or ("passthrough" if bundle.is_event else "direct")
-    encoder = build_encoder(coding, T=T, resize_to=resize)
-    print(f"encoding  : {json.dumps(encoder.describe(), default=str)}")
+    encoder = build_encoder(coding, T=T, resize_to=resize or None)
+    if not quiet:
+        print(f"encoding  : {json.dumps(encoder.describe(), default=str)}")
 
     if flat_config:
-        # Replaying a trial: the flat config already fixes the architecture,
-        # every neuron parameter and the whole training schedule.
-        spec = specs_from_flat(flat_config, batch_size=batch)
-        print(f"architecture: replayed from a trial config "
-              f"({len(flat_config)} fields)")
+        # The flat config already fixes the architecture, every neuron
+        # parameter and the whole training schedule.
+        # The flat builder requires both input keys even when this trial did
+        # not sample them (or a replay removed them for a CLI override).
+        spec = specs_from_flat({**flat_config, "T": T, "resize_to": resize or 0},
+                               batch_size=batch)
+        if not quiet:
+            print(f"architecture: replayed from a trial config "
+                  f"({len(flat_config)} fields)")
     else:
         arch = cfg.get("architecture") or {}
         spec = {
@@ -98,20 +118,36 @@ def prepare(cfg, flat_config=None):
             "train": apply_overrides(TrainSpec(), cfg.get("train"), "train"),
         }
 
-    # The dataset decides the input shape and the class count, whatever the
-    # architecture says, because those are facts about the data.
+    # The dataset decides the channel count and the class count, because those
+    # are facts about the data. T and resize_to are not: they are choices, and
+    # they belong to whoever made them.
     spec["input"] = InputSpec(C=bundle.C, H=bundle.H, W=bundle.W,
                               T=T, resize_to=resize or 0, N=batch)
     spec["output"] = OutputSpec(num_classes=bundle.num_classes)
+    return bundle, encoder, spec
+
+
+def make_loaders(cfg, bundle, encoder, spec, quiet=False):
+    """Build the three dataloaders for an already-resolved spec."""
+    workers = cfg["search"].get("num_workers", 0)
     loaders = build_dataloaders(bundle, batch_size=spec["input"].N, encoder=encoder,
-                                num_workers=cfg["search"].get("num_workers", 0),
+                                num_workers=workers,
                                 seed=cfg["run"].get("seed", 1))
     # A trial and its replay must see the same number of gradient steps per
     # epoch. If these differ the two are not the same experiment, whatever the
     # configs say, and comparing their curves is meaningless.
-    print(f"loaders   : {len(loaders[0])} train / {len(loaders[1])} val / "
-          f"{len(loaders[2])} test batches, batch={spec['input'].N}, "
-          f"workers={cfg['search'].get('num_workers', 0)}")
+    if not quiet:
+        print(f"loaders   : {len(loaders[0])} train / {len(loaders[1])} val / "
+              f"{len(loaders[2])} test batches, batch={spec['input'].N}, "
+              f"T={spec['input'].T}, resize={spec['input'].resize_to or 'none'}, "
+              f"workers={workers}")
+    return loaders
+
+
+def prepare(cfg, flat_config=None):
+    """Resolve a run config into (bundle, encoder, loaders, spec dict)."""
+    bundle, encoder, spec = resolve_specs(cfg, flat_config)
+    loaders = make_loaders(cfg, bundle, encoder, spec)
     return bundle, encoder, loaders, spec
 
 
@@ -192,17 +228,31 @@ def load_flat_config(path):
     return flat
 
 
-def run_single(cfg, ckpt="best.pth", from_best=None, epochs=None):
+def run_single(cfg, ckpt="best.pth", from_best=None, epochs=None,
+               input_overrides=None):
     """Train one configuration, then fold, quantize and audit it.
 
     `epochs` overrides whatever the config or the replayed trial says. The
     search runs a short budget so that hundreds of trials fit in an evening;
     that budget is a property of the search, not of the network, and the final
     run of a chosen configuration usually wants a longer one.
+
+    `input_overrides` holds T and resize_to when they were typed on the command
+    line, and they beat the replayed trial. A record can be wrong about what its
+    run actually did, and reproducing the run then means contradicting the
+    record on purpose, so that has to be expressible.
     """
     from .train import run_training
 
     flat = load_flat_config(from_best) if from_best else None
+    for key, val in (input_overrides or {}).items():
+        if val is None or not flat:
+            continue
+        if flat.pop(key, None) is not None:
+            # cfg["encoding"] already carries the typed value, so dropping the
+            # recorded one lets it through.
+            print(f"override  : {key}={val} from the command line, "
+                  f"replacing the value recorded in {os.path.basename(from_best)}")
     bundle, encoder, loaders, spec = prepare(cfg, flat_config=flat)
     out = results_dir(cfg)
     # A replayed trial brings its own epoch count; an explicit flag still wins.

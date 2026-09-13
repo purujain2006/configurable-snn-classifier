@@ -28,11 +28,13 @@ WHY IT IS WORTH REPORTING ANYWAY
     many multiply-accumulates an ANN of the same shape would have performed.
 """
 
-from ._torch import _HAS_TORCH, torch
+import math
+
+from ._torch import torch
 
 
 class SynOpsCounter:
-    """Accumulates spike counts per spiking layer during a forward pass.
+    """Accumulates input-driven operations at each weight layer.
 
     Attach with `attach(net)`, run evaluation, then read `.summary(plan)`.
     Hooks are removed by `detach()`; the context-manager form does both.
@@ -43,7 +45,9 @@ class SynOpsCounter:
 
     def __init__(self):
         self.ops = {}           # weight layer name -> accumulate operations
+        self.dense_macs = {}    # weight layer name -> dense MACs over all calls
         self.spikes = {}        # spiking layer name -> spikes emitted
+        self.spike_elements = {}  # spiking layer name -> neuron-timesteps
         self.calls = {}         # weight layer name -> forward calls
         self.samples = 0
         self._handles = []
@@ -97,11 +101,16 @@ class SynOpsCounter:
             with torch.no_grad():
                 dense = self._dense_macs(mod, x, out)
                 # The share of the dense arithmetic that a spike drove. Exact
-                # for binary input; for analog input (the `direct` coding at the
-                # first layer) it degrades to the mean activation, which is the
-                # conventional treatment.
-                active = float(x.sum().item()) / float(x.numel())
+                # for Linear with binary input; Conv2d uses a mean-activity
+                # estimate (padding and stride can vary a spike's fan-out).
+                # Fractional inputs, including average pooling, retain their
+                # activity rather than being rounded to binary spikes.
+                active = float(x.sum(dtype=torch.float64).item()) / float(x.numel())
                 self.ops[name] = self.ops.get(name, 0.0) + active * dense
+                # Count the actual tensor shape on EVERY invocation. This
+                # includes the batch/time axes in multi-step mode and handles
+                # uneven final batches without confusing calls with timesteps.
+                self.dense_macs[name] = self.dense_macs.get(name, 0) + dense
                 self.calls[name] = self.calls.get(name, 0) + 1
         return hook
 
@@ -110,7 +119,9 @@ class SynOpsCounter:
             # `out` is the spike tensor: exactly 0 or 1, so sum == spike count.
             # Reported for the firing rate; it no longer feeds the SynOps total.
             with torch.no_grad():
-                self.spikes[name] = self.spikes.get(name, 0) + float(out.sum().item())
+                self.spikes[name] = self.spikes.get(name, 0) + float(
+                    out.sum(dtype=torch.float64).item())
+                self.spike_elements[name] = self.spike_elements.get(name, 0) + out.numel()
         return hook
 
     def detach(self):
@@ -127,7 +138,9 @@ class SynOpsCounter:
 
     def reset(self):
         self.ops.clear()
+        self.dense_macs.clear()
         self.spikes.clear()
+        self.spike_elements.clear()
         self.calls.clear()
         self.samples = 0
 
@@ -138,26 +151,52 @@ class SynOpsCounter:
     def summary(self, plan=None, cost_rows=None):
         """SynOps per sample, the firing rate, and the dense-equivalent ratio.
 
-        `cost_rows` is only used for the dense comparison and the ceiling check
-        now. The SynOps total comes from what the weight layers were actually
-        asked to do, so it does not depend on the cost table being lined up
-        with the module list.
+        `cost_rows` is only used for the one-pass ANN comparison. Both the
+        SynOps total and its dense ceiling come from the weight layers' actual
+        inputs/outputs, so neither depends on matching a cost table to modules.
         """
         if not self.samples:
             return {"synops_per_sample": None, "reason": "no samples counted"}
 
         synops = sum(self.ops.values())
         total_spikes = sum(self.spikes.values())
+        total_elements = sum(self.spike_elements.values())
         per_layer = {name: {"synops_per_sample": ops / self.samples,
                             "calls": self.calls.get(name, 0)}
                      for name, ops in self.ops.items()}
         for name, sp in self.spikes.items():
             per_layer.setdefault(name, {})["spikes_per_sample"] = sp / self.samples
+            elements = self.spike_elements.get(name, 0)
+            per_layer[name]["firing_rate"] = sp / elements if elements else None
+
+        # Sum each invocation's dense work BEFORE normalizing by samples.
+        # A cost-table total times max(calls) gets looser as more batches are
+        # measured and gets too tight when one call contains multiple timesteps.
+        # Checking each layer also catches an impossible layer hidden by silent
+        # layers elsewhere in the network. No cost table is needed for safety.
+        problems = []
+        for name, ops in self.ops.items():
+            dense = self.dense_macs.get(name)
+            if dense is None:
+                problems.append(f"layer {name!r}: missing dense MAC ceiling")
+            elif not math.isfinite(ops) or ops < 0:
+                problems.append(f"layer {name!r}: invalid SynOps total {ops}")
+            elif ops > dense + max(1.0, dense) * 1e-6:
+                problems.append(
+                    f"layer {name!r}: {ops / self.samples:,.0f} SynOps/sample "
+                    f"exceeds the dense ceiling of {dense / self.samples:,.0f}")
+            else:
+                continue
+            per_layer[name]["synops_per_sample"] = None
+
+        ceiling = sum(self.dense_macs.values()) / self.samples
 
         out = {
             "samples": self.samples,
             "spikes_per_sample": total_spikes / self.samples,
-            "synops_per_sample": synops / self.samples,
+            "firing_rate": total_spikes / total_elements if total_elements else None,
+            "synops_per_sample": None if problems else synops / self.samples,
+            "synops_ceiling_per_sample": ceiling,
             "per_layer": per_layer,
         }
 
@@ -167,20 +206,9 @@ class SynOpsCounter:
             dense = sum(r.get("connections", 0) for r in cost_rows)
             out["dense_macs_per_inference"] = dense
             if dense:
-                out["synops_over_dense"] = (synops / self.samples) / dense
-                # Every weight layer is driven once per pass, and no pass can
-                # accumulate more than the layer's dense cost. So the total
-                # cannot exceed dense x passes. Exceeding it is not a surprising
-                # measurement, it is a broken one, and a broken number that
-                # reaches a leaderboard gets quoted.
-                passes = max(self.calls.values()) if self.calls else 1
-                ceiling = dense * passes
-                if synops / self.samples > ceiling * 1.001:
-                    out["synops_per_sample"] = None
-                    out["reason"] = (
-                        f"impossible: {synops / self.samples:,.0f} SynOps/sample "
-                        f"exceeds the ceiling of {ceiling:,.0f} "
-                        f"({dense:,} connections x {passes} passes)")
+                out["synops_over_dense"] = None if problems else (synops / self.samples) / dense
+        if problems:
+            out["reason"] = "invalid SynOps measurement: " + "; ".join(problems)
         return out
 
 

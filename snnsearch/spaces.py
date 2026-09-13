@@ -80,11 +80,10 @@ def config_to_specs(config: dict) -> dict:
     }
 
 
-# NARROWED to the regions the statistics said matter:
-#   channels: 128/256 were the dominant INFEASIBILITY driver (chi-square p=6e-4,
-#     Cramer's V=0.59: 32ch 88% feasible, 128ch 14%) and never beat 32/64 on
-#     accuracy. Dropped.
-#   kernel: every top-10 model used k5 or k7; k3 dropped.
+# Historical categorical choices, retained for callers that import them.
+# The active space below samples channels from 8 through 128 on a log
+# scale and odd kernels from 3 through 9. These lists no longer define
+# the sampling ranges; the earlier narrowing used a fixed resolution.
 CHANNEL_CHOICES = [32, 64]
 KERNEL_CHOICES = [5, 7]
 
@@ -173,8 +172,10 @@ class DefineByRunSpace:
         # GAP collapses HxW before the head (Q4): far fewer params, less
         # overfitting, and deployable. When GAP is chosen the huge first-FC
         # fan-in disappears, so many more configs pass feasibility.
-        # final_reduction fixed to flatten (set in the constants below): every
-        # top model used it, and GAP historically cost ~40 pts on this task.
+        # final_reduction is searched again, at the bottom of this function. The
+        # old "GAP costs ~40 points" result was measured when resolution never
+        # varied, and flatten's fan-in is exactly what makes high resolution
+        # infeasible, so the two have to be compared across resolutions.
         # fc_layers 0-1 only: every top-10 model had 0 hidden FC (Kruskal-Wallis
         # q=0.04), so 2-3 hidden layers are pure waste. Keep 1 as a branch.
         n_fc = trial.suggest_int("fc_layers", 0, 1)
@@ -229,9 +230,9 @@ class DefineByRunSpace:
         if sched in ("cosine", "step"):
             trial.suggest_int("warmup_epochs", 0, 3)
 
-        # final_reduction pinned here (not searched) -- see the head note above.
+        trial.suggest_categorical("final_reduction", ["flatten", "gap"])
         return {"N": batch_size, "epochs": epochs, "data_dir": data_dir_abs,
-                "pool_type": "avg", "final_reduction": "flatten"}
+                "pool_type": "avg"}
 
 
 def make_define_by_run(batch_size: int, epochs: int, data_dir_abs: str, t_choices: list,

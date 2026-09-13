@@ -8,22 +8,35 @@ scored 0.500 after epoch 0, both replays scored 0.409. Two replays agreeing with
 each other and disagreeing with the trial is not noise, it is a different
 network or a different training setup.
 
-A tool whose winners cannot be replayed is not useful, so this compares the two
-construction paths field by field.
+WHAT IT FOUND, AND WHAT IT MISSED
+
+The specs matched exactly, which ruled out the architecture and the training
+schedule and left the data pipeline. That was the answer: the search built its
+dataloaders from the config file rather than from the sampled trial, so every
+trial trained at the file's T and resize_to whatever the sampler chose, and the
+replay honoured the recorded 32x32 at T=8. A smaller, weaker network.
+
+This tool could not see that, because both sides it compares read the same flat
+config. The check that catches it now lives in the trial itself, where the
+sampled input can be compared against the spec that actually builds the model
+(`_assert_records_what_ran` in snnsearch/search.py).
+
+So this remains a regression check on the two spec builders, and the input
+section below is the part worth reading.
 
     python tools/diff_spec.py results/dvs128/best.json
 """
 import json
 import os
 import sys
-from dataclasses import asdict, fields
+from dataclasses import asdict
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 
 
 def build_trial_side(flat):
-    """What snnsearch/search.py does inside a trial."""
+    """The original direct flat builder, before shared pipeline resolution."""
     from snnsearch.spaces import config_to_specs
     return config_to_specs(dict(flat))
 
@@ -38,7 +51,8 @@ def main():
     path = sys.argv[1] if len(sys.argv) > 1 else "results/dvs128/best.json"
     with open(os.path.expanduser(path), encoding="utf-8") as fh:
         data = json.load(fh)
-    flat = data.get("flat_config") or data
+    from snnsearch.pipeline import load_flat_config
+    flat = load_flat_config(path)
 
     print("=" * 78)
     print(f"spec comparison for {data.get('trial_id', '?')}   "
@@ -50,6 +64,7 @@ def main():
     trial_flat = dict(flat)
     trial_flat.setdefault("data_dir", ".")
     trial_flat.setdefault("epochs", 40)
+    trial_flat.setdefault("N", 16)
 
     a = build_trial_side(trial_flat)
     b = build_single_side(flat, batch_size=trial_flat.get("N", 16))
@@ -73,14 +88,13 @@ def main():
     if diffs:
         print(f"{diffs} field(s) differ. The replay is not training the same network.")
     else:
-        print("Specs are IDENTICAL.")
-        print("So the divergence is not in the configuration. What is left:")
-        print("  - RNG: weight init and batch order. build_dataloaders seeds")
-        print("    torch before the split, and the model is built afterwards, so")
-        print("    anything that consumes randomness in between shifts the init.")
-        print("  - the dataloader: num_workers, shuffle, drop_last")
-        print("  - the input pipeline: encoder settings, T, resize")
-        print("Run both paths with the same seed and compare epoch 0 exactly.")
+        print("Specs are IDENTICAL. Both builders agree, which is what this checks.")
+        print("")
+        print(f"This trial recorded T={flat.get('T')} resize_to={flat.get('resize_to')}.")
+        print("Confirm the run used them: `single` prints a loaders line with")
+        print("T and resize, and the search asserts the same thing per trial.")
+        print("Records written before that assertion existed may name an input")
+        print("size the run did not use.")
     return 1 if diffs else 0
 
 

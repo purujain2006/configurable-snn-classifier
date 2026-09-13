@@ -8,7 +8,7 @@ claimed: if CIFAR-10 does not run, the abstraction is wrong.
 import os
 
 from .base import DatasetBundle, register
-from .._torch import _HAS_TORCH, _require_torch, pad_sequence_collate
+from .._torch import _require_torch, pad_sequence_collate
 
 
 @register("dvs128")
@@ -58,6 +58,75 @@ cifar10 = _vision("cifar10", "CIFAR10", 3, 32, 32, 10)
 cifar100 = _vision("cifar100", "CIFAR100", 3, 32, 32, 100)
 mnist = _vision("mnist", "MNIST", 1, 28, 28, 10)
 fashion_mnist = _vision("fashion_mnist", "FashionMNIST", 1, 28, 28, 10)
+
+
+def _class_dirs_have_npz(split_dir, num_classes=11):
+    """Require at least one sample file in every expected class directory."""
+    if not os.path.isdir(split_dir):
+        return False
+    for c in range(num_classes):
+        class_dir = os.path.join(split_dir, str(c))
+        if not os.path.isdir(class_dir):
+            return False
+        if not any(f.endswith(".npz") and os.path.isfile(os.path.join(class_dir, f))
+                   for f in os.listdir(class_dir)):
+            return False
+    return True
+
+
+def frame_cache_is_complete(root, T):
+    """True when both splits of the T-frame cache have samples in every class.
+
+    Presence of the directory is not enough. A build killed partway leaves the
+    folder there with some classes missing, and spikingjelly treats an existing
+    folder as done, so training would silently run on a fraction of the data.
+    """
+    base = os.path.join(root, f"frames_number_{int(T)}_split_by_number")
+    return (_class_dirs_have_npz(os.path.join(base, "train"))
+            and _class_dirs_have_npz(os.path.join(base, "test")))
+
+
+def warmup_frame_cache(root, T_values, log=print):
+    """Build the frame cache for each T, sequentially, before anything parallel.
+
+    Event clips are cached as a fixed number of frames, and the cache for a
+    given T is built on first use: pure numpy, single-threaded, tens of minutes.
+    Caching depends only on (frames_number, split_by), since transforms are
+    applied per sample at load time, so warming T alone is sufficient.
+
+    Doing this up front matters because trials run as separate processes. Eight
+    of them sampling the same unbuilt T would race to write one shared folder
+    and can leave it corrupted, which then reads as a complete cache.
+    """
+    import shutil
+
+    _require_torch()
+    from spikingjelly.datasets.dvs128_gesture import DVS128Gesture
+
+    root = validate_dvs_root(root)
+    for T in sorted({int(t) for t in T_values}):
+        if frame_cache_is_complete(root, T):
+            log(f"[warmup] frame cache for T={T} already complete")
+            continue
+        stale = os.path.join(root, f"frames_number_{T}_split_by_number")
+        if os.path.isdir(stale):
+            log(f"[warmup] frame cache for T={T} incomplete, removing {stale}")
+            # A failed removal must stop warmup: spikingjelly otherwise reuses
+            # the surviving directory instead of rebuilding it.
+            shutil.rmtree(stale)
+        log(f"[warmup] building frame cache for T={T}. "
+            "CPU only, tens of minutes, one time.")
+        for train in (True, False):
+            DVS128Gesture(root=root, frames_number=T, split_by="number",
+                          train=train, data_type="frame")
+        if not frame_cache_is_complete(root, T):
+            raise SystemExit(
+                f"frame cache for T={T} is still incomplete after building it.\n"
+                f"  {stale}\n"
+                "  Check free space on that volume and run "
+                "tools/build_cache.py by hand.")
+        log(f"[warmup] frame cache for T={T} ready")
+    return root
 
 
 def validate_dvs_root(data_dir: str) -> str:

@@ -87,6 +87,21 @@ def _failure_config_cls():
     return getattr(tune, "FailureConfig", None) or ray.train.FailureConfig
 
 
+def _warm_frame_caches(cfg, t_choices, writer):
+    """Build every frame cache the search can sample, before Ray starts.
+
+    Now that the sampled T reaches the dataset rather than only the encoder, a
+    search over several T values can have eight trial processes race to build
+    the same cache folder. Practice2.py warmed the cache for exactly this
+    reason and the refactor dropped it along the way.
+    """
+    ds = cfg.get("dataset") or {}
+    if ds.get("module") or ds.get("name") != "dvs128" or not ds.get("root"):
+        return                              # only DVS128 caches frames this way
+    from .data.builtin import warmup_frame_cache
+    warmup_frame_cache(ds["root"], t_choices, log=writer.log)
+
+
 def run_search(cfg, out_dir):
     """Run the search described by `cfg`, writing into `out_dir`."""
     import ray
@@ -103,6 +118,9 @@ def run_search(cfg, out_dir):
     obj = cfg["objective"]
     writer = ResultsWriter(out_dir)
     writer.log(f"[stream] {describe(cfg)}")
+
+    t_choices = s.get("T_choices") or [cfg["encoding"].get("T", 16)]
+    _warm_frame_caches(cfg, t_choices, writer)
 
     # Ray puts its session directory, object store and spill files under /tmp.
     # On a shared cluster /tmp is usually a small partition, and Ray warns at
@@ -123,7 +141,7 @@ def run_search(cfg, out_dir):
         batch_size=s.get("batch_size", 16),
         epochs=s["epochs"],
         data_dir_abs=os.path.abspath(cfg["dataset"].get("root") or "."),
-        t_choices=s.get("T_choices") or [cfg["encoding"].get("T", 16)],
+        t_choices=t_choices,
         per_layer=(s.get("space", "uniform") != "uniform"),
     )
     _assert_picklable(space)
@@ -199,6 +217,35 @@ def run_search(cfg, out_dir):
     return results
 
 
+def _assert_records_what_ran(trial_cfg, spec, encoder):
+    """The config a trial gets recorded under must be the one it trained on.
+
+    A search records the sampled config and reports a score, and nothing in
+    between checks that the two belong together. When they came apart here,
+    every trial trained at the config file's input size while the leaderboard
+    named the sampled one, so the winner could not be reproduced and two knobs
+    were searched in name only. The failure was silent for four hundred trials.
+
+    Cheap invariant, checked once per trial: whatever the sampler chose for the
+    input has to appear in the spec that builds the model and in the encoder
+    that feeds it. Dying here costs one trial. Not checking cost a search.
+    """
+    inp = spec["input"]
+    want_T = trial_cfg.get("T")
+    want_resize = trial_cfg.get("resize_to")
+    problems = []
+    if want_T is not None and int(want_T) != int(inp.T):
+        problems.append(f"T: sampled {want_T}, spec has {inp.T}")
+    if want_T is not None and int(want_T) != int(getattr(encoder, "T", want_T)):
+        problems.append(f"T: sampled {want_T}, encoder has {encoder.T}")
+    if want_resize is not None and int(want_resize) != int(inp.resize_to):
+        problems.append(f"resize_to: sampled {want_resize}, spec has {inp.resize_to}")
+    if problems:
+        raise RuntimeError(
+            "the trial would be recorded under a config it is not running:\n  "
+            + "\n  ".join(problems))
+
+
 def _make_trainable(cfg, out_dir):
     """Build the per-trial function. Closes over plain data only, so it pickles."""
     obj = dict(cfg["objective"])
@@ -208,12 +255,20 @@ def _make_trainable(cfg, out_dir):
     def trainable(trial_cfg):
         import torch
         from ray import tune
-        from .spaces import config_to_specs
         from .hardware import check_feasibility
-        from .pipeline import prepare
+        from .pipeline import resolve_specs, make_loaders
         from .train import run_training
 
-        spec = config_to_specs(trial_cfg)
+        # The trial config decides the input size and the time depth, not just
+        # the architecture, so it has to reach the data pipeline. An earlier
+        # version built the spec here and the loaders from the YAML, then
+        # overwrote the sampled T and resize_to with the file's. Every trial
+        # then trained at the file's input size whatever the sampler chose, the
+        # recorded config described a run that never happened, and replaying a
+        # winner produced a different and weaker network. Resolve once, from
+        # one source.
+        _bundle, _enc, spec = resolve_specs(run_cfg, trial_cfg, quiet=True)
+        _assert_records_what_ran(trial_cfg, spec, _enc)
 
         # Make gpu_fraction mean something. Ray's fraction is pure bookkeeping:
         # it decides how many trials to schedule and then lets every one of them
@@ -228,7 +283,10 @@ def _make_trainable(cfg, out_dir):
             except Exception:
                 pass                      # older torch: fall back to no cap
 
-        # tier 1: arithmetic. Costs microseconds and never reaches a GPU.
+        # tier 1: arithmetic. Never reaches a GPU, and now runs against the
+        # input spec that will actually train. Checking the axon budget at one
+        # resolution and training at another passes configurations that do not
+        # fit the chip.
         feasible, violations = check_feasibility(
             spec["input"], spec["encoder"], spec["downsample"],
             spec["head"], spec["output"])
@@ -240,9 +298,7 @@ def _make_trainable(cfg, out_dir):
                          "violations": "; ".join(violations)[:400]})
             return
 
-        _bundle, _enc, loaders, base = prepare(run_cfg)
-        for k in ("input", "output"):
-            spec[k] = base[k]                # dataset decides shape, not the sampler
+        loaders = make_loaders(run_cfg, _bundle, _enc, spec, quiet=True)
 
         def report_fn(**kw):
             """Two callers with different keywords report through here.
@@ -314,6 +370,7 @@ def _make_trainable(cfg, out_dir):
             "float_val_accuracy": res.get("float_val_accuracy"),
             "pre_export_val_accuracy": res.get("pre_export_val_accuracy"),
             "synops_per_sample": synops,
+            "synops_reason": res.get("synops_reason"),
             # what export cost, not what the schedule gained
             "quant_gap": res.get("quant_gap"),
             "end_to_end_gain": res.get("end_to_end_gain"),

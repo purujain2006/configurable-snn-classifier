@@ -16,7 +16,7 @@ from snnsearch.data.base import DatasetBundle
 
 
 def make_datasets(root=None, n_train=48, n_test=16, C=2, H=16, W=16,
-                  num_classes=2, seed=0):
+                  num_classes=2, seed=0, **_ignored):
     g = torch.Generator().manual_seed(seed)
 
     def build(n):

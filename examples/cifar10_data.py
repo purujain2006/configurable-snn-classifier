@@ -18,7 +18,7 @@ import torchvision.transforms as tt
 from snnsearch.data.base import DatasetBundle
 
 
-def make_datasets(root="./data/cifar10", download=True, augment=True):
+def make_datasets(root="./data/cifar10", download=True, augment=True, **_ignored):
     # Keep values in [0, 1]: the poisson and temporal encoders read intensity
     # as a probability, so normalizing to zero mean would break them.
     train_tf = [tt.ToTensor()]

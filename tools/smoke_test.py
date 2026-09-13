@@ -73,7 +73,7 @@ def main():
         # T=2 keeps the time loop honest (a single step would hide the pipeline
         # flush) while staying fast.
         "encoding": {"coding": "direct", "T": 2, "resize_to": None},
-        "search": {"epochs": 1, "batch_size": 8},
+        "search": {"epochs": 1, "batch_size": 8, "num_workers": 0},
         "objective": {"mode": "accuracy"},
         "report": {"html": True},
     })

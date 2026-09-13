@@ -32,6 +32,21 @@ python tools/smoke_test.py        # the whole pipeline on synthetic data, ~1 min
 
 Run both before a real training run.
 
+The input-pipeline migration also has focused regression checks:
+
+```bash
+python tools/test_input_pipeline.py  # sampled inputs, replay flags, warmup ordering
+python tools/test_frame_cache.py     # incomplete caches and sequential rebuilds
+python tools/test_search_space.py    # ordered sampling, GAP, generated-file consistency
+python tools/test_synops.py          # weight-layer arithmetic and dense ceilings
+python tools/diff_spec.py results/dvs128/best.json
+```
+
+Search warms every configured DVS frame cache before Ray starts. Custom dataset
+factories receive the resolved `T`; static-image factories can accept
+`**_ignored`, as the supplied examples do. SynOps measurements from before this
+migration must be remeasured before comparing runs.
+
 ## Why it exists
 
 A network trained in floating point is not the network the chip runs. They
