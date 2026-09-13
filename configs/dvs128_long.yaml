@@ -1,0 +1,54 @@
+# DVS128 Gesture, LONG run. For retraining a configuration the search already
+# chose, over a horizon where grokking could appear.
+#
+# Separate from dvs128.yaml so the search config stays untouched and neither
+# file has to be hand-edited on the cluster between runs.
+#
+# WHAT DIFFERS, AND WHY
+#
+# The quantized phase runs at a CONSTANT learning rate here. The search config
+# anneals it, which is right over 60 epochs and wrong over 300:
+#
+#   * A cosine spanning the whole grid phase holds the rate high while the
+#     weights are meant to be settling onto the INT16 grid. That is what took
+#     one configuration from 0.892 at 40 epochs to 0.756 at 100.
+#   * qat_schedule_epochs caps T_max instead, but CosineAnnealingLR is periodic,
+#     so over a phase longer than T_max it climbs back up. At 300 epochs that
+#     is about five warm restarts nobody asked for.
+#   * Grokking is sustained training until generalization catches up. Annealing
+#     to the floor early guarantees nothing further happens.
+#
+# So: no schedule in the grid phase. It runs flat at qat_lr_scale * lr, which
+# for a trial that sampled lr=3.4e-3 is 1.7e-3.
+
+run:
+  name: dvs128_long
+  results_dir: results/dvs128_long
+  # Fixed, and the same value the search used. The seed picks the validation
+  # split, so changing it would score this run on different clips and make the
+  # comparison against the trial meaningless.
+  seed: 1
+
+dataset:
+  name: dvs128
+  root: /local_disk/$USER/DVS128Gesture
+
+encoding:
+  coding: passthrough
+  # Both are overridden by the replayed trial config; they are the fallback for
+  # a run without --from-best.
+  T: 16
+  resize_to: 64
+
+search:
+  # Only batch_size and num_workers are read on this path. Everything else
+  # belongs to the search and is ignored by `single`.
+  batch_size: 16
+  num_workers: 4
+
+train:
+  # Constant rate through the quantized phase. See the note above.
+  qat_scheduler: none
+
+objective:
+  mode: accuracy
