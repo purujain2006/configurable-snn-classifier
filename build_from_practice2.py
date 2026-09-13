@@ -647,6 +647,21 @@ def apply_patches(name, text):
     return text
 
 
+# Modules that have diverged too far from Practice2.py to be regenerated.
+#
+# PATCHES works by exact-string replacement on freshly extracted text, which is
+# a good mechanism for a handful of edits and a bad one for a rewrite. spaces.py
+# now samples geometry first, checks the connection limits inline, and returns
+# before touching any training knob so that an infeasible shape cannot poison
+# the sampler's model of weight decay. That is a restructured function, not a
+# set of substitutions, and expressing it as patches would be both unreadable
+# and silently fragile.
+#
+# Their entries stay in PLAN and PATCHES as a record of where the code came
+# from. The generator skips them. Edit the file in snnsearch/ directly.
+HAND_OWNED = {"spaces.py"}
+
+
 def write_module(name, doc, imports, spans, lines):
     body = []
     for a, b in spans:
@@ -676,10 +691,15 @@ def main():
     print(f"source: {src} ({len(lines)} lines)\n")
     total = 0
     for name, (doc, imports, spans) in PLAN.items():
+        if name in HAND_OWNED:
+            print(f"  {name:<16} {'SKIPPED, hand-owned':<20}")
+            continue
         total += write_module(name, doc, imports, snap(spans, decs), lines)
     print(f"\n  {'total':<16} {'':<20} {total:>5} lines extracted")
     print("\nHand-written modules are not touched: _torch.py, synops.py, encoders.py,")
     print("data/, search.py, report.py, analysis.py, cli.py")
+    if HAND_OWNED:
+        print("Graduated out of generation: " + ", ".join(sorted(HAND_OWNED)))
 
 
 if __name__ == "__main__":

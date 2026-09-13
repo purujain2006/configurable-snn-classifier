@@ -9,7 +9,7 @@ Edit the behaviour here, not in the original.
 from .config import (InputSpec, ConvLayerSpec, EncoderSpec, OutputSpec,
                      DownsampleSpec, HeadSpec, NeuronSpec, TrainSpec,
                      parse_fc_widths)
-from .hardware import HW_TAU_CHOICES
+from .hardware import HW_TAU_CHOICES, check_feasibility
 
 
 # NARROWED after the 65-trial analysis (see DVS_Search_Statistical_Analysis).
@@ -92,6 +92,25 @@ CHANNEL_CHOICES = [32, 64]
 KERNEL_CHOICES = [5, 7]
 
 
+def geometry_fits(flat) -> bool:
+    """Does the shape sampled so far satisfy the chip's connection limits?
+
+    Only shape decides this: kernel, channels, depth, downsampling, resolution
+    and the head. Nothing about the optimizer or the regularizer can move a
+    fan-in, which is why this can run before any of them are sampled.
+
+    Returns False on a config that will not even build, since a feature map
+    that collapses below the kernel is infeasible in the same practical sense.
+    """
+    try:
+        spec = config_to_specs({"tau": 2, **flat})
+        ok, _ = check_feasibility(spec["input"], spec["encoder"],
+                                  spec["downsample"], spec["head"], spec["output"])
+        return bool(ok)
+    except Exception:
+        return False
+
+
 class DefineByRunSpace:
     """
     Optuna define-by-run space, as a MODULE-LEVEL CALLABLE OBJECT rather than a
@@ -139,58 +158,93 @@ class DefineByRunSpace:
         # ---- encoder depth ----
         # winners are depth 2-3 (Kruskal-Wallis favoured shallow, q=0.08); depth
         # 5 only ever reached 0.77. Keep 2-4 so depth-3 branches stay in play.
-        depth = trial.suggest_int("depth", 2, 4)
+        # GEOMETRY FIRST, AND NOTHING ELSE UNTIL IT PASSES.
+        #
+        # A configuration rejected by the connection limits used to be scored 0
+        # after every knob had been sampled, so Optuna recorded "weight_decay
+        # 1e-3 with dropout 0.2 scored zero" for a trial where neither was
+        # tested. 82 of 400 trials did that, and the sampler then steered away
+        # from regularization values whose only crime was appearing next to an
+        # illegal shape.
+        #
+        # Define-by-run fixes it for free: a dimension a trial never suggests
+        # does not exist for that trial, so TPE's model of it never sees the
+        # zero. Sample the shape, check it, and return early if it fails. The
+        # trial still scores 0, but only against the shape knobs, which is the
+        # only thing that was actually wrong with it.
+        geom = {}
+        depth = geom["depth"] = trial.suggest_int("depth", 2, 4)
 
         if per_layer:
             # independent geometry per layer
             for i in range(depth):
-                trial.suggest_int(f"k_{i}", 3, 9, step=2)
-                trial.suggest_int(f"ch_{i}", 8, 128, log=True)
+                geom[f"k_{i}"] = trial.suggest_int(f"k_{i}", 3, 9, step=2)
+                geom[f"ch_{i}"] = trial.suggest_int(f"ch_{i}", 8, 128, log=True)
                 # each layer independently: downsample by stride-2, by pooling,
                 # or not at all (stride 1, no pool -> size-preserving).
                 # each layer independently: downsample by stride-2, by pooling,
                 # or not at all. The chosen branch sets the flat key
                 # config_to_specs reads; the others stay absent and default off.
-                ds = trial.suggest_categorical(f"ds_{i}", ["stride", "pool", "none"])
+                ds = geom[f"ds_{i}"] = trial.suggest_categorical(
+                    f"ds_{i}", ["stride", "pool", "none"])
                 if ds == "stride":
-                    trial.suggest_int(f"stride_{i}", 2, 2)
+                    geom[f"stride_{i}"] = trial.suggest_int(f"stride_{i}", 2, 2)
                 elif ds == "pool":
-                    trial.suggest_int(f"pool_{i}", 1, 1)
+                    geom[f"pool_{i}"] = trial.suggest_int(f"pool_{i}", 1, 1)
         else:
             # log scale: the useful range spans 8 to 128 and the
             # interesting differences are multiplicative. The paper
             # reached its best with 6 and 16, which the old floor of 32
             # excluded outright.
-            trial.suggest_int("channels", 8, 128, log=True)
+            geom["channels"] = trial.suggest_int("channels", 8, 128, log=True)
             # odd sizes only, so padding stays symmetric.
-            trial.suggest_int("kernel_size", 3, 9, step=2)
-            mode = trial.suggest_categorical("downsample_mode", ["stride", "pool"])
+            geom["kernel_size"] = trial.suggest_int("kernel_size", 3, 9, step=2)
+            mode = geom["downsample_mode"] = trial.suggest_categorical(
+                "downsample_mode", ["stride", "pool"])
             if mode == "stride":
                 # stride=1 never downsamples -> the flatten explodes and the
                 # config is infeasible every time (all the fc_in fan-in busts in
                 # the data came from here). Force stride-2.
-                trial.suggest_categorical("stride", [2])
+                geom["stride"] = trial.suggest_categorical("stride", [2])
 
         # resize_to=0 (native 128x128) is omitted: 128*128*2 = 32,768 axons is
-        # over the 16,383 limit, so it could never pass feasibility.
-        # step=8 keeps the conv arithmetic on friendly sizes; 88 is the
-        # largest multiple of 8 under the axon limit (15,488 of 16,383).
-        trial.suggest_int("resize_to", 24, 88, step=8)
-        trial.suggest_categorical("T", t_choices)
+        # far over the limit, so it could never pass feasibility.
+        # step=8 keeps the conv arithmetic on friendly sizes; 88 is the largest
+        # multiple of 8 under the measured 16,000 axon ceiling (15,488). 89 is
+        # the true maximum for two channels but breaks the step.
+        geom["resize_to"] = trial.suggest_int("resize_to", 24, 88, step=8)
+        geom["T"] = trial.suggest_categorical("T", t_choices)
 
         # ---- head: GAP vs flatten, then variable-depth FC ----
         # GAP collapses HxW before the head (Q4): far fewer params, less
         # overfitting, and deployable. When GAP is chosen the huge first-FC
         # fan-in disappears, so many more configs pass feasibility.
-        # final_reduction is searched again, at the bottom of this function. The
-        # old "GAP costs ~40 points" result was measured when resolution never
-        # varied, and flatten's fan-in is exactly what makes high resolution
-        # infeasible, so the two have to be compared across resolutions.
+        # final_reduction is searched again. The old "GAP costs ~40 points"
+        # result was measured when resolution never varied, and flatten's
+        # fan-in is exactly what makes high resolution infeasible, so the two
+        # have to be compared across resolutions.
         # fc_layers 0-1 only: every top-10 model had 0 hidden FC (Kruskal-Wallis
         # q=0.04), so 2-3 hidden layers are pure waste. Keep 1 as a branch.
-        n_fc = trial.suggest_int("fc_layers", 0, 1)
+        n_fc = geom["fc_layers"] = trial.suggest_int("fc_layers", 0, 1)
         for i in range(n_fc):
-            trial.suggest_categorical(f"fc_width_{i}", FC_WIDTH_CHOICES)
+            geom[f"fc_width_{i}"] = trial.suggest_categorical(
+                f"fc_width_{i}", FC_WIDTH_CHOICES)
+        # Moved up from the bottom of this function, because the head decides
+        # the flatten fan-in and the flatten fan-in is what the connection
+        # limits reject. Checking before it is sampled would check the wrong
+        # network.
+        geom["final_reduction"] = trial.suggest_categorical(
+            "final_reduction", ["flatten", "gap"])
+
+        consts = {"N": batch_size, "epochs": epochs, "data_dir": data_dir_abs,
+                  "pool_type": "avg"}
+
+        if not geometry_fits({**consts, **geom}):
+            # Stop here. Nothing below this line gets sampled, so no training
+            # knob is blamed for a shape that will not fit. tau is supplied
+            # because config_to_specs reads it directly and the trial still has
+            # to build far enough to report itself infeasible.
+            return {**consts, "tau": 2, "infeasible_geometry": True}
 
         # ---- neuron: INTEGER leak, per-layer (Q2, Q3) ------------------------
         # tau was suggest_float(1.5, 2.5). On chip the leak register is an
@@ -256,9 +310,7 @@ class DefineByRunSpace:
         if sched in ("cosine", "step"):
             trial.suggest_int("warmup_epochs", 0, 3)
 
-        trial.suggest_categorical("final_reduction", ["flatten", "gap"])
-        return {"N": batch_size, "epochs": epochs, "data_dir": data_dir_abs,
-                "pool_type": "avg"}
+        return consts
 
 
 def make_define_by_run(batch_size: int, epochs: int, data_dir_abs: str, t_choices: list,
