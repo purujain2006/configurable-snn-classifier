@@ -117,12 +117,17 @@ class DefineByRunSpace:
     """
 
     def __init__(self, batch_size: int, epochs: int, data_dir_abs: str,
-                 t_choices: list, per_layer: bool = True):
+                 t_choices: list, per_layer: bool = True, require=()):
         self.batch_size = int(batch_size)
         self.epochs = int(epochs)
         self.data_dir_abs = str(data_dir_abs)
         self.t_choices = list(t_choices)
         self.per_layer = bool(per_layer)
+        # Knobs whose on/off switch is removed, so every trial gets them.
+        # Naming one drops its `use_*` categorical entirely rather than pinning
+        # it True, because a dimension with one value teaches TPE nothing and
+        # still costs a column.
+        self.require = tuple(require or ())
 
     def __call__(self, trial):
         batch_size = self.batch_size
@@ -130,6 +135,7 @@ class DefineByRunSpace:
         data_dir_abs = self.data_dir_abs
         t_choices = self.t_choices
         per_layer = self.per_layer
+        require = self.require
         # ---- encoder depth ----
         # winners are depth 2-3 (Kruskal-Wallis favoured shallow, q=0.08); depth
         # 5 only ever reached 0.77. Keep 2-4 so depth-3 branches stay in play.
@@ -211,7 +217,8 @@ class DefineByRunSpace:
         # in front of the classifier, so nothing regularizes the layers that
         # build the features. Conditional, so "none in the conv stack" stays a
         # reachable baseline rather than a measure-zero point in a range.
-        if trial.suggest_categorical("use_conv_dropout", [False, True]):
+        if "conv_dropout" in require or \
+                trial.suggest_categorical("use_conv_dropout", [False, True]):
             trial.suggest_float("conv_dropout", 0.05, 0.3)
         # norm=none is GONE: it produced every dead (below-chance) network
         # (pooled Mann-Whitney p=0.0015; learned-vs-dead odds ratio 21.8). Only
@@ -226,7 +233,8 @@ class DefineByRunSpace:
         # than a range that includes zero: a continuous range never samples
         # exactly 0, so "off" would never be tested, and off is the baseline
         # every other trial has already been run under.
-        if trial.suggest_categorical("use_rate_penalty", [False, True]):
+        if "rate_penalty" in require or \
+                trial.suggest_categorical("use_rate_penalty", [False, True]):
             trial.suggest_float("rate_penalty", 1e-4, 1e-1, log=True)
 
         # ---- optimizer / LR schedule ----
@@ -254,6 +262,7 @@ class DefineByRunSpace:
 
 
 def make_define_by_run(batch_size: int, epochs: int, data_dir_abs: str, t_choices: list,
-                       per_layer: bool = True) -> "DefineByRunSpace":
+                       per_layer: bool = True, require=()) -> "DefineByRunSpace":
     """Factory kept for API compatibility -- returns a picklable space object."""
-    return DefineByRunSpace(batch_size, epochs, data_dir_abs, t_choices, per_layer)
+    return DefineByRunSpace(batch_size, epochs, data_dir_abs, t_choices, per_layer,
+                            require)

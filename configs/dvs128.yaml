@@ -43,6 +43,16 @@ search:
   # for every layer. So nothing is lost, but the space is much larger and wants
   # a trial budget to match.
   space: per_layer
+  # Knobs every trial must use, rather than sampling on/off. Naming one removes
+  # its `use_*` switch, so the search stops asking whether it helps and starts
+  # asking how much of it to use.
+  #
+  # Both ranges reach far enough down to be nearly inactive (conv_dropout 0.05,
+  # rate_penalty 1e-4), so forcing them on does not force them to matter. It
+  # removes the baseline, though: with no trials running without them, this run
+  # cannot answer whether they help. Run tools/hpo_analysis.py on the previous
+  # search for that, where each was a coin flip across ~318 trained trials.
+  require: [conv_dropout, rate_penalty]
   # MEASURED, not estimated. A 400-trial run at 0.03125 put 27 trials on one
   # L40S and filled 44.4 of 44.42 GiB; 266 of 400 died of CUDA OOM. Per trial
   # the range was 0.7 to 3.6 GiB, averaging 1.65 -- far above the parameter

@@ -137,7 +137,12 @@ def main():
     ap.add_argument("--run", required=True, help="search results directory")
     ap.add_argument("--out", required=True, help="where to put the replay runs")
     ap.add_argument("-c", "--config", default="configs/dvs128_long.yaml")
-    ap.add_argument("-n", type=int, default=5)
+    # Three spellings on purpose. argparse derives dest from the first LONG
+    # option, so "-n" alone would have rejected "--n", and a flag that works
+    # only in the spelling the author happened to type is a flag that wastes
+    # somebody's afternoon.
+    ap.add_argument("-n", "--top-n", "--n", type=int, default=5, dest="n",
+                    help="how many of the best configurations to retrain")
     ap.add_argument("--epochs", type=int)
     ap.add_argument("--train", nargs="*", default=[], metavar="KEY=VALUE",
                     help="passed through, e.g. --train weight_decay=1e-3")

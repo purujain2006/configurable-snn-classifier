@@ -143,7 +143,10 @@ def run_search(cfg, out_dir):
         data_dir_abs=os.path.abspath(cfg["dataset"].get("root") or "."),
         t_choices=t_choices,
         per_layer=(s.get("space", "uniform") != "uniform"),
+        require=s.get("require") or [],
     )
+    if s.get("require"):
+        writer.log(f"[stream] forced on for every trial: {list(s['require'])}")
     _assert_picklable(space)
 
     algo = OptunaSearch(space=space, metric="val_accuracy", mode="max")
