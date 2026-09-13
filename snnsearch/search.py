@@ -300,6 +300,14 @@ def _make_trainable(cfg, out_dir):
 
         loaders = make_loaders(run_cfg, _bundle, _enc, spec, quiet=True)
 
+        # The deploy report below carries no epoch of its own, and it is the
+        # LAST result Ray keeps, so anything derived from `epoch` at trial
+        # completion read the deploy record and got nothing. That is why
+        # `epochs_run` was 0 for every trial that finished training and
+        # `stopped_early` was never true: the pruning statistics described the
+        # deploy report rather than the run.
+        seen = {"epoch": -1}
+
         def report_fn(**kw):
             """Two callers with different keywords report through here.
 
@@ -314,8 +322,13 @@ def _make_trainable(cfg, out_dir):
             present each time.
             """
             acc = kw.get("val_acc", kw.get("hw_val_acc", 0.0))
+            seen["epoch"] = max(seen["epoch"], int(kw.get("epoch", 0)))
             tune.report({
                 "val_accuracy": acc,
+                # Present on EVERY report, for the same reason
+                # float_val_accuracy is: a key the callback reads must never be
+                # absent, or its absence gets read as a value.
+                "feasible": True,
                 "float_val_accuracy": kw.get("val_acc", acc),
                 "best_val_accuracy": kw.get("best_val_acc", acc),
                 "phase": kw.get("phase", "float"),
@@ -382,6 +395,12 @@ def _make_trainable(cfg, out_dir):
             "deployable": deployable,
             "deploy_reasons": res.get("deploy_reasons"),
             "phase": "deploy",
+            "feasible": True,
+            # Carried explicitly rather than derived from `epoch`, which this
+            # report does not have. A trial that ASHA cut at rung 1 and one
+            # that ran the full budget are different facts, and the leaderboard
+            # could not tell them apart.
+            "epochs_run": seen["epoch"] + 1,
         })
 
     return trainable

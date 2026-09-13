@@ -72,13 +72,28 @@ if _HAS_TORCH:
 
     def weight_clip_fraction(net) -> float:
         """Fraction of conv/linear weights outside the representable [-1, 1].
-        Call on the FOLDED net -- pre-fold numbers are meaningless."""
+
+        Call on the FOLDED net; pre-fold numbers are meaningless.
+
+        READ THE PRE-CLAMP TENSOR. `m.weight` on a fake-quantized module is the
+        parametrization's OUTPUT, already clamped into [-1, 1], so asking it
+        whether anything exceeds 1.0 can only ever answer no. This reported
+        0.0 for every run in the project's history, including runs where
+        `max_abs_weight` came back at exactly 1.0, which is what saturation
+        looks like. A metric that cannot return anything but zero is worse than
+        no metric, because it gets quoted as evidence.
+        """
         out_of_range = total = 0
         for m in net.modules():
-            if isinstance(m, (layer.Conv2d, nn.Conv2d, layer.Linear, nn.Linear)):
-                w = m.weight.data
-                out_of_range += (w.abs() > W_ALPHA).sum().item()
-                total += w.numel()
+            if not isinstance(m, (layer.Conv2d, nn.Conv2d, layer.Linear, nn.Linear)):
+                continue
+            par = getattr(m, "parametrizations", None)
+            if par is not None and "weight" in par:
+                w = par.weight.original.data      # before the clamp
+            else:
+                w = m.weight.data                 # no parametrization: already raw
+            out_of_range += (w.abs() > W_ALPHA).sum().item()
+            total += w.numel()
         return out_of_range / max(1, total)
 else:
     fake_quantize_weight = fake_quantize_threshold = None

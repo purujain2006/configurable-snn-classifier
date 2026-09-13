@@ -141,13 +141,21 @@ def make_streaming_callback(writer, target=0.975):
             self.n_done += 1
             r = trial.last_result or {}
             flat = _clean(trial.config)
-            epochs_run = (r.get("epoch") if r.get("epoch") is not None else -1) + 1
+            # The deploy report carries epochs_run explicitly; a trial ASHA cut
+            # never reaches it, so fall back to the last epoch it did report.
+            epochs_run = r.get("epochs_run")
+            if epochs_run is None:
+                epochs_run = (r.get("epoch") if r.get("epoch") is not None else -1) + 1
             requested = (trial.config or {}).get("epochs")
-            stopped_early = bool(r.get("feasible")) and requested is not None \
+            feasible = bool(r.get("feasible"))
+            stopped_early = feasible and requested is not None \
                 and epochs_run < requested
             if stopped_early:
                 self.n_pruned += 1
-            deployed = r.get("phase") == "deploy"
+            # An infeasible configuration reports phase="deploy" on its reject
+            # path without ever training, so the phase alone would file it
+            # beside trials that actually deployed.
+            deployed = r.get("phase") == "deploy" and feasible
 
             writer.append_jsonl("trials.jsonl", {
                 "trial_id": trial.trial_id, "status": "complete",
@@ -170,7 +178,9 @@ def make_streaming_callback(writer, target=0.975):
 
             writer.append_csv("leaderboard.csv", {
                 "trial_id": trial.trial_id,
-                "status": "deployed" if deployed else "pruned_before_deploy",
+                "status": ("deployed" if deployed
+                           else "infeasible" if not feasible
+                           else "pruned_before_deploy"),
                 # A trial pruned by ASHA never reaches the deploy phase, so it
                 # has no hardware number. Leaving it blank keeps it distinct
                 # from a configuration that deployed and scored zero.

@@ -8,6 +8,7 @@ DVS dataset was constructed inline. Keeping it separate means `single` and
 import json
 import os
 import time
+from dataclasses import asdict
 
 from . import runconfig
 from .config import (InputSpec, EncoderSpec, OutputSpec, DownsampleSpec,
@@ -394,7 +395,19 @@ def run_single(cfg, ckpt="best.pth", from_best=None, epochs=None,
             print("         training is unaffected; the checkpoint is written.")
 
     payload = {k: v for k, v in res.items() if k != "hw_net"}
-    payload.update(wall_minutes=round(mins, 2), config=runconfig.describe(cfg))
+    # `describe(cfg)` summarizes the CONFIG FILE, which on a --from-best run is
+    # not what trained: the trial supplies the architecture, the input size and
+    # the schedule. It reported resize_to=64 and space=uniform for runs that
+    # used 48 and per-layer geometry. Nothing was mis-trained, the real spec
+    # was always in the checkpoint, but single.json is what a person reads, and
+    # a results file that names the wrong input size is how the last bug
+    # travelled.
+    payload.update(
+        wall_minutes=round(mins, 2),
+        config_file=runconfig.describe(cfg),
+        replayed_from=from_best,
+        config={name: asdict(s) for name, s in spec.items()},
+    )
     with open(os.path.join(out, "single.json"), "w", encoding="utf-8") as fh:
         json.dump(payload, fh, indent=2, default=str)
 
