@@ -38,6 +38,21 @@ def apply_overrides(obj, values, section):
     return obj
 
 
+# TrainSpec fields that spaces.config_to_specs fills from a sampled trial
+# config. A config file must not be able to overwrite these, or a leaderboard
+# row would describe a learning rate the run did not use, which is the same
+# class of failure as recording an input size a trial did not train at.
+#
+# Everything else in TrainSpec (momentum, step_gamma, qat_schedule_epochs,
+# qat_scheduler) is unsampled and therefore settable from `train:`.
+_SEARCH_OWNED_TRAIN_FIELDS = frozenset({
+    "epochs", "optimizer", "lr", "weight_decay", "scheduler", "warmup_epochs",
+    "label_smoothing", "grad_clip", "rate_penalty", "qat_mode",
+    "qat_warmup_frac", "qat_epochs", "qat_lr_scale",
+    "fold_bias_mode", "fold_bias_margin",
+})
+
+
 def specs_from_flat(flat, batch_size=None):
     """Rebuild the full spec dict from a flat trial config.
 
@@ -104,6 +119,23 @@ def resolve_specs(cfg, flat_config=None, quiet=False):
         # not sample them (or a replay removed them for a CLI override).
         spec = specs_from_flat({**flat_config, "T": T, "resize_to": resize or 0},
                                batch_size=batch)
+        # ...except the TrainSpec fields the search never samples. Those would
+        # otherwise sit at their dataclass defaults with no way to reach them,
+        # so a `train:` block in the config file is silently inert for every
+        # trial and every replay. qat_schedule_epochs is the one that matters:
+        # without it the quantized phase's cosine stretches across whatever the
+        # epoch budget leaves over, which is what cost 14 points between a
+        # 40-epoch run and a 100-epoch one. A long run needs it set.
+        #
+        # Only fields the sampler did not choose, so a config file can never
+        # overwrite a trial's own decision and quietly change what it means.
+        for key, val in (cfg.get("train") or {}).items():
+            if key in _SEARCH_OWNED_TRAIN_FIELDS:
+                if not quiet:
+                    print(f"train     : ignoring {key}={val!r} from the config "
+                          "file; the trial sampled it")
+                continue
+            apply_overrides(spec["train"], {key: val}, "train")
         if not quiet:
             print(f"architecture: replayed from a trial config "
                   f"({len(flat_config)} fields)")
@@ -281,7 +313,8 @@ def run_single(cfg, ckpt="best.pth", from_best=None, epochs=None,
         rec = {"epoch": kw.get("epoch"), "phase": kw.get("phase", "float"),
                "val_acc": kw.get("val_acc", kw.get("hw_val_acc")),
                "train_acc": kw.get("train_acc"), "train_loss": kw.get("train_loss"),
-               "lr": kw.get("lr"), "best_val_acc": kw.get("best_val_acc")}
+               "lr": kw.get("lr"), "best_val_acc": kw.get("best_val_acc"),
+               "firing_rate": kw.get("firing_rate")}
         with open(curve_path, "a", encoding="utf-8") as fh:
             fh.write(json.dumps(rec, default=str) + "\n")
         if rec["epoch"] is not None and rec["val_acc"] is not None:
@@ -292,7 +325,9 @@ def run_single(cfg, ckpt="best.pth", from_best=None, epochs=None,
             print(f"  epoch {rec['epoch']:>3} [{rec['phase']:<5}] "
                   f"val {rec['val_acc']:.4f}  best {rec['best_val_acc'] or 0:.4f}  "
                   f"train {rec['train_acc'] or 0:.4f}  "
-                  f"loss {rec['train_loss'] or 0:.4f}  lr {rec['lr'] or 0:.2e}")
+                  f"loss {rec['train_loss'] or 0:.4f}  lr {rec['lr'] or 0:.2e}"
+                  + (f"  rate {rec['firing_rate']:.4f}"
+                     if rec["firing_rate"] is not None else ""))
 
     t0 = time.time()
     res = run_training(spec, loaders=loaders, report_fn=report_fn,

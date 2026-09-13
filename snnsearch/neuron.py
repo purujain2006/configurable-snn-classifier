@@ -91,6 +91,7 @@ if _HAS_TORCH:
 
         def __init__(self, tau: int = 2, v_threshold: float = 1.0, v_reset: float = 0.0,
                      learn_tau: bool = False, learn_threshold: bool = False,
+                     integer_leak: bool = True,
                      surrogate_function: Callable = None, detach_reset: bool = True,
                      step_mode: str = "s", store_v_seq: bool = False):
             super().__init__(v_threshold=float(v_threshold), v_reset=v_reset,
@@ -99,6 +100,7 @@ if _HAS_TORCH:
                              backend="torch", store_v_seq=store_v_seq)
             self.learn_tau = bool(learn_tau)
             self.learn_threshold = bool(learn_threshold)
+            self.integer_leak = bool(integer_leak)
 
             tau0 = float(min(max(int(round(float(tau))), HW_TAU_MIN), HW_TAU_MAX))
             if self.learn_tau:
@@ -190,8 +192,33 @@ if _HAS_TORCH:
             # 2. hard reset
             spike_d = spike.detach() if self.detach_reset else spike
             self.v = v_reset * spike_d + (1.0 - spike_d) * self.v
-            # 3. integer leak toward v_reset
-            self.v = self.v - (self.v - v_reset) / self.hw_tau
+            # 3. leak toward v_reset, by INTEGER DIVISION on the chip's grid.
+            #
+            #    The membrane is an integer register, so the chip cannot subtract
+            #    a fractional leak. It computes floor(v_int / tau) and subtracts
+            #    that. A float division is close but never equal, and the error
+            #    accumulates over T steps and compounds through depth.
+            #
+            #    Flooring here also CLOSES the grid. Every weight is an exact
+            #    multiple of W_DELTA after fake quantization, spikes are 0 or 1,
+            #    and v starts at rest, so v stays on the grid as long as nothing
+            #    ever subtracts an off-grid amount. The float leak was the one
+            #    operation that did. With it floored, the simulated membrane is
+            #    the deployed membrane, step for step.
+            #
+            #    Note the dead zone this creates: when |v - v_reset| < tau LSBs
+            #    the leak floors to zero and the membrane does not decay at all.
+            #    That is real hardware behaviour, not an artifact, and it makes
+            #    the large-tau end of HW_TAU_CHOICES behave very differently from
+            #    what a continuous model predicts.
+            #
+            #    floor has zero gradient everywhere it is defined, so the
+            #    straight-through estimator passes the float leak's gradient, the
+            #    same way fake_quantize_weight does for the weights.
+            leak = (self.v - v_reset) / self.hw_tau
+            if getattr(self, "integer_leak", True):
+                leak = _ste(torch.floor(leak / W_DELTA) * W_DELTA, leak)
+            self.v = self.v - leak
             # 4. integrate this timestep's input, undecayed
             self.v = self.v + x
             return spike
@@ -199,7 +226,8 @@ if _HAS_TORCH:
         def extra_repr(self):
             th = self.v_threshold
             th_s = "per-channel" if torch.is_tensor(th) and th.numel() > 1 else f"{float(th):.5f}"
-            return (f"tau={self.hw_leak()} (integer leak), v_threshold={th_s}, "
+            leak_s = "floored" if getattr(self, "integer_leak", True) else "float"
+            return (f"tau={self.hw_leak()} ({leak_s} leak), v_threshold={th_s}, "
                     f"learn_tau={self.learn_tau}, learn_threshold={self.learn_threshold}")
 
 
@@ -448,6 +476,7 @@ def build_neuron(neuron_cfg: NeuronSpec, tau, v_threshold: float):
         tau=tau, v_threshold=v_threshold, v_reset=neuron_cfg.v_reset,
         learn_tau=neuron_cfg.trainable_tau,
         learn_threshold=neuron_cfg.trainable_threshold,
+        integer_leak=getattr(neuron_cfg, "integer_leak", True),
         surrogate_function=surrogate.ATan(), detach_reset=True,
     )
 

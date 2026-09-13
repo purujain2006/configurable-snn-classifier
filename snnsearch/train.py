@@ -118,18 +118,76 @@ def forward_over_time(net, x, flush_steps: int = None):
     return out
 
 
+class _RateProbe:
+    """Collects the mean firing rate of every spiking layer, differentiably.
+
+    The penalty has to see the rate as a function of the weights, so this
+    cannot run under no_grad and cannot store floats. The spike tensor comes
+    out of the surrogate function, so its mean carries a gradient back to the
+    membrane and from there to everything upstream.
+
+    In single-step mode the hook fires once per timestep per layer, so the
+    collected means already span time; in multi-step mode the spike tensor
+    carries the time axis itself. Either way the mean over everything collected
+    is the mean spatiotemporal firing rate, which is what a global L1 penalty
+    is defined on.
+    """
+
+    def __init__(self, net):
+        self.rates = []
+        self._handles = []
+        for m in net.modules():
+            if isinstance(m, HardwareLIFNode):
+                self._handles.append(m.register_forward_hook(self._hook))
+
+    def _hook(self, _mod, _inp, out):
+        self.rates.append(out.mean())
+
+    def mean(self):
+        """Scalar mean rate for the batch just run, or None if nothing fired."""
+        if not self.rates:
+            return None
+        return torch.stack(self.rates).mean()
+
+    def clear(self):
+        self.rates.clear()
+
+    def detach(self):
+        for h in self._handles:
+            h.remove()
+        self._handles = []
+
+
 def train_one_epoch(net, loader, optimizer, device, criterion=None,
-                    grad_clip: float = 0.0, batch_scheduler=None):
+                    grad_clip: float = 0.0, batch_scheduler=None,
+                    rate_penalty: float = 0.0):
+    """Returns (mean loss, accuracy, mean firing rate).
+
+    `rate_penalty` adds lambda * mean spatiotemporal firing rate to the loss.
+    Fewer spikes means fewer accumulates on chip, so this is the one
+    regularizer here that also buys energy. It is a global L1 on the rate: no
+    per-layer targets, no schedule, because nothing yet says what the right
+    per-layer rate would be.
+    """
     net.train()
     criterion = criterion or (lambda o, y: F.cross_entropy(o, y))
-    total, correct, loss_sum = 0, 0, 0.0
+    total, correct, loss_sum, rate_sum, rate_n = 0, 0, 0.0, 0.0, 0
+    probe = _RateProbe(net) if rate_penalty and rate_penalty > 0 else None
     for x, y, _lengths in loader:  # pad_sequence_collate returns (data, labels, lengths);
                                     # lengths is always == T here since split_by="number"
                                     # gives every sample a fixed frame count -- safe to ignore.
         x, y = x.to(device), y.to(device)
         optimizer.zero_grad()
+        if probe is not None:
+            probe.clear()
         out = forward_over_time(net, x)
         loss = criterion(out, y)
+        if probe is not None:
+            rate = probe.mean()
+            if rate is not None:
+                loss = loss + rate_penalty * rate
+                rate_sum += float(rate.detach().item())
+                rate_n += 1
         loss.backward()
         if grad_clip and grad_clip > 0:
             nn.utils.clip_grad_norm_(net.parameters(), grad_clip)
@@ -139,7 +197,10 @@ def train_one_epoch(net, loader, optimizer, device, criterion=None,
         loss_sum += loss.item() * y.size(0)
         correct += (out.argmax(1) == y).sum().item()
         total += y.size(0)
-    return loss_sum / max(1, total), correct / max(1, total)
+    if probe is not None:
+        probe.detach()
+    return (loss_sum / max(1, total), correct / max(1, total),
+            rate_sum / rate_n if rate_n else None)
 
 
 def evaluate(net, loader, device):
@@ -183,15 +244,22 @@ def run_training(cfg: dict, data_dir: str = None, device=None, report_fn=None,
     else:
         warmup, grid_epochs = train_cfg.epochs, 0   # tail/ptq handled below
 
+    # Written by run_phase rather than returned, so the two call sites below
+    # keep their two-value unpacking and cannot drift out of step with it.
+    last = {"firing_rate": None}
+
     def run_phase(net, optimizer, scheduler, step_per_batch, n_epochs, epoch0,
                   best, best_state, tag):
         """One training phase; reports each epoch into the shared trajectory so
         ASHA still sees a continuous per-epoch curve across warmup + grid."""
         for e in range(n_epochs):
-            train_loss, train_acc = train_one_epoch(
+            train_loss, train_acc, rate = train_one_epoch(
                 net, train_loader, optimizer, device, criterion,
                 grad_clip=train_cfg.grad_clip,
-                batch_scheduler=scheduler if step_per_batch else None)
+                batch_scheduler=scheduler if step_per_batch else None,
+                rate_penalty=getattr(train_cfg, "rate_penalty", 0.0) or 0.0)
+            if rate is not None:
+                last["firing_rate"] = rate
             if scheduler is not None and not step_per_batch:
                 scheduler.step()
             val_acc = evaluate(net, val_loader, device)
@@ -201,7 +269,8 @@ def run_training(cfg: dict, data_dir: str = None, device=None, report_fn=None,
             if report_fn is not None:
                 report_fn(epoch=epoch0 + e, train_loss=train_loss, train_acc=train_acc,
                           val_acc=val_acc, best_val_acc=best,
-                          lr=optimizer.param_groups[0]["lr"], phase=tag)
+                          lr=optimizer.param_groups[0]["lr"], phase=tag,
+                          firing_rate=rate)
         return best, best_state
 
     # ---- phase 1: float warmup (BN active, precise weights) --------------
@@ -280,6 +349,12 @@ def run_training(cfg: dict, data_dir: str = None, device=None, report_fn=None,
     # but it is a training-progress figure and not a conversion cost,
     # so it gets a name that says so.
     hw["end_to_end_gain"] = hw["hw_val_accuracy"] - float_best
+
+    # Only measured when the penalty is on, because the probe holds a graph
+    # reference per spiking layer per timestep and this box has run out of GPU
+    # memory before. SynOps already reports the energy proxy for every trial.
+    hw["firing_rate"] = last["firing_rate"]
+    hw["rate_penalty"] = getattr(train_cfg, "rate_penalty", 0.0) or 0.0
 
     if ckpt_path is not None:
         torch.save({

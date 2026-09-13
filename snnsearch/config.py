@@ -71,6 +71,14 @@ class EncoderSpec:
     layers_json: str = ""
     # encoder-wide (not per-layer)
     bias: bool = False
+    # Spatiotemporal dropout on the SPIKES leaving each conv block. The head's
+    # dropout sits before the classifier, so on a two-layer network it regulates
+    # one linear map and nothing that builds features. This one drops whole
+    # units for the entire clip, using spikingjelly's Dropout, which holds its
+    # mask until reset_net rather than resampling every timestep. Resampling
+    # per step is what a plain torch Dropout does, and over T steps it averages
+    # out to a mild noise injection instead of removing a pathway. 0 = off.
+    dropout_rate: float = 0.0
     norm: str = "bn"          # "none" | "bn" | "tdbn"
     tdbn_alpha: float = 1.0   # tdbn only: gamma is initialised to alpha * v_threshold
 
@@ -136,6 +144,12 @@ class NeuronSpec:
     # and leaks across layers cost nothing on hardware.
     trainable_tau: bool = False
     trainable_threshold: bool = False
+    # The membrane is an integer register on chip, so the leak is floor(v/tau)
+    # rather than v/tau. With this on, every arithmetic operation in the neuron
+    # lands on the INT16 grid and the simulation matches the hardware step for
+    # step. Off reproduces the float dynamics used before that was verified, and
+    # exists only so the two can be compared.
+    integer_leak: bool = True
 
 
 @dataclass
@@ -151,6 +165,10 @@ class TrainSpec:
     warmup_epochs: int = 0
     label_smoothing: float = 0.0
     grad_clip: float = 0.0         # 0 = off
+    # Global L1 on the mean spatiotemporal firing rate, added to the loss.
+    # Unlike every other regularizer here it also buys energy, since a spike
+    # that does not happen is an accumulate the chip does not perform. 0 = off.
+    rate_penalty: float = 0.0
     # --- deployment / quantization-aware training (section 5c) -------------
     # qat_mode selects how the model reaches the deployable INT16 grid:
     #   "inline"  (Option A, default): after a short float warmup, every

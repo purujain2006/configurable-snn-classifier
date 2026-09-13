@@ -46,6 +46,30 @@ PATCHES = {
          "    # epoch budget. None reproduces the old behaviour.\n"
          "    qat_schedule_epochs: Optional[int] = None\n"
          "    qat_scheduler: Optional[str] = None   # None = same as the float phase\n"),
+        # The membrane is an integer register, so the leak is floor(v/tau).
+        ("    trainable_tau: bool = False\n    trainable_threshold: bool = False\n",
+         "    trainable_tau: bool = False\n"
+         "    trainable_threshold: bool = False\n"
+         "    # The membrane is an integer register on chip, so the leak is\n"
+         "    # floor(v/tau) rather than v/tau. With this on, every arithmetic\n"
+         "    # operation in the neuron lands on the INT16 grid and the simulation\n"
+         "    # matches the hardware step for step. Off reproduces the float\n"
+         "    # dynamics used before that was verified, for comparison only.\n"
+         "    integer_leak: bool = True\n"),
+        ("    grad_clip: float = 0.0         # 0 = off\n",
+         "    grad_clip: float = 0.0         # 0 = off\n"
+         "    # Global L1 on the mean spatiotemporal firing rate, added to the loss.\n"
+         "    # Unlike every other regularizer here it also buys energy, since a\n"
+         "    # spike that does not happen is an accumulate the chip never performs.\n"
+         "    rate_penalty: float = 0.0\n"),
+        ("    # encoder-wide (not per-layer)\n    bias: bool = False\n",
+         "    # encoder-wide (not per-layer)\n"
+         "    bias: bool = False\n"
+         "    # Spatiotemporal dropout on the SPIKES leaving each conv block. The\n"
+         "    # head's dropout sits before the classifier, so on a two-layer network\n"
+         "    # it regulates one linear map and nothing that builds features. This\n"
+         "    # one drops whole units for the entire clip. 0 = off.\n"
+         "    dropout_rate: float = 0.0\n"),
     ],
     "spaces.py": [
         ('# NARROWED to the regions the statistics said matter:\n'
@@ -113,8 +137,95 @@ PATCHES = {
         ('            trial.suggest_categorical("kernel_size", KERNEL_CHOICES)\n',
          '            # odd sizes only, so padding stays symmetric.\n'
          '            trial.suggest_int("kernel_size", 3, 9, step=2)\n'),
+        # Spatiotemporal dropout inside the conv stack. With fc_layers capped at
+        # 1 the head holds a single dropout in front of the classifier, so
+        # nothing regularizes the layers that build the features.
+        ('        # dropout: not significant, but winners live in 0.1-0.45; trim the tails.\n'
+         '        trial.suggest_float("dropout_rate", 0.1, 0.45)\n',
+         '        # dropout: not significant, but winners live in 0.1-0.45; trim the tails.\n'
+         '        # This one sits in the HEAD, before each linear layer.\n'
+         '        trial.suggest_float("dropout_rate", 0.1, 0.45)\n'
+         '        # Spatiotemporal dropout inside the conv stack, on the spikes leaving\n'
+         '        # each block. Conditional, so "none in the conv stack" stays a\n'
+         '        # reachable baseline rather than a measure-zero point in a range.\n'
+         '        if trial.suggest_categorical("use_conv_dropout", [False, True]):\n'
+         '            trial.suggest_float("conv_dropout", 0.05, 0.3)\n'),
+        # Global L1 on the mean spatiotemporal firing rate. The one regularizer
+        # here that also buys energy, since a spike that does not happen is an
+        # accumulate the chip does not perform.
+        ('        trial.suggest_categorical("grad_clip", [0.0, 1.0, 5.0])\n',
+         '        trial.suggest_categorical("grad_clip", [0.0, 1.0, 5.0])\n'
+         '        # Conditional rather than a range that includes zero: a continuous\n'
+         '        # range never samples exactly 0, so "off" would never be tested, and\n'
+         '        # off is the baseline every earlier trial was run under.\n'
+         '        if trial.suggest_categorical("use_rate_penalty", [False, True]):\n'
+         '            trial.suggest_float("rate_penalty", 1e-4, 1e-1, log=True)\n'),
+        # Carry the two new knobs into the specs.
+        ('                              padding=0, dilation=1, bias=(norm == "none"),\n'
+         '                              norm=norm, tdbn_alpha=config.get("tdbn_alpha", 1.0))\n',
+         '                              padding=0, dilation=1, bias=(norm == "none"),\n'
+         '                              norm=norm, tdbn_alpha=config.get("tdbn_alpha", 1.0),\n'
+         '                              dropout_rate=config.get("conv_dropout", 0.0))\n'),
+        ('        encoder = EncoderSpec(layers_json=json.dumps(layers), bias=(norm == "none"),\n'
+         '                              norm=norm, tdbn_alpha=config.get("tdbn_alpha", 1.0))\n',
+         '        encoder = EncoderSpec(layers_json=json.dumps(layers), bias=(norm == "none"),\n'
+         '                              norm=norm, tdbn_alpha=config.get("tdbn_alpha", 1.0),\n'
+         '                              dropout_rate=config.get("conv_dropout", 0.0))\n'),
+        ('                           grad_clip=config.get("grad_clip", 0.0),\n',
+         '                           grad_clip=config.get("grad_clip", 0.0),\n'
+         '                           rate_penalty=config.get("rate_penalty", 0.0),\n'),
+        ('                             trainable_threshold=bool(config.get("trainable_threshold", False))),\n',
+         '                             trainable_threshold=bool(config.get("trainable_threshold", False)),\n'
+         '                             integer_leak=bool(config.get("integer_leak", True))),\n'),
+    ],
+    "neuron.py": [
+        # THE LEAK IS AN INTEGER DIVISION, not a float one. The membrane is an
+        # integer register, so the chip computes floor(v_int / tau). Shivank
+        # verified that flooring here, with the update order this node already
+        # uses, makes SpikingJelly and HiAER-Spike agree exactly.
+        #
+        # Flooring also closes the grid: weights are exact multiples of W_DELTA
+        # after fake quantization and spikes are 0 or 1, so the float leak was
+        # the only operation putting the membrane off-grid.
+        ('        def __init__(self, tau: int = 2, v_threshold: float = 1.0, v_reset: float = 0.0,\n'
+         '                     learn_tau: bool = False, learn_threshold: bool = False,\n',
+         '        def __init__(self, tau: int = 2, v_threshold: float = 1.0, v_reset: float = 0.0,\n'
+         '                     learn_tau: bool = False, learn_threshold: bool = False,\n'
+         '                     integer_leak: bool = True,\n'),
+        ('            self.learn_threshold = bool(learn_threshold)\n',
+         '            self.learn_threshold = bool(learn_threshold)\n'
+         '            self.integer_leak = bool(integer_leak)\n'),
+        ('            # 3. integer leak toward v_reset\n'
+         '            self.v = self.v - (self.v - v_reset) / self.hw_tau\n',
+         '            # 3. leak toward v_reset, by INTEGER DIVISION on the chip\'s grid.\n'
+         '            #    A float division is close but never equal, and the error\n'
+         '            #    accumulates over T steps and compounds through depth.\n'
+         '            #    Note the dead zone: when |v - v_reset| < tau LSBs the leak\n'
+         '            #    floors to zero and the membrane does not decay at all. That\n'
+         '            #    is real hardware behaviour, and it makes the large-tau end of\n'
+         '            #    HW_TAU_CHOICES behave unlike a continuous model predicts.\n'
+         '            #    floor has no gradient, so the straight-through estimator\n'
+         '            #    passes the float leak\'s, as fake_quantize_weight does.\n'
+         '            leak = (self.v - v_reset) / self.hw_tau\n'
+         '            if getattr(self, "integer_leak", True):\n'
+         '                leak = _ste(torch.floor(leak / W_DELTA) * W_DELTA, leak)\n'
+         '            self.v = self.v - leak\n'),
+        ('            return (f"tau={self.hw_leak()} (integer leak), v_threshold={th_s}, "\n',
+         '            leak_s = "floored" if getattr(self, "integer_leak", True) else "float"\n'
+         '            return (f"tau={self.hw_leak()} ({leak_s} leak), v_threshold={th_s}, "\n'),
+        ('        learn_threshold=neuron_cfg.trainable_threshold,\n',
+         '        learn_threshold=neuron_cfg.trainable_threshold,\n'
+         '        integer_leak=getattr(neuron_cfg, "integer_leak", True),\n'),
     ],
     "model.py": [
+        # Spatiotemporal dropout on the SPIKES leaving each conv block, using
+        # spikingjelly's Dropout, which holds its mask until reset_net rather
+        # than resampling every timestep. Resampling per step averages out over
+        # T into mild noise instead of removing a pathway.
+        ('            if b.pool:\n',
+         '            if getattr(encoder_cfg, "dropout_rate", 0.0) > 0:\n'
+         '                modules.append(layer.Dropout(encoder_cfg.dropout_rate))\n'
+         '            if b.pool:\n'),
         ("        enable_weight_fake_quant(self)\n",
          "        # local import: quantize -> folding -> model, so a module-level\n"
          "        # import here would close the circle.\n"
@@ -150,6 +261,103 @@ PATCHES = {
     # the parameter changes from a path to the loaders themselves. data_dir is
     # kept as a fallback so Practice2.py's own calling convention still works.
     "train.py": [
+        # Global L1 firing-rate penalty. The probe has to be differentiable, so
+        # it cannot run under no_grad and cannot store floats: the spike tensor
+        # comes out of the surrogate function, so its mean carries a gradient
+        # back to the membrane and from there to every weight upstream.
+        ('def train_one_epoch(net, loader, optimizer, device, criterion=None,\n'
+         '                    grad_clip: float = 0.0, batch_scheduler=None):\n'
+         '    net.train()\n'
+         '    criterion = criterion or (lambda o, y: F.cross_entropy(o, y))\n'
+         '    total, correct, loss_sum = 0, 0, 0.0\n',
+         'class _RateProbe:\n'
+         '    """Mean firing rate of every spiking layer, differentiably.\n'
+         '\n'
+         '    In single-step mode the hook fires once per timestep per layer, so\n'
+         '    the collected means already span time; in multi-step mode the spike\n'
+         '    tensor carries the time axis itself. Either way the mean over\n'
+         '    everything collected is the mean spatiotemporal firing rate.\n'
+         '    """\n'
+         '\n'
+         '    def __init__(self, net):\n'
+         '        self.rates = []\n'
+         '        self._handles = []\n'
+         '        for m in net.modules():\n'
+         '            if isinstance(m, HardwareLIFNode):\n'
+         '                self._handles.append(m.register_forward_hook(self._hook))\n'
+         '\n'
+         '    def _hook(self, _mod, _inp, out):\n'
+         '        self.rates.append(out.mean())\n'
+         '\n'
+         '    def mean(self):\n'
+         '        if not self.rates:\n'
+         '            return None\n'
+         '        return torch.stack(self.rates).mean()\n'
+         '\n'
+         '    def clear(self):\n'
+         '        self.rates.clear()\n'
+         '\n'
+         '    def detach(self):\n'
+         '        for h in self._handles:\n'
+         '            h.remove()\n'
+         '        self._handles = []\n'
+         '\n'
+         '\n'
+         'def train_one_epoch(net, loader, optimizer, device, criterion=None,\n'
+         '                    grad_clip: float = 0.0, batch_scheduler=None,\n'
+         '                    rate_penalty: float = 0.0):\n'
+         '    """Returns (mean loss, accuracy, mean firing rate)."""\n'
+         '    net.train()\n'
+         '    criterion = criterion or (lambda o, y: F.cross_entropy(o, y))\n'
+         '    total, correct, loss_sum, rate_sum, rate_n = 0, 0, 0.0, 0.0, 0\n'
+         '    probe = _RateProbe(net) if rate_penalty and rate_penalty > 0 else None\n'),
+        ('        out = forward_over_time(net, x)\n'
+         '        loss = criterion(out, y)\n'
+         '        loss.backward()\n',
+         '        if probe is not None:\n'
+         '            probe.clear()\n'
+         '        out = forward_over_time(net, x)\n'
+         '        loss = criterion(out, y)\n'
+         '        if probe is not None:\n'
+         '            rate = probe.mean()\n'
+         '            if rate is not None:\n'
+         '                loss = loss + rate_penalty * rate\n'
+         '                rate_sum += float(rate.detach().item())\n'
+         '                rate_n += 1\n'
+         '        loss.backward()\n'),
+        ('    return loss_sum / max(1, total), correct / max(1, total)\n',
+         '    if probe is not None:\n'
+         '        probe.detach()\n'
+         '    return (loss_sum / max(1, total), correct / max(1, total),\n'
+         '            rate_sum / rate_n if rate_n else None)\n'),
+        ('            train_loss, train_acc = train_one_epoch(\n'
+         '                net, train_loader, optimizer, device, criterion,\n'
+         '                grad_clip=train_cfg.grad_clip,\n'
+         '                batch_scheduler=scheduler if step_per_batch else None)\n',
+         '            train_loss, train_acc, rate = train_one_epoch(\n'
+         '                net, train_loader, optimizer, device, criterion,\n'
+         '                grad_clip=train_cfg.grad_clip,\n'
+         '                batch_scheduler=scheduler if step_per_batch else None,\n'
+         '                rate_penalty=getattr(train_cfg, "rate_penalty", 0.0) or 0.0)\n'
+         '            if rate is not None:\n'
+         '                last["firing_rate"] = rate\n'),
+        ('                          lr=optimizer.param_groups[0]["lr"], phase=tag)\n',
+         '                          lr=optimizer.param_groups[0]["lr"], phase=tag,\n'
+         '                          firing_rate=rate)\n'),
+        # Written by run_phase rather than returned, so the two call sites keep
+        # their two-value unpacking and cannot drift out of step with it.
+        ('    def run_phase(net, optimizer, scheduler, step_per_batch, n_epochs, epoch0,\n',
+         '    last = {"firing_rate": None}\n'
+         '\n'
+         '    def run_phase(net, optimizer, scheduler, step_per_batch, n_epochs, epoch0,\n'),
+        ('    hw["end_to_end_gain"] = hw["hw_val_accuracy"] - float_best\n',
+         '    hw["end_to_end_gain"] = hw["hw_val_accuracy"] - float_best\n'
+         '\n'
+         '    # Only measured when the penalty is on, because the probe holds a graph\n'
+         '    # reference per spiking layer per timestep and this box has run out of\n'
+         '    # GPU memory before. SynOps reports the energy proxy for every trial.\n'
+         '    hw["firing_rate"] = last["firing_rate"]\n'
+         '    hw["rate_penalty"] = getattr(train_cfg, "rate_penalty", 0.0) or 0.0\n'),
         # The quantized phase inherited its schedule length from the epoch
         # budget: cosine with T_max = grid_epochs. Raising the budget from 40 to
         # 100 stretched that decay from 30 epochs to 75, holding the learning

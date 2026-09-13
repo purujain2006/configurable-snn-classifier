@@ -48,8 +48,8 @@ PERM = 20000
 KNOBS = ["downsample_mode", "norm", "optimizer", "scheduler", "final_reduction",
          "trainable_tau", "trainable_threshold", "depth", "channels",
          "kernel_size", "stride", "resize_to", "T", "tau", "fc_layers",
-         "dropout_rate", "lr", "weight_decay", "label_smoothing", "grad_clip",
-         "tdbn_alpha"]
+         "dropout_rate", "conv_dropout", "lr", "weight_decay", "label_smoothing",
+         "grad_clip", "rate_penalty", "tdbn_alpha"]
 
 # Whether a knob is categorical is a property of the DATA, not a list written
 # once. tau was sampled as a float in the early searches and snapped to the

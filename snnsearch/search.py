@@ -323,6 +323,7 @@ def _make_trainable(cfg, out_dir):
                 "train_loss": kw.get("train_loss", 0.0),
                 "lr": kw.get("lr", 0.0),
                 "epoch": kw.get("epoch", 0),
+                "firing_rate": kw.get("firing_rate"),
             })
 
         try:
@@ -371,6 +372,8 @@ def _make_trainable(cfg, out_dir):
             "pre_export_val_accuracy": res.get("pre_export_val_accuracy"),
             "synops_per_sample": synops,
             "synops_reason": res.get("synops_reason"),
+            "firing_rate": res.get("firing_rate"),
+            "rate_penalty": res.get("rate_penalty"),
             # what export cost, not what the schedule gained
             "quant_gap": res.get("quant_gap"),
             "end_to_end_gain": res.get("end_to_end_gain"),

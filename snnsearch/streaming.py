@@ -35,11 +35,12 @@ LEADERBOARD_COLS = [
     "trial_id", "status", "val_accuracy", "hw_val_accuracy",
     "pre_export_val_accuracy", "float_val_accuracy",
     "quant_gap", "end_to_end_gain", "deployable", "weight_clip_frac", "min_threshold", "feasible",
-    "epochs_run", "stopped_early", "synops_per_sample", "neurons", "connections",
+    "epochs_run", "stopped_early", "synops_per_sample", "firing_rate", "rate_penalty",
+    "neurons", "connections",
     "params",
     "depth", "channels", "kernel_size", "stride", "downsample_mode",
     "resize_to", "T", "tau", "trainable_tau", "trainable_threshold",
-    "fc_layers", "final_reduction", "dropout_rate", "norm", "tdbn_alpha",
+    "fc_layers", "final_reduction", "dropout_rate", "conv_dropout", "norm", "tdbn_alpha",
     "optimizer", "lr", "weight_decay", "scheduler", "label_smoothing", "grad_clip",
 ]
 
@@ -81,6 +82,7 @@ def make_streaming_callback(writer, target=0.975):
                 "train_accuracy": result.get("train_accuracy"),
                 "train_loss": result.get("train_loss"),
                 "lr": result.get("lr"), "phase": result.get("phase"),
+                "firing_rate": result.get("firing_rate"),
                 "feasible": result.get("feasible"),
             })
 
@@ -157,6 +159,7 @@ def make_streaming_callback(writer, target=0.975):
                 "quant_gap": r.get("quant_gap"),
                 "end_to_end_gain": r.get("end_to_end_gain"),
                 "synops_per_sample": r.get("synops_per_sample"),
+                "firing_rate": r.get("firing_rate"),
                 "deployable": r.get("deployable"),
                 "deploy_reasons": r.get("deploy_reasons"),
                 "weight_clip_frac": r.get("weight_clip_frac"),
@@ -181,6 +184,7 @@ def make_streaming_callback(writer, target=0.975):
                 "weight_clip_frac": r.get("weight_clip_frac"),
                 "min_threshold": r.get("min_threshold"),
                 "synops_per_sample": r.get("synops_per_sample"),
+                "firing_rate": r.get("firing_rate"),
                 "feasible": r.get("feasible"), "epochs_run": epochs_run,
                 "stopped_early": stopped_early, **flat,
             }, header_order=LEADERBOARD_COLS)

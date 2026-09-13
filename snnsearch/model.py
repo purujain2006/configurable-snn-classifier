@@ -58,6 +58,11 @@ class DVSGesturePuru(nn.Module):
                 modules.append(layer.BatchNorm2d(b.out_channels))
             modules.append(mk_neuron(resolved(b.tau, neuron_cfg.tau),
                                      resolved(b.v_threshold, neuron_cfg.v_threshold)))
+            # After the neuron, so it drops SPIKES rather than currents. A
+            # dropped unit then contributes nothing downstream for the whole
+            # clip, which is the pathway removal dropout is supposed to be.
+            if getattr(encoder_cfg, "dropout_rate", 0.0) > 0:
+                modules.append(layer.Dropout(encoder_cfg.dropout_rate))
             if b.pool:
                 pool_cls = layer.MaxPool2d if downsample_cfg.pool_type == "max" else layer.AvgPool2d
                 modules.append(pool_cls(kernel_size=b.pool_kernel, stride=b.pool_stride))

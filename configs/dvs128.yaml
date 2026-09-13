@@ -15,16 +15,34 @@ encoding:
   resize_to: 64          # native 128x128 needs 32,768 axons against a limit of 16,383
 
 search:
-  trials: 25
-  epochs: 40
+  trials: 400
+  # SEARCH horizon, not the final one. ASHA prunes on early performance, so a
+  # long budget here spends most of its compute on runs that get killed anyway,
+  # and any rung placed before grokking would begin is a coin flip on exactly
+  # the runs a grokking hunt wants to keep. Those are different questions, so
+  # they get different runs: this one picks architectures at a horizon where
+  # early performance is a fair signal, and the survivors are then retrained
+  # long with no pruning at all (main.py single --from-best --epochs 300).
+  epochs: 60
   batch_size: 16
   # One frame cache per value, built sequentially before Ray starts. Each takes
   # tens of CPU minutes the first time and is then reused by every run.
   T_choices: [8, 16]
-  grace_period: 8        # must stay > 1: cosine/onecycle improve late
+  # Rungs land at grace_period * reduction_factor^k, so 10, 30, 60 here. Of 400
+  # trials roughly 133 clear the first cut, 44 the second, and those run to the
+  # full 60. Must stay > 1 regardless: cosine and one-cycle both improve late.
+  grace_period: 10
   reduction_factor: 3
   target: 0.975          # published SNN accuracy on this task is 97-99%
-  space: uniform
+  # per_layer samples kernel, channels and downsampling INDEPENDENTLY per conv
+  # layer. "uniform" shares one of each across the whole stack, which cannot
+  # express two different widths, so the paper's best DVS model -- C(6) into
+  # C(16) -- was unreachable no matter how wide the channel range got.
+  #
+  # Uniform is a subset of this: a per-layer trial can sample the same values
+  # for every layer. So nothing is lost, but the space is much larger and wants
+  # a trial budget to match.
+  space: per_layer
   # MEASURED, not estimated. A 400-trial run at 0.03125 put 27 trials on one
   # L40S and filled 44.4 of 44.42 GiB; 266 of 400 died of CUDA OOM. Per trial
   # the range was 0.7 to 3.6 GiB, averaging 1.65 -- far above the parameter
@@ -32,6 +50,16 @@ search:
   # and allocator slack. Size for the 3.6 GiB tail, not the average:
   # 8 x 3.6 = 29 GiB leaves headroom, 16 would not.
   gpu_fraction: 0.125
+
+train:
+  # Length of the quantized phase's LR schedule, independent of the epoch
+  # budget. Without it the grid-phase cosine stretches across whatever the
+  # budget leaves over, holding the learning rate high while the weights are
+  # meant to be settling onto the INT16 grid. That is what took the same
+  # configuration from 0.892 at 40 epochs to 0.756 at 100. Set it and the decay
+  # finishes in this many epochs whatever the budget, so the long runs the
+  # grokking question needs stay safe.
+  qat_schedule_epochs: 40
 
 objective:
   mode: accuracy         # switch to pareto once SynOps have been recorded once

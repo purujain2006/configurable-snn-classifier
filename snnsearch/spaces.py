@@ -39,12 +39,14 @@ def config_to_specs(config: dict) -> dict:
                 "pool": bool(config.get(f"pool_{i}", False)),
             })
         encoder = EncoderSpec(layers_json=json.dumps(layers), bias=(norm == "none"),
-                              norm=norm, tdbn_alpha=config.get("tdbn_alpha", 1.0))
+                              norm=norm, tdbn_alpha=config.get("tdbn_alpha", 1.0),
+                              dropout_rate=config.get("conv_dropout", 0.0))
     else:                 # uniform
         encoder = EncoderSpec(depth=depth, channels=config["channels"],
                               kernel_size=config["kernel_size"], stride=config.get("stride", 1),
                               padding=0, dilation=1, bias=(norm == "none"),
-                              norm=norm, tdbn_alpha=config.get("tdbn_alpha", 1.0))
+                              norm=norm, tdbn_alpha=config.get("tdbn_alpha", 1.0),
+                              dropout_rate=config.get("conv_dropout", 0.0))
 
     return {
         "input": InputSpec(N=config["N"], C=2, H=128, W=128,
@@ -62,7 +64,8 @@ def config_to_specs(config: dict) -> dict:
         "neuron": NeuronSpec(neuron_type="LIF", tau=int(round(float(config["tau"]))),
                              v_threshold=1.0, v_reset=0.0,
                              trainable_tau=bool(config.get("trainable_tau", False)),
-                             trainable_threshold=bool(config.get("trainable_threshold", False))),
+                             trainable_threshold=bool(config.get("trainable_threshold", False)),
+                             integer_leak=bool(config.get("integer_leak", True))),
         "train": TrainSpec(epochs=config["epochs"],
                            optimizer=config.get("optimizer", "adam"),
                            lr=config.get("lr", 1e-3),
@@ -71,6 +74,7 @@ def config_to_specs(config: dict) -> dict:
                            warmup_epochs=config.get("warmup_epochs", 0),
                            label_smoothing=config.get("label_smoothing", 0.0),
                            grad_clip=config.get("grad_clip", 0.0),
+                           rate_penalty=config.get("rate_penalty", 0.0),
                            qat_mode=config.get("qat_mode", "inline"),
                            qat_warmup_frac=config.get("qat_warmup_frac", 0.25),
                            qat_epochs=config.get("qat_epochs", 4),
@@ -200,7 +204,15 @@ class DefineByRunSpace:
 
         # ---- regularization ----
         # dropout: not significant, but winners live in 0.1-0.45; trim the tails.
+        # This one sits in the HEAD, before each linear layer.
         trial.suggest_float("dropout_rate", 0.1, 0.45)
+        # Spatiotemporal dropout inside the conv stack, on the spikes leaving
+        # each block. With fc_layers capped at 1 the head holds a single dropout
+        # in front of the classifier, so nothing regularizes the layers that
+        # build the features. Conditional, so "none in the conv stack" stays a
+        # reachable baseline rather than a measure-zero point in a range.
+        if trial.suggest_categorical("use_conv_dropout", [False, True]):
+            trial.suggest_float("conv_dropout", 0.05, 0.3)
         # norm=none is GONE: it produced every dead (below-chance) network
         # (pooled Mann-Whitney p=0.0015; learned-vs-dead odds ratio 21.8). Only
         # the two foldable, hardware-legal options remain -- and this lets tdBN
@@ -210,6 +222,12 @@ class DefineByRunSpace:
             trial.suggest_float("tdbn_alpha", 0.5, 2.0)
         trial.suggest_float("label_smoothing", 0.0, 0.2)
         trial.suggest_categorical("grad_clip", [0.0, 1.0, 5.0])
+        # Global L1 on the mean spatiotemporal firing rate. Conditional rather
+        # than a range that includes zero: a continuous range never samples
+        # exactly 0, so "off" would never be tested, and off is the baseline
+        # every other trial has already been run under.
+        if trial.suggest_categorical("use_rate_penalty", [False, True]):
+            trial.suggest_float("rate_penalty", 1e-4, 1e-1, log=True)
 
         # ---- optimizer / LR schedule ----
         optimizer = trial.suggest_categorical("optimizer", ["adam", "adamw"])
