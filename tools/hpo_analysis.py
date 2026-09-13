@@ -448,21 +448,44 @@ def slow_starters(rows, progress, knobs=("final_reduction", "resize_to", "depth"
     if len(cut) < 6:
         return []
 
+    # COMPARE AT THE SAME RUNG, or do not compare.
+    #
+    # Slope falls as training proceeds: everything climbs fast at epoch 10 and
+    # crawls by epoch 40. Averaging slope over trials cut at different epochs
+    # therefore measures when each group was cut, not how promising it was.
+    # The first version of this did exactly that and made GAP look like a slow
+    # starter purely because every GAP trial died at the first rung while
+    # flatten trials survived to the third.
+    #
+    # So: restrict to the first rung, where every trial has had the same amount
+    # of training and the slopes mean the same thing.
+    rung1 = min(c["cut_at"] for c in cut)
+    at_rung1 = [c for c in cut if c["cut_at"] <= rung1 + 1]
+
     out = []
     for knob in knobs:
-        by = defaultdict(list)
+        totals, first = defaultdict(int), defaultdict(list)
         for c in cut:
             lvl = c["row"].get(knob)
             if lvl not in (None, ""):
-                by[str(lvl)].append(c)
-        if len(by) < 2:
+                totals[str(lvl)] += 1
+        for c in at_rung1:
+            lvl = c["row"].get(knob)
+            if lvl not in (None, ""):
+                first[str(lvl)].append(c)
+        if len(totals) < 2:
             continue
-        for lvl, group in sorted(by.items()):
+        for lvl, n_total in sorted(totals.items()):
+            group = first.get(lvl, [])
             if len(group) < 3:
                 continue
             out.append({
-                "knob": knob, "level": lvl, "n_cut": len(group),
-                "mean_cut_at": mean([c["cut_at"] for c in group]),
+                "knob": knob, "level": lvl, "rung": rung1,
+                "n_cut": n_total, "n_at_rung1": len(group),
+                # The share dying at the very first cut is a signal on its own,
+                # independent of any slope: a setting that never survives one
+                # rung was never actually evaluated.
+                "died_first_rung": len(group) / n_total,
                 "mean_acc_at_cut": mean([c["acc_at_cut"] for c in group]),
                 "mean_slope": mean([c["slope"] for c in group]),
             })
@@ -725,25 +748,36 @@ def write_report(root, out_dir, replicates=()):
     w("")
     ss_rows = slow_starters(rows, progress)
     if ss_rows:
-        w("Among trials the scheduler cut before the end, how fast was each "
-          "still improving at the moment it was cut? A group climbing faster "
-          "than the others was plausibly cut too early. A group that was flat "
-          "deserved it. Slope is validation accuracy per epoch over the last "
-          "five epochs before the cut.")
+        rung = ss_rows[0]["rung"]
+        w(f"Restricted to trials killed at the FIRST rung, epoch {rung}, so "
+          f"every trial compared has had the same amount of training. Slope "
+          f"falls as training proceeds, so mixing trials cut at epoch 10 with "
+          f"trials cut at epoch 32 would measure when each was cut rather than "
+          f"how promising it was.")
         w("")
-        w("| knob | setting | cut | mean cut epoch | acc at cut | slope/epoch |")
-        w("|---|---|---|---|---|---|")
+        w("`died at rung 1` is the share of that setting's cut trials that "
+          "never survived one rung. A setting near 100% was never really "
+          "evaluated, whatever its slope says.")
+        w("")
+        w("| knob | setting | cut | at rung 1 | died at rung 1 | acc there | slope/epoch |")
+        w("|---|---|---|---|---|---|---|")
         for r in sorted(ss_rows, key=lambda r: (r["knob"], -r["mean_slope"])):
             w(f"| `{r['knob']}` | {r['level']} | {r['n_cut']} | "
-              f"{r['mean_cut_at']:.0f} | {r['mean_acc_at_cut']:.3f} | "
-              f"{r['mean_slope']:+.4f} |")
+              f"{r['n_at_rung1']} | {r['died_first_rung']:.0%} | "
+              f"{r['mean_acc_at_cut']:.3f} | {r['mean_slope']:+.4f} |")
         w("")
-        best = max(ss_rows, key=lambda r: r["mean_slope"])
-        w(f"Steepest at the cut: `{best['knob']}`={best['level']} at "
-          f"{best['mean_slope']:+.4f} per epoch. If that is well above the "
-          f"other settings of the same knob, raise `grace_period` before "
-          f"trusting the ranking, because the search never let that setting "
-          f"finish its sentence.")
+        for knob in sorted({r["knob"] for r in ss_rows}):
+            grp = [r for r in ss_rows if r["knob"] == knob]
+            if len(grp) < 2:
+                continue
+            hi = max(grp, key=lambda r: r["mean_slope"])
+            lo = min(grp, key=lambda r: r["mean_slope"])
+            w(f"- `{knob}`: steepest is {hi['level']} at "
+              f"{hi['mean_slope']:+.4f}, shallowest is {lo['level']} at "
+              f"{lo['mean_slope']:+.4f}"
+              + (f". {hi['level']} also lost "
+                 f"{hi['died_first_rung']:.0%} of its trials to this one cut."
+                 if hi["died_first_rung"] > 0.8 else "."))
     else:
         w("Not enough cut trials with per-epoch curves to tell.")
     w("")
