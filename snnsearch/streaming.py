@@ -37,6 +37,7 @@ LEADERBOARD_COLS = [
     "quant_gap", "end_to_end_gain", "deployable", "weight_clip_frac", "min_threshold", "feasible",
     "epochs_run", "stopped_early", "synops_per_sample", "firing_rate", "rate_penalty",
     "neurons", "connections",
+    "channels_per_layer", "kernels_per_layer", "downsample_per_layer",
     "params",
     "depth", "channels", "kernel_size", "stride", "downsample_mode",
     "resize_to", "T", "tau", "trainable_tau", "trainable_threshold",
@@ -57,6 +58,50 @@ def cfg_to_dict_safe(flat_config):
         return {name: asdict(spec) for name, spec in config_to_specs(flat_config).items()}
     except Exception as exc:
         return {"error": str(exc)}
+
+
+def per_layer_summary(flat):
+    """Fold the per-layer geometry keys into three fixed columns.
+
+    append_csv writes its header once and drops anything not in LEADERBOARD_COLS,
+    so a per-layer trial's ch_0, k_0, ds_0 keys were silently discarded. The
+    columns that DID survive, `channels` and `kernel_size`, are only sampled in
+    uniform mode, so a per-layer leaderboard carried no architecture at all
+    beyond depth. That is why neither knob appeared in the statistics.
+
+    A variable number of columns cannot be added to a file with a fixed header,
+    so the geometry is joined into one string per property instead: "81,56".
+    """
+    out, depth = {}, int(flat.get("depth", 0) or 0)
+    if not depth or "ch_0" not in flat:
+        return out
+    def join(prefix, default=""):
+        return ",".join(str(flat.get(f"{prefix}{i}", default)) for i in range(depth))
+    out["channels_per_layer"] = join("ch_")
+    out["kernels_per_layer"] = join("k_")
+    out["downsample_per_layer"] = join("ds_")
+    return out
+
+
+def cost_of(flat):
+    """Neuron, connection and parameter counts for a trial.
+
+    These three columns were declared in LEADERBOARD_COLS from the start and
+    nothing ever wrote them, so every leaderboard in the project's history has
+    three empty columns. The numbers are arithmetic on the plan, so they cost
+    nothing to produce and are the only size measurements in the file.
+    """
+    try:
+        from .spaces import config_to_specs
+        from .cost import count_neurons_and_synapses
+        rows = count_neurons_and_synapses(config_to_specs(dict(flat)))["rows"]
+    except Exception:
+        return {}
+    return {
+        "neurons": sum(r.get("neurons", 0) for r in rows),
+        "connections": sum(r.get("connections", 0) for r in rows),
+        "params": sum(r.get("params", 0) for r in rows),
+    }
 
 
 def make_streaming_callback(writer, target=0.975):
@@ -196,7 +241,8 @@ def make_streaming_callback(writer, target=0.975):
                 "synops_per_sample": r.get("synops_per_sample"),
                 "firing_rate": r.get("firing_rate"),
                 "feasible": r.get("feasible"), "epochs_run": epochs_run,
-                "stopped_early": stopped_early, **flat,
+                "stopped_early": stopped_early,
+                **cost_of(flat), **per_layer_summary(flat), **flat,
             }, header_order=LEADERBOARD_COLS)
 
             writer.write_json("progress.json", {
