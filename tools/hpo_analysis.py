@@ -401,6 +401,74 @@ def feasibility(rows):
     return out
 
 
+def slow_starters(rows, progress, knobs=("final_reduction", "resize_to", "depth")):
+    """Were the pruned trials losing, or just slower to start?
+
+    ASHA cuts on accuracy AT the rung. A configuration that begins badly and
+    improves steeply is indistinguishable, at that moment, from one that begins
+    badly and stays there. The first is a mistake to cut and the second is not.
+
+    The two are distinguishable in hindsight, because the per-epoch curves were
+    recorded. This compares, among trials cut at the same rung, how fast each
+    was still improving when it was cut, grouped by the knobs suspected of
+    producing slow starters.
+
+    A group whose cut trials were climbing faster than everyone else's was
+    plausibly cut early. A group that was flat deserved it.
+    """
+    cfg = {r.get("trial_id"): r for r in rows if r.get("trial_id")}
+    curves = defaultdict(list)
+    for p in progress:
+        e, v = num(p.get("epoch")), num(p.get("val_accuracy"))
+        # phase "deploy" carries no epoch and is the reject path for infeasible
+        # configs, so it is not part of anyone's learning curve.
+        if e is None or v is None or p.get("phase") == "deploy":
+            continue
+        curves[p.get("trial_id")].append((e, v))
+
+    cut = []
+    for tid, pts in curves.items():
+        pts.sort()
+        if len(pts) < 4:
+            continue
+        row = cfg.get(tid)
+        requested = num((row or {}).get("epochs"))
+        last_e = pts[-1][0]
+        # Ran to the end, so it was never cut and says nothing about cutting.
+        if requested is not None and last_e + 1 >= requested:
+            continue
+        tail = pts[-5:]
+        span = tail[-1][0] - tail[0][0]
+        if span <= 0:
+            continue
+        cut.append({"trial_id": tid, "cut_at": last_e,
+                    "acc_at_cut": pts[-1][1],
+                    "slope": (tail[-1][1] - tail[0][1]) / span,
+                    "row": row or {}})
+    if len(cut) < 6:
+        return []
+
+    out = []
+    for knob in knobs:
+        by = defaultdict(list)
+        for c in cut:
+            lvl = c["row"].get(knob)
+            if lvl not in (None, ""):
+                by[str(lvl)].append(c)
+        if len(by) < 2:
+            continue
+        for lvl, group in sorted(by.items()):
+            if len(group) < 3:
+                continue
+            out.append({
+                "knob": knob, "level": lvl, "n_cut": len(group),
+                "mean_cut_at": mean([c["cut_at"] for c in group]),
+                "mean_acc_at_cut": mean([c["acc_at_cut"] for c in group]),
+                "mean_slope": mean([c["slope"] for c in group]),
+            })
+    return out
+
+
 def convergence(rows, target):
     """Best-so-far against trial index: did the search still have room?"""
     seq = [num(r.get(target)) for r in rows if num(r.get(target)) is not None]
@@ -490,6 +558,7 @@ def write_report(root, out_dir, replicates=()):
     all_scored = [num(r.get(target)) for r in rows
                   if num(r.get(target)) is not None]
 
+    progress = load_jsonl(root, "trial_progress.jsonl")
     nf = noise_floor(root)
     within_sd = nf["sd"] if nf else 0.0
     rep_sd = math.sqrt(var(list(replicates))) if len(replicates) >= 2 else None
@@ -503,11 +572,19 @@ def write_report(root, out_dir, replicates=()):
     w("# What the search data supports")
     w("")
     w(f"Source: `{root}`  ")
+    # Three fates, not two. The old wording blamed every unscored trial on the
+    # connection limits, which turned an ordinary 20% rejection rate into an
+    # apparent 72% and sent a reader looking for a broken search space. Most
+    # unscored trials trained perfectly well and were cut by the scheduler.
+    n_rejected = sum(1 for r in rows if not _is_feasible(r))
+    n_pruned = len(rows) - n_rejected - len(all_scored)
     w(f"Trials recorded: **{len(rows)}** across "
-      f"{len(set(r['_run'] for r in rows))} searches, "
-      f"**{len(all_scored)}** scored, of which **{len(scored)}** actually "
-      f"trained. The rest were rejected by the connection limits and "
-      f"recorded as 0, so they are excluded from every effect below.")
+      f"{len(set(r['_run'] for r in rows))} searches. "
+      f"**{n_rejected}** rejected by the connection limits before training, "
+      f"**{n_pruned}** cut by the scheduler before the deploy phase, "
+      f"**{len(all_scored)}** scored. Effects below use the "
+      f"{len(scored)} with a hardware number, since a pruned trial has no "
+      f"measurement rather than a bad one.")
     w("")
 
     # --- noise floor
@@ -641,6 +718,34 @@ def write_report(root, out_dir, replicates=()):
               f"{f['reject_rate']:.0%} |")
     else:
         w("No infeasible trials recorded.")
+    w("")
+
+    # --- slow starters
+    w("## 4b. Was the scheduler cutting the wrong trials?")
+    w("")
+    ss_rows = slow_starters(rows, progress)
+    if ss_rows:
+        w("Among trials the scheduler cut before the end, how fast was each "
+          "still improving at the moment it was cut? A group climbing faster "
+          "than the others was plausibly cut too early. A group that was flat "
+          "deserved it. Slope is validation accuracy per epoch over the last "
+          "five epochs before the cut.")
+        w("")
+        w("| knob | setting | cut | mean cut epoch | acc at cut | slope/epoch |")
+        w("|---|---|---|---|---|---|")
+        for r in sorted(ss_rows, key=lambda r: (r["knob"], -r["mean_slope"])):
+            w(f"| `{r['knob']}` | {r['level']} | {r['n_cut']} | "
+              f"{r['mean_cut_at']:.0f} | {r['mean_acc_at_cut']:.3f} | "
+              f"{r['mean_slope']:+.4f} |")
+        w("")
+        best = max(ss_rows, key=lambda r: r["mean_slope"])
+        w(f"Steepest at the cut: `{best['knob']}`={best['level']} at "
+          f"{best['mean_slope']:+.4f} per epoch. If that is well above the "
+          f"other settings of the same knob, raise `grace_period` before "
+          f"trusting the ranking, because the search never let that setting "
+          f"finish its sentence.")
+    else:
+        w("Not enough cut trials with per-epoch curves to tell.")
     w("")
 
     # --- convergence
