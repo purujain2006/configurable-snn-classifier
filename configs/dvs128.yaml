@@ -52,6 +52,19 @@ search:
   # removes the baseline, though: with no trials running without them, this run
   # cannot answer whether they help. Run tools/hpo_analysis.py on the previous
   # search for that, where each was a coin flip across ~318 trained trials.
+  # conv_dropout IS the spatiotemporal dropout: spikingjelly's Dropout on the
+  # spikes leaving each conv block, mask held for the whole clip.
+  #
+  # rate_penalty previously penalized every spiking layer INCLUDING the output,
+  # whose spikes are the prediction, so it was telling the network not to
+  # answer. 92% of those trials died at the first rung at 0.332 accuracy
+  # against 0.626 without it. The output layer is now excluded. Verify that fix
+  # with one short run before trusting a whole search to it:
+  #
+  #   python main.py single -c configs/dvs128.yaml --from-best <best.json> \
+  #       --epochs 60 --train rate_penalty=0.01 --results-dir results/rp_check
+  #
+  # Epoch 9 should land near 0.6, not near 0.33.
   require: [conv_dropout, rate_penalty]
   # MEASURED, not estimated. A 400-trial run at 0.03125 put 27 trials on one
   # L40S and filled 44.4 of 44.42 GiB; 266 of 400 died of CUDA OOM. Per trial

@@ -121,14 +121,14 @@
       let warn = "";
       if (thp <= 0) {
         $("f-thp").className = "val bad";
-        warn = `<div class="verdict fail">BLOCKING &nbsp;·&nbsp; folded threshold θ′ = ${thp.toFixed(3)} ≤ 0 — this neuron would fire unconditionally on chip. deployment_report scores this config 0.</div>`;
+        warn = `<div class="verdict fail">BLOCKING &nbsp;·&nbsp; folded threshold θ′ = ${thp.toFixed(3)} ≤ 0. This is outside the supported range. deployment_report rejects the configuration.</div>`;
       } else if (thp > 1) {
         $("f-thp").className = "val warn";
-        warn = `<div class="verdict pass" style="border-color:rgba(224,169,79,.4);color:var(--warn);">NOTE &nbsp;·&nbsp; θ′ > 1 — legal to compute with, but note it exceeds the (0,1] grid the base θ obeys; the fold’s legality check watches the unclamped value.</div>`;
+        warn = `<div class="verdict pass" style="border-color:rgba(224,169,79,.4);color:var(--warn);">NOTE &nbsp;·&nbsp; θ′ > 1. This exceeds the supported threshold grid. Check the value before clamping.</div>`;
       } else {
         $("f-thp").className = "val acc";
       }
-      if (clipped) warn += `<div class="verdict fail" style="margin-top:8px;">CLIPPED &nbsp;·&nbsp; |W′| > 1 — the INT16 grid will silently truncate this weight. In a real layer this is counted by weight_clip_fraction.</div>`;
+      if (clipped) warn += `<div class="verdict fail" style="margin-top:8px;">CLIPPED &nbsp;·&nbsp; |W′| > 1. Quantization clips this weight. Count affected weights before clamping.</div>`;
       $("f-warn").innerHTML = warn;
     }
     ["f-w", "f-g", "f-v", "f-m", "f-b"].forEach(id => $(id).addEventListener("input", update));

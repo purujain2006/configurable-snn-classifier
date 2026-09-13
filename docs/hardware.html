@@ -17,17 +17,14 @@
   <div class="hero-inner">
     <p class="kicker">Page 4</p>
     <h1>Fitting the chip</h1>
-    <p class="lede">
-      Section 1.3 listed the connection limits and the numeric formats HiAER-Spike imposes. This page
-      turns them into code by running checks that rejects unbuildable configurations, and a
-      training procedure that keeps the network inside the INT16 grid instead of quantizing it once
-      training is over.
-    </p>
+    <p class="lede">This page implements HiAER-Spike’s connection limits and signed 16-bit numeric format. It explains how to reject infeasible configurations before training and how to account for conversion during training.</p>
   </div>
 </header>
 
 <main class="with-toc">
 <div class="wrap">
+<aside class="recap" aria-label="Page summary"><strong>Deployment checks</strong><p>Connection checks establish whether a network fits. Quantization-aware training models the numeric grid. Prediction comparisons check whether conversion preserves behavior.</p></aside>
+
 
 <section id="limits" class="reveal">
   <h2><span class="sec-num">4.1</span>Connection limits as arithmetic</h2>
@@ -35,19 +32,11 @@
   <div class="motiv">
     <div class="m-row">
       <span class="m-label">Observation</span>
-      <p>
-        Every connection on this chip takes up one row in a stored table, and that table holds a fixed
-        number of rows. A configuration needing more rows than exist cannot be wired at all, and
-        training it teaches nothing.
-      </p>
+      <p>The hardware stores connections in tables with fixed capacity. A configuration that exceeds a connection limit must be rejected before deployment.</p>
     </div>
     <div class="m-row">
       <span class="m-label">Consequence</span>
-      <p>
-        The limits can be evaluated from the layer shapes alone, which section 3.2 already computes
-        without a GPU. Checking them before training costs microseconds and removes a large
-        fraction of the search space at no cost.
-      </p>
+      <p>The layer plan from section 3.2 provides the dimensions needed to check connection limits before training. This avoids spending training time on infeasible configurations.</p>
     </div>
     <div class="m-row code">
       <span class="m-label">In code</span>
@@ -172,11 +161,7 @@ def quantized_threshold_int(th):
     Giving weights a scale of their own would put the two sides of that comparison in different
     units, so every threshold would need rescaling by the same factor to stay meaningful.
   </p>
-  <p>
-    Within the range, the grid is fine enough that rounding error is around 10<sup>&#8722;5</sup>,
-    which is negligible for a network. Truncation at the edge is the part that costs something, and
-    a trained weight rarely lands out there on its own. Something has to push it.
-  </p>
+  <p>Within the representable range, rounding error is on the order of 10<sup>−5</sup>. Clipping values outside that range can cause larger changes, especially after batch-normalization folding.</p>
 
   <div class="demo">
     <div class="demo-head">
@@ -204,12 +189,7 @@ def quantized_threshold_int(th):
 
 <section id="folding" class="reveal">
   <h2><span class="sec-num">4.3</span>Removing batch normalization</h2>
-  <p>
-    Batch normalization rescales each channel using running statistics and two learned parameters.
-    Networks here depend on it. An earlier iteration of this search found that every configuration
-    built without normalization failed to learn at all. The chip provides no normalization layer, so
-    it has to be removed before deployment by folding it into the weights and thresholds.
-  </p>
+  <p>Batch normalization rescales each channel using running statistics and learned parameters. The chip has no normalization layer, so conversion folds this transformation into neighboring parameters. Earlier search comments claimed normalization was essential, but the <a href="data/trial_analysis.txt">local 82-trial analysis</a> did not support that general claim.</p>
   <p>
     Removal is exact. A convolution followed by batch normalization is one linear map followed by
     another, and the pair composes into a single convolution:
@@ -250,12 +230,7 @@ def quantized_threshold_int(th):
     </div>
   </div>
 
-  <p class="footnote">
-    That gives weight decay two jobs at once. Alongside its usual regularization role it now also
-    holds the folded distribution inside the representable range, since a folded weight is the
-    trained weight times the channel scale. The search tunes one number against both. Whether the
-    second job binds is measurable, and in the runs recorded further down it does not.
-  </p>
+  <p class="footnote">Weight decay can limit the magnitude of folded weights as well as regularize training. Whether clipping remains a problem must be checked on the folded values before clamping.</p>
 
   <div class="motiv">
     <div class="m-row">
@@ -267,11 +242,7 @@ def quantized_threshold_int(th):
     </div>
     <div class="m-row">
       <span class="m-label">Consequence</span>
-      <p>
-        Adding a constant to a neuron's input every timestep has the same effect as lowering its
-        threshold by that constant. Since the chip stores a threshold per neuron, the bias can be
-        expressed as a per-channel threshold instead, with no extra hardware support.
-      </p>
+      <p>A per-channel threshold can store the bias adjustment produced by folding. This keeps the representation compatible with the chip, but is not generally equivalent to injecting that bias on every timestep. The comparison below explains the temporal difference.</p>
     </div>
     <div class="m-row code">
       <span class="m-label">In code</span>
@@ -355,12 +326,7 @@ layer 2: scalar               32,767          leak 63</pre>
   <div class="motiv">
     <div class="m-row">
       <span class="m-label">Observation</span>
-      <p>
-        Nothing in the float model constrains b&#8242;. It is
-        &#946; + (conv_b &#8722; &#956;)&#183;scale, and &#946; is a free learned parameter, so
-        training can place it anywhere. The result is discovered at export, after the full epoch
-        budget has been spent, and the trial is scored zero.
-      </p>
+      <p>In the floating-point model, the folded bias is <code>β + (conv_b − μ) · scale</code>. Without an explicit constraint, learned β can make this bias incompatible with the threshold encoding. The deployment check then rejects the result.</p>
     </div>
     <div class="m-row">
       <span class="m-label">Consequence</span>
@@ -406,36 +372,17 @@ def constrain_fold_bias(b, v_th, margin: float = 0.05):
   </p>
 
   <h3>A bias and a lower threshold are not the same thing</h3>
-  <p>
-    Everything above keeps &#952;&#8242; inside the range the chip can store. A second question sits
-    underneath it: whether swapping the bias for a threshold reproduces the behavior at all.
-  </p>
-  <p>
-    The swap looks like an even trade. A neuron that needs to reach 1.0 and receives a free +0.15
-    each step seems no different from one that only has to reach 0.85. That reasoning holds when
-    there is no leak. With a leak it breaks, and the size of the break is set by &#964;.
-  </p>
+  <p>A legal stored threshold does not by itself establish equivalent neuron dynamics. The following comparison tests the bias and threshold forms.</p>
+  <p>A bias adds current on every timestep. A threshold shift changes the firing boundary. These operations generally produce different state trajectories, including when repeated input accumulates without leak.</p>
 
   <div class="motiv">
     <div class="m-row">
       <span class="m-label">Observation</span>
-      <p>
-        A bias arrives every timestep and accumulates. The leak drains <code>v</code>/&#964; per
-        step, so the pile grows until draining balances arriving, which happens at
-        b&#8242;&#183;&#964;. A threshold shift is worth b&#8242; once and never compounds. At
-        &#964;=63 a bias of 0.15 lifts the membrane by 9.45 while the matching threshold shift is
-        worth 0.15.
-      </p>
+      <p>During a period without spikes or resets, a constant input bias contributes a membrane offset that approaches b′&middot;τ for the update rule used here. A fixed threshold shift does not reproduce that changing offset.</p>
     </div>
     <div class="m-row">
       <span class="m-label">Consequence</span>
-      <p>
-        No single stored threshold can imitate the bias, because the offset is not constant. It
-        restarts at zero after every spike and climbs toward b&#8242;&#183;&#964; during silence.
-        The fix is to stop imitating. Training should apply the bias the way the chip will, so the
-        optimizer works against the deployed behavior rather than a version of it that only exists
-        during training.
-      </p>
+      <p>Because the bias contribution varies over time and resets after spikes, a fixed threshold adjustment cannot generally reproduce it. Training should therefore use the same threshold form that export writes.</p>
     </div>
     <div class="m-row code">
       <span class="m-label">In code</span>
@@ -567,11 +514,7 @@ def constrain_fold_bias(b, v_th, margin: float = 0.05):
   <div class="motiv">
     <div class="m-row">
       <span class="m-label">Observation</span>
-      <p>
-        Sections 4.2 and 4.3 together mean that quantization applied after training is destructive
-        in a way training cannot anticipate. Rounding also has a zero derivative, so it cannot
-        simply be inserted into the forward pass and trained through.
-      </p>
+      <p>Quantization and folding can change the network’s outputs. Applying them during training allows the optimizer to respond to these changes. Since rounding has zero derivative almost everywhere, the backward pass uses an approximate gradient.</p>
     </div>
     <div class="m-row">
       <span class="m-label">Consequence</span>
@@ -612,35 +555,21 @@ def fake_quantize_weight(w):
   </p>
 
   <h3>Every weight exists twice</h3>
-  <p>
-    That arrangement means a weight is two numbers rather than one, and separating them answers a
-    question the sections above leave open: whether training itself truncates.
-  </p>
+  <p>Quantization-aware training retains a floating-point parameter for optimization and computes a quantized value for the forward pass.</p>
   <dl class="kv">
     <dt>stored value</dt><dd>An ordinary parameter with no limits on it, and the one the optimizer updates. It lives at <code>module.parametrizations.weight.original</code>.</dd>
     <dt>used value</dt><dd>The stored value after clamping and rounding. The network multiplies with this one, and reading <code>module.weight</code> returns it.</dd>
   </dl>
-  <p>
-    Truncation applies to the used value alone. If the optimizer sets the stored value to 1.3, the
-    stored value stays 1.3 and the used value becomes 1.0. So weights do pass the boundary during
-    training. What cannot pass it is the number the network computes with.
-  </p>
+  <p>Clamping affects the value used in the forward pass. If the underlying floating-point parameter is 1.3, it remains 1.3 while the network computes with 1.0. Export saves the quantized value.</p>
 
   <div class="motiv">
     <div class="m-row">
       <span class="m-label">Observation</span>
-      <p>
-        Clamping the stored value directly would leave the optimizer with nowhere to record small
-        changes. A weight held at 1.0 would receive an update wanting 1.25, stay at 1.0, then
-        receive one wanting 0.9, with no memory of the intervening movement.
-      </p>
+      <p>Keeping the underlying floating-point parameter allows small optimizer updates to accumulate even when rounding leaves the forward value unchanged.</p>
     </div>
     <div class="m-row">
       <span class="m-label">Consequence</span>
-      <p>
-        The unconstrained value has to be kept somewhere, so that a weight can travel from 1.3 down
-        to 0.9 continuously while the network sees 1.0 throughout and then 0.9.
-      </p>
+      <p>As the floating-point parameter moves from 1.3 toward 0.9, the forward value remains clamped at 1.0 until the parameter reenters the representable range.</p>
     </div>
     <div class="m-row code">
       <span class="m-label">In code</span>
@@ -653,11 +582,11 @@ def fake_quantize_weight(w):
     </div>
   </div>
 
-  <p>Three things keep the stored value from drifting far past the boundary.</p>
+  <p>The boundary behavior depends on weight scale, weight decay, and the approximate gradient.</p>
   <ul>
-    <li>It rarely approaches the boundary at all. Trained convolution weights sit around 0.1 to 0.6, and only folding lifts them toward 1.0.</li>
+    <li>In the recorded runs, unfolded convolution weights typically remained below the clipping boundary. Folding can increase their magnitude.</li>
     <li>Weight decay pulls every weight toward zero in proportion to its size, so the further out a stored value travels the harder it is pulled back.</li>
-    <li>Nothing is gained by traveling further, since the used value is already pinned at 1.0 and the network's output stops responding.</li>
+    <li>Once the forward value is clamped, further increases in the raw parameter do not change that forward value.</li>
   </ul>
   <p>
     The third point holds for the network's output but not for the gradient. A true derivative would
@@ -676,12 +605,7 @@ def fake_quantize_weight(w):
       is doing. It measures whether the clamp worked rather than whether the clamp had anything to
       do.
     </p>
-    <p>
-      <code>max_abs_weight</code> reads the same tensor and is informative anyway. A weight that had
-      been clamped would appear there as exactly 1.0. The runs recorded in section 4.3 report 0.665,
-      which is what establishes that no truncation occurred. Pointing the fraction at
-      <code>module.parametrizations.weight.original</code> would make it measure something.
-    </p>
+    <p><code>max_abs_weight</code> also reads the clamped tensor. A value of exactly 1.0 can indicate boundary contact, while the recorded maximum of 0.665 indicates no clipping in that inspected tensor. To measure the fraction requiring clipping, inspect <code>module.parametrizations.weight.original</code> before clamping.</p>
   </div>
 </section>
 
@@ -721,25 +645,19 @@ def fake_quantize_weight(w):
       <ul>
         <li>The optimizer settles on a weight of 1.26, because that value minimized the loss it was shown.</li>
         <li>Conversion truncates it to 1.0.</li>
-        <li>The deployed network computes something the validated one did not. The difference of 0.26 is damage, and no training metric predicted it.</li>
+        <li>The deployed weight differs by 0.26 from the value used during floating-point validation. Its effect on accuracy must be evaluated after conversion.</li>
       </ul>
     </div>
     <div class="panel good-b">
       <div class="p-title"><span class="chip green">inline</span> quantize during training</div>
       <ul>
         <li>The clamp is already inside the forward pass, so an attempt to use 1.26 computes with 1.0 and the loss reflects 1.0.</li>
-        <li>Exceeding the boundary buys no reduction in loss, so gradient descent settles somewhere inside the range instead.</li>
-        <li>Export changes nothing. The deployed network is the validated one, and the truncated weights are not an error relative to what was trained.</li>
+        <li>The forward value remains clamped at 1.0. The approximate gradient may still move the underlying parameter outside the range, so this does not guarantee an in-range floating-point weight.</li>
+        <li>Export retains the quantized weights used during training. Other aspects of conversion, including neuron state updates and threshold folding, still require verification.</li>
       </ul>
     </div>
   </div>
-  <p>
-    The distinction changes how the range itself should be read. A <code>ptq</code> boundary costs
-    accuracy that could in principle be recovered. With <code>inline</code> the boundary was a
-    constraint the optimizer already worked within, so widening it restores nothing. What widening
-    does is enlarge the set of solutions the optimizer can reach, which may or may not contain a
-    better one.
-  </p>
+  <p>With post-training quantization, the converted network may differ from the one selected during training. With inline quantization, the optimizer already sees the constrained forward values. Widening the range changes the available solutions, but does not guarantee an accuracy improvement.</p>
 
   <div class="demo">
     <div class="demo-head">

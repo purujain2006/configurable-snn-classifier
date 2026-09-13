@@ -44,12 +44,16 @@
   function buildTOC() {
     const toc = document.querySelector(".toc");
     if (!toc) return;
-    const heads = document.querySelectorAll("main h2[id]");
+    const heads = document.querySelectorAll("main h2");
     if (!heads.length) { toc.remove(); return; }
     let html = '<div class="toc-title">On this page</div>';
-    heads.forEach(h => {
-      const txt = h.textContent.replace(/^\s*\d+[\.\)]?\s*/, "");
-      html += `<a href="#${h.id}" data-target="${h.id}">${txt}</a>`;
+    heads.forEach((h, index) => {
+      const section = h.closest("section[id]");
+      const target = h.id || (section && section.id) || `section-${index + 1}`;
+      if (!h.id && !section) h.id = target;
+      const label = h.cloneNode(true);
+      label.querySelectorAll(".sec-num").forEach(n => n.remove());
+      html += `<a href="#${target}" data-target="${target}">${label.textContent.trim()}</a>`;
     });
     toc.innerHTML = html;
 
@@ -60,7 +64,8 @@
       entries.forEach(e => {
         if (e.isIntersecting) {
           links.forEach(a => a.classList.remove("active"));
-          const a = map.get(e.target.id);
+          const section = e.target.closest("section[id]");
+          const a = map.get(e.target.id || (section && section.id));
           if (a) a.classList.add("active");
         }
       });
@@ -218,7 +223,7 @@
     el.innerHTML = items.map(i => {
       const pct = Math.max(0.5, i.value / max * 100);
       const col = i.color || "var(--accent)";
-      return `<div style="display:flex;align-items:center;gap:10px;margin:7px 0;">
+      return `<div class="bar-chart-row" style="display:flex;align-items:center;gap:10px;margin:7px 0;">
         <div style="flex:0 0 ${opts.labelW || 130}px;font-family:var(--mono);font-size:13.5px;color:var(--muted);text-align:right;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${i.label}</div>
         <div style="flex:1;height:${opts.barH || 20}px;background:var(--bg-3);border-radius:5px;overflow:hidden;">
           <div style="width:${pct}%;height:100%;background:${col};border-radius:5px;transition:width .35s ease;"></div>
@@ -230,8 +235,23 @@
 
   /* ---------- boot ---------- */
   document.addEventListener("DOMContentLoaded", () => {
+    const main = document.querySelector("main");
+    if (main) {
+      if (!main.id) main.id = "main-content";
+      const skip = document.createElement("a");
+      skip.className = "skip-link";
+      skip.href = `#${main.id}`;
+      skip.textContent = "Skip to content";
+      document.body.prepend(skip);
+    }
     buildNav();
     buildTOC();
+    document.querySelectorAll(".tbl-wrap").forEach((table, index) => {
+      table.tabIndex = 0;
+      table.setAttribute("role", "region");
+      const heading = table.closest("section")?.querySelector("h2");
+      table.setAttribute("aria-label", `${heading?.textContent.trim() || "Data"}, table ${index + 1}`);
+    });
     reveals();
   });
 

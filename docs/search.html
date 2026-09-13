@@ -17,23 +17,18 @@
   <div class="hero-inner">
     <p class="kicker">Page 6</p>
     <h1>The search</h1>
-    <p class="lede">
-      Pages 2 to 5 built one configurable network and a way to measure what it achieves after
-      conversion. This page covers the process that searches the configuration space on a fixed
-      hardware budget, and the metric that decides which configuration wins.
-    </p>
+    <p class="lede">The search proposes configurations, rejects those that exceed hardware limits, and trains the remaining candidates. Early validation scores control stopping, while accuracy after conversion determines the final ranking.</p>
   </div>
 </header>
 
 <main class="with-toc">
 <div class="wrap">
+<aside class="recap" aria-label="Page summary"><strong>Selection rule</strong><p>Intermediate validation scores decide which trials continue. Completed candidates are ranked using accuracy after conversion.</p></aside>
+
 
 <section id="tools" class="reveal">
   <h2><span class="sec-num">6.1</span>The components</h2>
-  <p>
-    Three libraries divide the work, and the file wires them together with settings that matter
-    enough to be defended in comments.
-  </p>
+  <p>Optuna proposes configurations, Ray runs trials, and ASHA stops trials with low intermediate scores. ASHA is an asynchronous successive-halving scheduler: it allocates more training time to candidates that perform well at scheduled checkpoints.</p>
   <dl class="kv">
     <dt>Optuna</dt><dd>Proposes configurations. It models the relationship between past configurations and their scores, and samples new ones in promising regions while continuing to explore.</dd>
     <dt>Ray Tune</dt><dd>Runs each proposed configuration as a separate process with one CPU and one GPU, collects the metrics each trial reports, and checkpoints the search itself. It runs on one machine or across a cluster.</dd>
@@ -54,18 +49,11 @@
   <div class="motiv">
     <div class="m-row">
       <span class="m-label">Observation</span>
-      <p>
-        Configurations differ enormously in how much they cost to evaluate. Section 4.1 showed that
-        a large fraction violate the connection limits, which arithmetic detects in microseconds.
-        Among the rest, many are clearly weak within a few epochs.
-      </p>
+      <p>Connection checks can reject a configuration before training. Among configurations that fit, intermediate validation scores identify candidates for early stopping.</p>
     </div>
     <div class="m-row">
       <span class="m-label">Consequence</span>
-      <p>
-        Spending equal time on every proposal wastes most of the budget. Evaluation should proceed
-        in stages, with each stage cheap enough to justify the population that reaches it.
-      </p>
+      <p>Evaluation proceeds in stages so configurations that fail a hardware check or perform poorly early do not consume the full training budget.</p>
     </div>
     <div class="m-row code">
       <span class="m-label">In code</span>
@@ -98,11 +86,7 @@
     </div>
     <div class="m-row">
       <span class="m-label">Consequence</span>
-      <p>
-        The two roles need separate keys, and the scheduler and the sampler must be pointed at
-        different ones. The final report of a trial has to be the converted measurement, so that a
-        sampler reading the last report reads the right number.
-      </p>
+      <p>The early-stopping scheduler reads intermediate validation scores. The sampler reads each completed trial’s final converted score. Separate metric keys prevent these two measurements from being mixed.</p>
     </div>
     <div class="m-row code">
       <span class="m-label">In code</span>
@@ -234,11 +218,7 @@
       </tbody>
     </table>
   </div>
-  <p>
-    Two of these entries are reopenings rather than narrowings. A result that describes a
-    coordinate the hardware cannot represent, or that was measured under an objective now known to
-    be wrong, carries no information about the current objective.
-  </p>
+  <p>Two ranges were reopened because their earlier measurements used floating-point settings or objectives that did not match the deployed model. Those measurements need reevaluation under the current procedure.</p>
 </section>
 
 <section id="results" class="reveal">
@@ -247,10 +227,7 @@
   <div class="motiv">
     <div class="m-row">
       <span class="m-label">Observation</span>
-      <p>
-        Ray writes its consolidated export after the search returns. A search that runs for thirty
-        hours and is then interrupted leaves nothing behind.
-      </p>
+      <p>The project’s consolidated export runs after the search returns. Incremental project reports also preserve results when a run is interrupted. Ray’s own trial logs and checkpoints are separate artifacts.</p>
     </div>
     <div class="m-row">
       <span class="m-label">Consequence</span>

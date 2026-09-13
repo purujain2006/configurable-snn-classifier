@@ -163,8 +163,8 @@
         ctx.fillStyle = color; ctx.textBaseline = "bottom";
         ctx.fillText(label, padL, y0 - 18);
       }
-      tracePanel(70, 175, sjV, sjS, "#ece7de", "textbook (charge→fire) — v and spikes");
-      tracePanel(225, 322, hwV, hwS, "#e0a94f", "chip (fire→reset→leak→integrate) — v and spikes");
+      tracePanel(70, 175, sjV, sjS, "#ece7de", "library (charge→fire): v and spikes");
+      tracePanel(225, 322, hwV, hwS, "#e0a94f", "chip (fire→reset→leak→integrate): v and spikes");
 
       let agree = 0;
       for (let t = 0; t < T; t++) if (sjS[t] === hwS[t]) agree++;

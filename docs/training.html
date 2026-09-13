@@ -25,6 +25,8 @@
 
 <main class="with-toc">
 <div class="wrap">
+<aside class="recap" aria-label="Page summary"><strong>Evaluation sequence</strong><p>Encode the clip, run its input frames, then allow delayed spikes to reach the classifier. Reset neuron state between clips.</p></aside>
+
 
 <section id="dataset" class="reveal">
   <h2><span class="sec-num">5.1</span>From recording to tensor</h2>
@@ -103,11 +105,7 @@
     </div>
     <div class="m-row">
       <span class="m-label">Consequence</span>
-      <p>
-        Frames have to be reduced to 64&#215;64 or 32&#215;32 and converted to binary. The choice of
-        how to reduce them matters: averaging a sparse binary frame produces small fractional
-        values that a spiking input cannot represent, and isolated events disappear.
-      </p>
+      <p>Frames must be resized to fit the input-axon limit and converted to binary spikes. The search in section 7.2 considers resolutions from 24 to 88 pixels. Averaging can produce fractional values, so the encoding must specify how they become spikes.</p>
     </div>
     <div class="m-row code">
       <span class="m-label">In code</span>
@@ -215,11 +213,7 @@ class PassthroughEncoder(Encoder):
     </div>
     <div class="m-row">
       <span class="m-label">Consequence</span>
-      <p>
-        Stopping the simulation at T throws away the last frames of every clip, and how many grows
-        with depth. A network measured that way scores lower on chip than it did in training.
-        Nothing in the configuration says why.
-      </p>
+      <p>Stopping after T steps omits responses still propagating through the layers. The number of omitted response steps grows with the number of spiking layers.</p>
     </div>
     <div class="m-row code">
       <span class="m-label">In code</span>

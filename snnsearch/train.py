@@ -136,9 +136,19 @@ class _RateProbe:
     def __init__(self, net):
         self.rates = []
         self._handles = []
-        for m in net.modules():
-            if isinstance(m, HardwareLIFNode):
-                self._handles.append(m.register_forward_hook(self._hook))
+        nodes = [m for m in net.modules() if isinstance(m, HardwareLIFNode)]
+        # EVERY SPIKING LAYER EXCEPT THE LAST.
+        #
+        # The final layer's spikes are the prediction: forward_over_time divides
+        # their count by T and that rate is what cross-entropy scores. Including
+        # them in a firing-rate penalty asks the network to stop answering, and
+        # the two objectives then pull against each other on the same tensor.
+        #
+        # Measured: trials with the penalty on reached 0.332 at epoch 9 against
+        # 0.626 without it, and 92% of them were killed at the first rung
+        # against 43%. Not a slow start, a network being told to go quiet.
+        for m in nodes[:-1]:
+            self._handles.append(m.register_forward_hook(self._hook))
 
     def _hook(self, _mod, _inp, out):
         self.rates.append(out.mean())

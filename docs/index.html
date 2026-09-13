@@ -18,14 +18,14 @@
   <div class="hero-inner">
     <p class="kicker">Project showcase</p>
     <h1>A configurable SNN built for HiAER-Spike</h1>
-    <p class="lede">
-     This project is a Python program that finds the best performing configuration of a user-specificed spiking neural network under the constraints of HiAER-Spike, a neuromorphic platform. The platform limits how a network may be wired, supports only a narrow set of operations, and works in limited precision. These constraints drastically alter how a network is constructed, trained, and evaluated. The program is built for reuse. The network and the hardware limits are both supplied as configuration, so the user can point it at a new architecture, or raise the limits as HiAER-Spike develops, without rewriting the search. The immediate goal is to find parameters that increase accuracy for a specified network while the long-term goal is an analysis of which parameters are worth focusing on and expanding capabilities in.
-    </p>
+    <p class="lede">This Python package searches for spiking neural network (SNN) configurations that fit HiAER-Spike’s connection limits and numeric formats. Architecture and training settings are configurable. Each candidate is evaluated after conversion to the form intended for deployment.</p>
   </div>
 </header>
 
 <main class="with-toc">
 <div class="wrap">
+<aside class="recap" aria-label="Page summary"><strong>Current results</strong><p>Five retrained candidates report 78.8% to 83.3% test accuracy. See the results page for operation counts, protocol limitations, and the correction to an earlier search. <a href="results.html">Read the results</a>.</p></aside>
+
 
 <section id="hardware" class="reveal">
   <h2><span class="sec-num">1.1</span>Introduction to HiAER-Spike</h2>
@@ -35,15 +35,11 @@
     directly. A neuron on the chip holds a small state, receives events from other
     neurons, and emits an event of its own when its state crosses a threshold. These events carry information solely through their spikes; a neuron does/doesn't fire.
   </p>
-  <p>
-    The appeal of such a framework is power consumption. A conventional GPU evaluates every unit of a network on
-    every input. This platform performs work only where an event actually arrives, so a workload with
-    little activity costs little energy.
-  </p>
+  <p>Event-driven computation can reduce work when spike activity is sparse. Actual energy use also depends on memory traffic, routing, and static power.</p>
 </section>
 
 <section id="converter" class="reveal">
-  <h2><span class="sec-num">1.2</span>Conversion from a trained model to hardware-executable one</h2>
+  <h2><span class="sec-num">1.2</span>Conversion from a trained model to a hardware representation</h2>
   <p>
     A network is trained in PyTorch, where a layer is a compact object and every number is a
     32-bit float. The platform has neither of these capabilities. This is the job of a
@@ -53,9 +49,7 @@
   <div class="motiv">
     <div class="m-row">
       <span class="m-label">Observation</span>
-      <p>
-        The platform defines networks in terms of indvidual neurons, int16 values, and messages passing between neuron. There are no broader categories such as fully connected and convolutional layers.
-      </p>
+      <p>The platform represents individual neurons, signed 16-bit integer values, and connections between neurons. The converter expands convolutional and fully connected layers into this representation.</p>
     </div>
     <div class="m-row">
       <span class="m-label">Consequence</span>
@@ -67,11 +61,7 @@
     </div>
     <div class="m-row code">
       <span class="m-label">In code</span>
-      <p>
-        The converter performs this expansion. However, more relevant to us, our <code>snnsearch/quantgrid.py</code> mirrors its arithmetic
-        exactly, so that a network is trained against the numbers the converter will produce
-        rather than adjusted to them afterwards. This prevents massive losses in accuracy due to conversion and discourages dependence on high-precision weight values for storing information.
-      </p>
+      <p>The converter expands the network and maps its values to the hardware format. <code>snnsearch/quantgrid.py</code> mirrors the numeric mapping so training can account for quantization. This reduces one source of conversion mismatch, but does not guarantee unchanged accuracy.</p>
     </div>
   </div>
 
@@ -90,37 +80,20 @@
     <dt>fan-in</dt><dd>How many connections arrive at one neuron.</dd>
     <dt>fan-out</dt><dd>How many connections leave one neuron toward the next layer.</dd>
   </dl>
-  <p>
-    Each of the last three has limit on how large they can be, because each one counts rows in the platform's routing table, and that
-    table is a fixed size. These connection/routing limits directly determine whether or a not a network can be constructed.
-  </p>
+  <p>Axon count, fan-in, and fan-out have fixed hardware limits. A configuration that exceeds them cannot be represented by the platform’s routing tables.</p>
 
   <h3>Mapping floating-point onto int16</h3>
-  <p>
-    The platform's memory holds 16-bit signed integers, so the values that exist on it discretely range from
-    &#8722;32767 to +32767. Weights can possess values awkward values such as 0.7, which needs to be represented by one of such integer values.
-    To do this, the converter defines
-    <code>w_alpha</code> and fixes it at 1. The constant dictates that the largest integer (+32767) represents the
-    value 1.0.
-  </p>
+  <p>The converter uses a symmetric range from −32767 to +32767. With <code>w_alpha = 1</code>, the integer 32767 represents the real value 1.0. A floating-point weight such as 0.7 is rounded to the nearest value on this grid.</p>
   <p>
     This brings up the issue of weights beyond 1.0, such as 1.3 which has no integer available to it. The converter replaces it with 1.0.
     <span class="term">Truncation</span> loses
     information and must be accounted for. Within the range [-1,1], the spacing between neighboring integers is about
     0.00003, so snapping to the nearest available integer has negligible loss of information.
   </p>
-  <p>
-    Firing thresholds and the decay constant are mapped the same way.
-  </p>
+  <p>Firing thresholds use the weight scale. The leak constant is rounded separately to an integer register value, as described in section 2.3.</p>
 
   <h3>Running it</h3>
-  <p>
-    Once the network is expanded and mapped, the converter feeds the input as spikes for
-    <code>T</code> timesteps, runs a few further timesteps with no input at all, and counts the
-    spikes each output neuron produced. The extra timesteps are there because each layer holds its
-    output back by one step, so the last frame of input needs a moment to reach the far end. Those
-    trailing timesteps are called the <span class="term">flush</span>. The reason behind flushing will be discussed later.
-  </p>
+  <p>After conversion, the network receives T input frames and then runs additional timesteps with zero input. These <em>flush steps</em> allow delayed spikes to reach the classifier. Section 5.4 explains how the implementation chooses the number of steps.</p>
 </section>
 
 <section id="fixed" class="reveal">
@@ -170,9 +143,7 @@
     </table>
   </div>
 
-  <p>
-    Quantizing to int16 and the methodology of update order heavily impact the network and should be paid attention to.
-  </p>
+  <p>Quantization changes representable values. The update order changes spike timing. Both need to match during training and evaluation.</p>
 </section>
 
 <section id="ann" class="reveal">
@@ -183,12 +154,7 @@
     number forward. Values are continuous, typically 32-bit floating point, and every unit
     evaluates on every input.
   </p>
-  <p>
-    A convolutional NN applies the same small filter across an image and stacks layers of these
-    filters. The design suits a GPU, which multiplies large dense matrices quickly. HiAER-Spike
-    cannot run it. Its neurons exchange binary events rather than continuous values, and they do
-    work only where an event arrives, so there is no dense matrix for the hardware to multiply.
-  </p>
+  <p>A convolutional neural network applies shared filters across an image. GPUs evaluate these filters using dense arithmetic. For HiAER-Spike, the connections must be expanded explicitly and the network must use the supported spiking neuron update.</p>
 </section>
 
 <section id="snn" class="reveal">
@@ -215,11 +181,7 @@
     only then adds the current input. Input arriving at timestep <code>t</code> therefore cannot
     produce an output spike before timestep <code>t+1</code>.
   </p>
-  <p>
-    Because a single spike carries almost no information, an SNN is run for <code>T</code>
-    timesteps and its answer is read from how often each output neuron fired. The simulator below
-    runs the same update rule the chip uses.
-  </p>
+  <p>The classifier accumulates output spikes over T timesteps and chooses the class with the highest count. The simulator below uses the chip’s neuron update rule.</p>
 
   <div class="demo" id="demo-poke">
     <div class="demo-head">
@@ -253,11 +215,7 @@
     its inputs on every evaluation. An SNN neuron does arithmetic only for inputs that spiked, and
     a spike contributes an addition rather than a multiplication.
   </p>
-  <p>
-    Event camera recordings are mostly silent, so this difference is large in practice. The
-    comparison below runs one neuron with six inputs for sixteen timesteps and counts the
-    operations each model performs.
-  </p>
+  <p>Sparse inputs can reduce spike-triggered additions. The comparison below counts operations for one neuron with six inputs over sixteen timesteps. It illustrates activity dependence rather than measuring hardware energy.</p>
 
   <div class="demo" id="demo-ann-vs-snn">
     <div class="demo-head">
@@ -288,11 +246,7 @@
         threshold line, which happens one timestep after the input that pushed it there. The marker
         drawn on the most recent spike shows that offset.
       </p>
-      <p>
-        The networks in this project realize roughly ten million connections, so the ratio
-        shown here scales up accordingly. The cost of the SNN is that time becomes part of the
-        computation: the network runs T times per sample instead of once.
-      </p>
+      <p>A full network’s operation count depends on activity in every layer and on the number of timesteps. The single-neuron example does not predict that count directly.</p>
     </div>
   </div>
 </section>
@@ -304,18 +258,8 @@
     performing 11 gestures, including hand waves, arm rotations, air drums and air guitar, under
     three lighting conditions.
   </p>
-  <p>
-    The recordings come from a dynamic vision sensor, an event camera with a 128&#215;128 array. A
-    conventional camera reports every pixel's brightness on a fixed clock. An event camera has no
-    clock. Each pixel reports on its own, only when its own brightness changes, with increases and
-    decreases arriving on separate channels. That last detail is why the data has two channels
-    rather than three.
-  </p>
-  <p>
-    A still background produces no events at all, while a moving hand throws off a dense stream of
-    them along its edges. What the sensor records is a sparse sequence of changes, which is the kind
-    of input a spiking network consumes.
-  </p>
+  <p>The recordings come from a dynamic vision sensor with a 128&times;128 pixel array. Pixels report changes in brightness asynchronously. Increases and decreases form the two polarity channels.</p>
+  <p>An event camera records brightness changes, so moving edges generate events while a stable background produces few. This provides a sparse input stream for a spiking network.</p>
   <p>
     The code converts each recording into <code>T</code> frames by dividing the event stream into
     <code>T</code> groups of equal event count, then turning each group into an image by counting the
@@ -350,11 +294,7 @@
     </div>
     <div class="m-row">
       <span class="m-label">Consequence</span>
-      <p>
-        Accuracy measured during ordinary training overstates what the deployed network achieves,
-        so it is the wrong quantity to optimize. Any search guided by it will prefer configurations
-        that happen to degrade badly on conversion.
-      </p>
+      <p>Floating-point accuracy can differ from accuracy after conversion. Ranking by the converted result directly measures the form the project intends to deploy.</p>
     </div>
     <div class="m-row code">
       <span class="m-label">In code</span>
@@ -388,12 +328,7 @@
 
 <section id="map" class="reveal">
   <h2><span class="sec-num">1.9</span>How the code is organized</h2>
-  <p>
-    The implementation is a Python package, <code>snnsearch</code>, with one launcher beside it.
-    Modules are layered so the cheap parts stay cheap: the four that describe and check a
-    configuration import no deep learning library at all, so planning and the connection check run
-    on a laptop with nothing installed.
-  </p>
+  <p>The implementation is a Python package, <code>snnsearch</code>, with a separate launcher. Configuration, planning, and connection checks do not import a deep learning library, so those checks can run without PyTorch or a GPU.</p>
   <p>
     The diagram below maps the modules onto the four jobs the package performs. Each leaf links to
     the page that covers it.
@@ -521,10 +456,7 @@ python main.py report  results/dvs128             # rebuild report.html</code></
   </ul>
 
   <h3>What a configuration file holds</h3>
-  <p>
-    Values live in the file. A dataset is code rather than values, so the file points at a Python
-    callable for that and carries everything else.
-  </p>
+  <p>The configuration file holds settings and names the Python callable that loads the dataset.</p>
   <div class="code-block">
     <div class="code-head"><span class="file">configs/dvs128.yaml</span><span class="loc">abridged</span></div>
     <pre><code class="language-yaml">dataset:
@@ -544,11 +476,7 @@ search:
 objective:
   mode: accuracy               # accuracy | constrained | weighted | pareto</code></pre>
   </div>
-  <p class="footnote">
-    The format is YAML rather than JSON because every narrowed range in this project carries the
-    statistic that narrowed it, on the same line. JSON has no comments, so it would strip exactly
-    the property that makes the search space checkable.
-  </p>
+  <p class="footnote">YAML supports comments alongside settings. The configuration uses them to record why particular search ranges were chosen.</p>
 </section>
 
 <section id="pages" class="reveal">

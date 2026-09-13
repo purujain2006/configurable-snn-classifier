@@ -14,7 +14,14 @@ from .planning import plan_network, InfeasibleConfig
 
 
 AXON_LIMITS = {
-    "total_axons": 16_383,
+    # MEASURED, not the register width. 16,383 is what the field can hold and
+    # was what this used. Christopher's testing of bitstream L6m errored at
+    # 16,383 and passed at 16,000, so the usable ceiling is lower than the
+    # representable one and 16,000 is the number that has actually been run.
+    #
+    # For two-channel DVS input that caps a square frame at 89 x 89:
+    # 89*89*2 = 15,842 fits, 90*90*2 = 16,200 does not.
+    "total_axons": 16_000,
     "fan_out": 4_096,   # axonal fan-out: how many neurons one input axon feeds
     "fan_in": 8_191,    # axonal fan-in: how many axons feed one neuron
 }

@@ -27,6 +27,8 @@
 
 <main class="with-toc">
 <div class="wrap">
+<aside class="recap" aria-label="Page summary"><strong>Update order</strong><p>The neuron fires, resets, leaks, then integrates new input. This creates a one-timestep delay per spiking layer.</p></aside>
+
 
 <section id="update" class="reveal">
   <h2><span class="sec-num">2.1</span>The update rule</h2>
@@ -132,10 +134,7 @@
     </div>
     <div class="m-row">
       <span class="m-label">Consequence</span>
-      <p>
-        The substitution has to be removed. Training and deployment need to use one neuron, which
-        means implementing the chip's update order directly rather than converting into it later.
-      </p>
+      <p>Training uses a custom neuron that implements the chip’s update order. This aligns input scaling and spike timing before conversion.</p>
     </div>
     <div class="m-row code">
       <span class="m-label">In code</span>
@@ -186,12 +185,7 @@
   <div class="motiv">
     <div class="m-row">
       <span class="m-label">Observation</span>
-      <p>
-        An earlier study sampled &#964; as a continuous value between 1.5 and 2.5 and reported a
-        correlation between &#964; and accuracy. Every value in that interval rounds to 2 on the
-        chip, so all of those configurations deploy as one and the same network. Whatever that
-        correlation measured, the hardware cannot act on it.
-      </p>
+      <p>An earlier study sampled τ continuously between 1.5 and 2.5. Those values map to the same integer leak value, 2, after conversion. A relationship measured before rounding does not establish a difference between deployed leak settings.</p>
     </div>
     <div class="m-row">
       <span class="m-label">Consequence</span>
@@ -237,12 +231,7 @@
 
 <section id="threshold" class="reveal">
   <h2><span class="sec-num">2.4</span>Keeping the threshold representable</h2>
-  <p>
-    The chip stores the threshold as <code>int(&#952; / w_delta)</code> with
-    <code>w_delta = 1/32767</code>. Two values of &#952; break that encoding. Above 1.0 the integer
-    exceeds the field. At or below 0 the comparison <code>v &gt; &#952;</code> is always true, and
-    the neuron fires on every timestep regardless of input.
-  </p>
+  <p>The chip stores the threshold as <code>int(θ / w_delta)</code>, where <code>w_delta = 1/32767</code>. The project requires a positive threshold no greater than 1.0. Larger values exceed the selected encoding range. Nonpositive thresholds can cause firing at rest and are rejected.</p>
 
   <div class="motiv">
     <div class="m-row">
@@ -255,14 +244,7 @@
     </div>
     <div class="m-row">
       <span class="m-label">Consequence</span>
-      <p>
-        The constraint has to be built into the parameterization rather than checked afterwards, so
-        that no optimizer step can produce an illegal threshold. One other thing moves the threshold: folding a batch normalization bias into it, covered in
-        section 4.3. That shifted value is allowed to sit outside the legal range mid-run, as long
-        as it lands inside by the end. Deployment checks therefore read the threshold through their
-        own accessor. A clamp applied for numerical safety during training would otherwise hide the
-        illegal value from the one check that exists to catch it.
-      </p>
+      <p>The base threshold uses a constrained parameterization so optimizer updates remain within the supported range. Folding can shift that threshold further. Deployment checks inspect the raw folded value to avoid hiding an illegal result behind a safety clamp.</p>
     </div>
     <div class="m-row code">
       <span class="m-label">In code</span>
@@ -363,7 +345,7 @@
 
 <section id="code" class="reveal">
   <h2><span class="sec-num">2.6</span>The forward pass</h2>
-  <p>The four decisions above appear together in about fifteen lines.</p>
+  <p>The implementation below combines the update order, integer leak, representable threshold, and surrogate gradient.</p>
   <div class="code-block">
     <div class="code-head"><span class="file">snnsearch/neuron.py</span><span class="loc">single_step_forward</span></div>
     <pre><code class="language-python">def single_step_forward(self, x: "torch.Tensor"):

@@ -39,7 +39,7 @@
       ctx.font = "600 13.5px 'JetBrains Mono', monospace";
       ctx.fillStyle = "#cfcbc4"; ctx.textAlign = "left"; ctx.textBaseline = "top";
       ctx.fillText("input events 16×16 (click to paint)", x0, 16);
-      ctx.fillText(mode === "or" ? "output 8×8 — bilinear > 0 (the code)" : "output 8×8 — plain average", x1, 16);
+      ctx.fillText(mode === "or" ? "output 8×8: bilinear interpolation, then > 0" : "output 8×8: average pooling", x1, 16);
       // src grid
       for (let y = 0; y < SRC; y++) for (let x = 0; x < SRC; x++) {
         ctx.fillStyle = grid[y * SRC + x] ? "#e0a94f" : "#111110";
@@ -75,7 +75,7 @@
       $("bz-out").textContent = mode === "or" ? avg.filter(a => a > 0).length : "—";
       $("bz-outd").textContent = mode === "or"
         ? Math.round(avg.filter(a => a > 0).length / (DST * DST) * 100) + "% density (rises!)"
-        : "fractional grays — not spikes";
+        : "fractional values require binarization";
       $("bz-lost").textContent = mode === "or" ? 0 : "n/a";
     }
 
