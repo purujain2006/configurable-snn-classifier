@@ -39,6 +39,24 @@ def _overrides(args):
     return {k: v for k, v in o.items() if v}
 
 
+def _kv_pairs(items):
+    """['weight_decay=1e-3', 'scheduler=none'] -> {'weight_decay': '1e-3', ...}
+
+    Values stay strings here. Coercion belongs where the target dataclass is,
+    so `1e-3` becomes a float for a float field and stays a string for a string
+    one, rather than being guessed at twice in two places.
+    """
+    out = {}
+    for item in items or []:
+        if "=" not in item:
+            raise SystemExit(
+                f"--train expects KEY=VALUE, got {item!r}\n"
+                "  example: --train weight_decay=1e-3 scheduler=none")
+        key, val = item.split("=", 1)
+        out[key.strip()] = val.strip()
+    return out
+
+
 def _add_common(p):
     p.add_argument("--config", "-c", help="YAML config file")
     p.add_argument("--data-root", help="override dataset.root")
@@ -77,6 +95,12 @@ def build_parser():
                    help="replay a winning trial: pass results/<run>/best.json. "
                         "Reproduces its architecture and schedule exactly, and "
                         "reports a held-out test accuracy the search never saw.")
+    o.add_argument("--train", nargs="*", default=[], metavar="KEY=VALUE",
+                   help="override TrainSpec fields, e.g. --train weight_decay=1e-3 "
+                        "scheduler=none. Beats both the config file and a replayed "
+                        "trial, and every override is printed, because a run that "
+                        "silently differs from the config it names is the bug this "
+                        "project spent a week on.")
 
     r = sub.add_parser("search", help="the automated search")
     _add_common(r)
@@ -121,7 +145,8 @@ def main(argv=None):
                           from_best=getattr(args, "from_best", None),
                           epochs=getattr(args, "epochs", None),
                           input_overrides={"T": getattr(args, "T", None),
-                                           "resize_to": getattr(args, "resize_to", None)})
+                                           "resize_to": getattr(args, "resize_to", None)},
+                          train_overrides=_kv_pairs(getattr(args, "train", None)))
 
     if args.mode == "search":
         from .pipeline import run_search_mode

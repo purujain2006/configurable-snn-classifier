@@ -53,6 +53,35 @@ _SEARCH_OWNED_TRAIN_FIELDS = frozenset({
 })
 
 
+def coerce_to_field(obj, key, raw):
+    """Turn a command-line string into the type the dataclass field declares.
+
+    Reading the annotation beats guessing: `scheduler=none` must stay the
+    string "none" while `weight_decay=1e-3` must become a float, and no
+    heuristic over the text alone gets both right.
+    """
+    from dataclasses import fields
+    known = {f.name: f for f in fields(obj)}
+    if key not in known:
+        raise SystemExit(
+            f"--train: unknown field {key!r}\n"
+            f"  known fields: {', '.join(sorted(known))}")
+    if not isinstance(raw, str):
+        return raw
+    ann = known[key].type
+    ann = ann if isinstance(ann, str) else getattr(ann, "__name__", str(ann))
+    try:
+        if "bool" in ann:
+            return raw.lower() in ("1", "true", "yes", "on")
+        if "int" in ann and "float" not in ann:
+            return int(float(raw))          # so 40.0 and 40 both work
+        if "float" in ann:
+            return float(raw)
+    except ValueError:
+        raise SystemExit(f"--train: {key}={raw!r} is not a valid {ann}")
+    return raw
+
+
 def specs_from_flat(flat, batch_size=None):
     """Rebuild the full spec dict from a flat trial config.
 
@@ -261,7 +290,7 @@ def load_flat_config(path):
 
 
 def run_single(cfg, ckpt="best.pth", from_best=None, epochs=None,
-               input_overrides=None):
+               input_overrides=None, train_overrides=None):
     """Train one configuration, then fold, quantize and audit it.
 
     `epochs` overrides whatever the config or the replayed trial says. The
@@ -273,6 +302,12 @@ def run_single(cfg, ckpt="best.pth", from_best=None, epochs=None,
     line, and they beat the replayed trial. A record can be wrong about what its
     run actually did, and reproducing the run then means contradicting the
     record on purpose, so that has to be expressible.
+
+    `train_overrides` is the same idea for the optimization recipe, and it
+    outranks everything: the config file, and the replayed trial's own sampled
+    values. A deliberate experiment is exactly a replay with one thing changed,
+    so blocking that would leave no way to ask whether weight decay is what the
+    result depends on.
     """
     from .train import run_training
 
@@ -300,6 +335,15 @@ def run_single(cfg, ckpt="best.pth", from_best=None, epochs=None,
         warm = max(1, round(epochs * spec["train"].qat_warmup_frac))
         print(f"epochs    : {was} -> {epochs}  "
               f"({warm} float warmup, {epochs - warm} on the quantized grid)")
+
+    # Last word, after the config file and after the replayed trial. Applied
+    # here rather than inside prepare so the ordering is visible: whatever a
+    # record says, this is what the run used, and it says so on stdout.
+    for key, raw in (train_overrides or {}).items():
+        was = getattr(spec["train"], key, None)
+        val = coerce_to_field(spec["train"], key, raw)
+        setattr(spec["train"], key, val)
+        print(f"train     : {key} {was!r} -> {val!r}  (command line)")
 
     # Record the trajectory. The search streams this per trial; `single` did
     # not, so a run that ended lower than expected offered two endpoints and no
