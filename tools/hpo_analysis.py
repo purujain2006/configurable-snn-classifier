@@ -337,6 +337,28 @@ def knob_effects(rows, target):
     return out
 
 
+def _is_feasible(row):
+    """Infeasible only when the record SAYS so.
+
+    The obvious test, `feasible == "true"`, reported 100% rejection for every
+    setting of every knob. Older runs left the column blank on any trial that
+    trained, because the per-epoch and deploy reports did not carry the key, so
+    only genuinely rejected trials ever had it written at all. Reading a blank
+    as "not feasible" turned 400 trials into 400 rejections and produced a
+    table where the answer to every question was 100%.
+
+    So the rule is the other way round: rejected only if something explicitly
+    says rejected. A field that is absent means the writer never had an opinion.
+    """
+    status = str(row.get("status", "")).strip().lower()
+    if status == "infeasible":
+        return False
+    val = str(row.get("feasible", "")).strip().lower()
+    if val in ("false", "0"):
+        return False
+    return True
+
+
 def feasibility(rows):
     """Which settings the connection limits reject. Counting, not inference."""
     out = []
@@ -348,8 +370,7 @@ def feasibility(rows):
             lvl = r.get(knob)
             if lvl in (None, ""):
                 continue
-            ok = str(r.get("feasible", "")).lower() in ("true", "1")
-            by[str(lvl)][0 if ok else 1] += 1
+            by[str(lvl)][0 if _is_feasible(r) else 1] += 1
         if len(by) < 2:
             continue
         for lvl, (ok, bad) in sorted(by.items()):
@@ -480,9 +501,9 @@ def write_report(root, out_dir, replicates=()):
         w("")
         w("| | |")
         w("|---|---|")
-        w("| mean | {nf['mean']:.4f} |")
-        w("| min to max | {nf['min']:.4f} to {nf['max']:.4f} |")
-        w("| **sd** | **{nf['sd']:.4f}** |")
+        w(f"| mean | {nf['mean']:.4f} |")
+        w(f"| min to max | {nf['min']:.4f} to {nf['max']:.4f} |")
+        w(f"| **sd** | **{nf['sd']:.4f}** |")
         w("")
         w(f"So a score moves about **{nf['sd']*176:.1f} clips** with the model "
           f"effectively frozen. Two trials closer together than roughly "
@@ -528,10 +549,10 @@ def write_report(root, out_dir, replicates=()):
     if ss:
         w("| | |")
         w("|---|---|")
-        w("| spread between trials (sd) | {ss['total_sd']:.4f} |")
-        w("| noise (sd) | {ss['noise_sd']:.4f} |")
-        w("| real configuration effect (sd) | {ss['signal_sd']:.4f} |")
-        w("| **share of variance that is real** | **{ss['share']:.1%}** |")
+        w(f"| spread between trials (sd) | {ss['total_sd']:.4f} |")
+        w(f"| noise (sd) | {ss['noise_sd']:.4f} |")
+        w(f"| real configuration effect (sd) | {ss['signal_sd']:.4f} |")
+        w(f"| **share of variance that is real** | **{ss['share']:.1%}** |")
         w("")
         if ss["share"] > 0.9:
             w("Configurations genuinely differ. Ranking them is meaningful, "
@@ -581,7 +602,7 @@ def write_report(root, out_dir, replicates=()):
         w("| knob A | knob B | rank correlation |")
         w("|---|---|---|")
         for a, b, r in strong[:8]:
-            w("| `{a}` | `{b}` | {r:+.2f} |")
+            w(f"| `{a}` | `{b}` | {r:+.2f} |")
         w("")
     w("")
 
@@ -630,10 +651,10 @@ def write_report(root, out_dir, replicates=()):
         w("")
         w("| | |")
         w("|---|---|")
-        w("| reported best | {sb['observed_max']:.4f} |")
+        w(f"| reported best | {sb['observed_max']:.4f} |")
         w(f"| expected optimism | {sb['expected_optimism']:.4f} "
           f"({sb['expected_optimism']*176:.1f} clips) |")
-        w("| **expected on a rerun** | **{sb['shrunk_estimate']:.4f}** |")
+        w(f"| **expected on a rerun** | **{sb['shrunk_estimate']:.4f}** |")
         w("")
         w("This is the floor on the correction, not the whole of it. It counts "
           "only evaluation noise. Run-to-run variation in training adds more.")

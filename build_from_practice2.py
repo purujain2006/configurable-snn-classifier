@@ -148,7 +148,8 @@ PATCHES = {
          '        # Spatiotemporal dropout inside the conv stack, on the spikes leaving\n'
          '        # each block. Conditional, so "none in the conv stack" stays a\n'
          '        # reachable baseline rather than a measure-zero point in a range.\n'
-         '        if trial.suggest_categorical("use_conv_dropout", [False, True]):\n'
+         '        if "conv_dropout" in require or \\\n'
+         '                trial.suggest_categorical("use_conv_dropout", [False, True]):\n'
          '            trial.suggest_float("conv_dropout", 0.05, 0.3)\n'),
         # Global L1 on the mean spatiotemporal firing rate. The one regularizer
         # here that also buys energy, since a spike that does not happen is an
@@ -158,8 +159,28 @@ PATCHES = {
          '        # Conditional rather than a range that includes zero: a continuous\n'
          '        # range never samples exactly 0, so "off" would never be tested, and\n'
          '        # off is the baseline every earlier trial was run under.\n'
-         '        if trial.suggest_categorical("use_rate_penalty", [False, True]):\n'
+         '        if "rate_penalty" in require or \\\n'
+         '                trial.suggest_categorical("use_rate_penalty", [False, True]):\n'
          '            trial.suggest_float("rate_penalty", 1e-4, 1e-1, log=True)\n'),
+        # `require` reaches __call__ through the constructor, so the space
+        # object stays picklable: Ray checkpoints the searcher, and a closure
+        # over config would abort the study at the first checkpoint.
+        ('                 t_choices: list, per_layer: bool = True):\n',
+         '                 t_choices: list, per_layer: bool = True, require=()):\n'),
+        ('        self.per_layer = bool(per_layer)\n',
+         '        self.per_layer = bool(per_layer)\n'
+         '        # Knobs whose on/off switch is removed, so every trial gets them.\n'
+         '        self.require = tuple(require or ())\n'),
+        ('        per_layer = self.per_layer\n',
+         '        per_layer = self.per_layer\n'
+         '        require = self.require\n'),
+        ('                       per_layer: bool = True) -> "DefineByRunSpace":\n'
+         '    """Factory kept for API compatibility -- returns a picklable space object."""\n'
+         '    return DefineByRunSpace(batch_size, epochs, data_dir_abs, t_choices, per_layer)\n',
+         '                       per_layer: bool = True, require=()) -> "DefineByRunSpace":\n'
+         '    """Factory kept for API compatibility -- returns a picklable space object."""\n'
+         '    return DefineByRunSpace(batch_size, epochs, data_dir_abs, t_choices, per_layer,\n'
+         '                            require)\n'),
         # Carry the two new knobs into the specs.
         ('                              padding=0, dilation=1, bias=(norm == "none"),\n'
          '                              norm=norm, tdbn_alpha=config.get("tdbn_alpha", 1.0))\n',
