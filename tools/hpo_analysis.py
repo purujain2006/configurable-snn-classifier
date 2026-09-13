@@ -401,7 +401,48 @@ def feasibility(rows):
     return out
 
 
-def slow_starters(rows, progress, knobs=("final_reduction", "resize_to", "depth")):
+# Knobs whose value is a magnitude but whose QUESTION is on-or-off. Dropout at
+# 0.2 versus 0.25 is not the comparison anyone is making; dropout versus none
+# is. Bucketing them keeps the groups large enough to compare at a single rung.
+ON_OFF_KNOBS = {"conv_dropout", "rate_penalty"}
+
+# Always sampled, never zero, so on-or-off says nothing. Split at the median
+# instead: "more of it" versus "less of it" is the comparison that exists.
+MEDIAN_SPLIT_KNOBS = {"dropout_rate", "label_smoothing", "weight_decay", "lr"}
+
+
+def _level_of(row, knob, medians=None):
+    """The group a trial belongs to for `knob`, bucketed when appropriate."""
+    val = row.get(knob)
+    if knob in ON_OFF_KNOBS:
+        # A blank means the trial did not sample the knob at all, which is
+        # exactly what "off" means for a conditional one. Treating blank as
+        # missing would drop every off trial and leave nothing to compare
+        # the on trials against.
+        v = num(val)
+        return "on" if v and v > 0 else "off"
+    if val in (None, ""):
+        return None
+    if knob in MEDIAN_SPLIT_KNOBS:
+        v, med = num(val), (medians or {}).get(knob)
+        if v is None or med is None:
+            return None
+        return f"above {med:.3g}" if v > med else f"at or below {med:.3g}"
+    return str(val)
+
+
+def _medians(rows, knobs):
+    out = {}
+    for knob in knobs:
+        vals = sorted(v for v in (num(r.get(knob)) for r in rows) if v is not None)
+        if len(vals) >= 4:
+            out[knob] = vals[len(vals) // 2]
+    return out
+
+
+def slow_starters(rows, progress,
+                  knobs=("final_reduction", "resize_to", "depth",
+                         "conv_dropout", "rate_penalty", "dropout_rate")):
     """Were the pruned trials losing, or just slower to start?
 
     ASHA cuts on accuracy AT the rung. A configuration that begins badly and
@@ -461,17 +502,18 @@ def slow_starters(rows, progress, knobs=("final_reduction", "resize_to", "depth"
     # of training and the slopes mean the same thing.
     rung1 = min(c["cut_at"] for c in cut)
     at_rung1 = [c for c in cut if c["cut_at"] <= rung1 + 1]
+    med = _medians([c["row"] for c in cut], MEDIAN_SPLIT_KNOBS)
 
     out = []
     for knob in knobs:
         totals, first = defaultdict(int), defaultdict(list)
         for c in cut:
-            lvl = c["row"].get(knob)
-            if lvl not in (None, ""):
+            lvl = _level_of(c["row"], knob, med)
+            if lvl is not None:
                 totals[str(lvl)] += 1
         for c in at_rung1:
-            lvl = c["row"].get(knob)
-            if lvl not in (None, ""):
+            lvl = _level_of(c["row"], knob, med)
+            if lvl is not None:
                 first[str(lvl)].append(c)
         if len(totals) < 2:
             continue
