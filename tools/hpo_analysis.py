@@ -359,11 +359,31 @@ def _is_feasible(row):
     return True
 
 
+# Feasibility is decided by the connection-limit arithmetic, which reads the
+# network's SHAPE and nothing else. A learning rate cannot make a layer exceed
+# its fan-in.
+#
+# Listing the other knobs anyway produced rows like "onecycle rejected 40%
+# against step's 19%", which is real in the data and causally impossible: it is
+# TPE having sampled onecycle alongside geometries that happened to bust. A
+# table headed "what the connection limits reject" must not contain a column
+# the connection limits never look at.
+GEOMETRY_KNOBS = ["depth", "resize_to", "channels", "kernel_size", "stride",
+                  "downsample_mode", "fc_layers", "final_reduction"]
+
+# Higher than MAX_LEVELS_FOR_CATEGORICAL because this is counting, not testing.
+# resize_to has nine legal values and is the single most important knob for
+# feasibility; treating it as continuous and skipping it left the table without
+# the one row worth reading.
+MAX_LEVELS_FOR_FEASIBILITY = 12
+
+
 def feasibility(rows):
     """Which settings the connection limits reject. Counting, not inference."""
     out = []
-    for knob in KNOBS:
-        if classify(rows, knob) != "categorical":
+    for knob in GEOMETRY_KNOBS:
+        levels = {str(r.get(knob)) for r in rows if r.get(knob) not in (None, "")}
+        if not 2 <= len(levels) <= MAX_LEVELS_FOR_FEASIBILITY:
             continue
         by = defaultdict(lambda: [0, 0])
         for r in rows:
