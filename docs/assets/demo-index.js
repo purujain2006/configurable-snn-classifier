@@ -208,26 +208,33 @@
     const tauOut = document.getElementById("poke-tau-out");
     const autoBox = document.getElementById("poke-auto");
     const btn = document.getElementById("poke-btn");
-    const W_IN = 0.45, THETA = 1.0, HIST = 160;
+    const weight = document.getElementById("poke-weight");
+    const threshold = document.getElementById("poke-threshold");
+    const pause = document.getElementById("poke-pause");
+    let paused = false;
+    const HIST = 160;
     const state = { v: 0 };
     const vHist = new Array(HIST).fill(0);
     const inHist = new Array(HIST).fill(0);
     const spkHist = new Array(HIST).fill(0);
-    let pending = 0;
+    let pending = 0, totalSpikes = 0, timesteps = 0;
     const rand = SNN.rng(42);
 
     function stepSim() {
+      const W_IN = +weight.value / 100, THETA = +threshold.value / 100;
       let x = pending * W_IN;
       pending = 0;
       if (autoBox.checked && rand() < 0.28) x += W_IN;
       const tau = TAUS[parseInt(tauSlider.value, 10)];
       const s = SNN.hardwareLIFStep(state, x, { tau, v_threshold: THETA });
+      totalSpikes += s; timesteps += 1;
       vHist.push(state.v); vHist.shift();
       inHist.push(x); inHist.shift();
       spkHist.push(s); spkHist.shift();
     }
 
     function draw() {
+      const THETA = +threshold.value / 100;
       const { ctx, w, h } = window.Site.setupCanvas(cv, 275);
       ctx.fillStyle = P().bg; ctx.fillRect(0, 0, w, h);
       const padL = 8, plotTop = 34, plotBot = h - 26;
@@ -240,7 +247,7 @@
       ctx.setLineDash([]);
       ctx.fillStyle = "#e0a94f"; ctx.font = "12.5px 'JetBrains Mono', monospace";
       ctx.textAlign = "left"; ctx.textBaseline = "bottom";
-      ctx.fillText("threshold θ = 1.0", padL + 4, Y(THETA) - 3);
+      ctx.fillText("threshold θ = " + THETA.toFixed(2), padL + 4, Y(THETA) - 3);
       // input bars
       for (let i = 0; i < HIST; i++) {
         if (inHist[i] > 0) {
@@ -268,12 +275,36 @@
       ctx.fillText("output spikes", padL, 0);
       ctx.fillStyle = "#a7a29a"; ctx.textAlign = "right";
       ctx.fillText("v = " + state.v.toFixed(3), w - 10, 0);
+      document.getElementById("poke-potential").textContent = state.v.toFixed(3);
+      document.getElementById("poke-spikes").textContent = totalSpikes;
+      document.getElementById("poke-time").textContent = timesteps;
     }
 
     btn.addEventListener("click", () => { pending += 1; });
+    weight.addEventListener("input", () => {
+      document.getElementById("poke-weight-out").textContent = (+weight.value / 100).toFixed(2);
+    });
+    threshold.addEventListener("input", () => {
+      document.getElementById("poke-threshold-out").textContent = (+threshold.value / 100).toFixed(2);
+    });
+    pause.addEventListener("click", () => {
+      paused = !paused;
+      pause.textContent = paused ? "Resume" : "Pause";
+      pause.setAttribute("aria-pressed", String(paused));
+    });
+    document.getElementById("poke-step").addEventListener("click", () => {
+      paused = true; pause.textContent = "Resume"; pause.setAttribute("aria-pressed", "true");
+      stepSim(); draw();
+    });
+    function clearHistory() {
+      state.v = 0; pending = 0; totalSpikes = 0; timesteps = 0;
+      vHist.fill(0); inHist.fill(0); spkHist.fill(0); draw();
+    }
+    document.getElementById("poke-reset").addEventListener("click", clearHistory);
+    cv.closest('.demo').addEventListener('demo:reset', clearHistory);
     tauSlider.addEventListener("input", () => { tauOut.textContent = TAUS[parseInt(tauSlider.value, 10)]; });
     tauOut.textContent = TAUS[parseInt(tauSlider.value, 10)];
-    setInterval(stepSim, 90);
+    setInterval(() => { if (!paused) stepSim(); }, 90);
     (function loop() { draw(); requestAnimationFrame(loop); })();
   })();
 })();

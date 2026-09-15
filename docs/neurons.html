@@ -1,354 +1,231 @@
 <!DOCTYPE html>
+
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
 <title> Neuron Model </title>
-<meta name="description" content="Building the neuron HiAER-Spike implements: update order, integer leak, quantized threshold, and training through a binary spike.">
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' fill='%23000'/><path d='M3 22h5l3-13 4 19 3-11h4l2 5h5' fill='none' stroke='%23e0a94f' stroke-width='2.4' stroke-linejoin='round'/></svg>">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:ital,wght@0,400;0,600;0,700;1,400&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="assets/style.css">
+<meta content="Building the neuron HiAER-Spike implements: update order, integer leak, quantized threshold, and training through a binary spike." name="description"/>
+<link href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'&gt;&lt;rect width='32' height='32' fill='%23000'/&gt;&lt;path d='M3 22h5l3-13 4 19 3-11h4l2 5h5' fill='none' stroke='%23e0a94f' stroke-width='2.4' stroke-linejoin='round'/&gt;&lt;/svg&gt;" rel="icon"/>
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&amp;family=JetBrains+Mono:ital,wght@0,400;0,600;0,700;1,400&amp;display=swap" rel="stylesheet"/>
+<link href="assets/style.css" rel="stylesheet"/>
 </head>
 <body>
-
 <header class="hero">
-  <div class="hero-inner">
-    <p class="kicker">Page 2</p>
-    <h1>The neuron</h1>
-    <p class="lede">
-      HiAER-Spike fixes the order of its
-      update, the integer leak register, the integer threshold, and the resulting one-timestep
-      delay per layer. This page builds a neuron in PyTorch that matches all four, and covers surrogate gradients and binary spike training.
-    </p>
-  </div>
+<div class="hero-inner">
+<p class="kicker">Page 2</p>
+<h1>The neuron</h1>
+<p class="lede">The neuron used for training follows HiAER-Spike’s update order. The simulator shows its membrane potential and output spikes as you change the input pattern, weight, leak, and threshold. The sections below explain the update equation and how the model is trained.</p>
+</div>
 </header>
-
 <main class="with-toc">
 <div class="wrap">
-<aside class="recap" aria-label="Page summary"><strong>Update order</strong><p>The neuron fires, resets, leaks, then integrates new input. This creates a one-timestep delay per spiking layer.</p></aside>
-
-
-<section id="update" class="reveal">
-  <h2><span class="sec-num">2.1</span>The update rule</h2>
-  <p>
-    A LIF neuron stores one value, the membrane potential <code>v</code>. Its behavior is set by
-    three parameters:
-  </p>
-  <dl class="kv">
-    <dt>&#964;</dt><dd>The leak constant. Each timestep <code>v</code> moves toward rest by <code>v/&#964;</code>. At &#964;=2 half the potential remains after one step; at &#964;=63 about 98.4% remains.</dd>
-    <dt>&#952;</dt><dd>The firing threshold. The neuron emits a spike when <code>v</code> exceeds it.</dd>
-    <dt>v_reset</dt><dd>The value <code>v</code> takes after firing, fixed at 0 here. The reset is unconditional, so any overshoot above &#952; is discarded.</dd>
-  </dl>
-  <p>
-    Input arrives once per timestep as a single number: the sum of connection weights over the
-    upstream neurons that fired. Weights may be negative, which lowers the potential.
-  </p>
-  <p>The chip performs the four operations in a fixed order, recorded in the code as:</p>
-  <div class="code-block">
-    <div class="code-head"><span class="file">snnsearch/neuron.py</span><span class="loc">HardwareLIFNode docstring</span></div>
-    <pre><code class="language-python">#   spike = v > theta ;  v = reset ;  v -= (v - v_reset)/tau ;  v += x</code></pre>
-  </div>
-  <ol class="steps">
-    <li><span class="s-title">Fire</span> Compare the potential carried in from the previous timestep against &#952;, using a strict inequality. Emit a spike if it is larger.</li>
-    <li><span class="s-title">Reset</span> Set the potential to 0 if the neuron fired.</li>
-    <li><span class="s-title">Leak</span> Decay the potential toward rest by <code>v/&#964;</code>.</li>
-    <li><span class="s-title">Integrate</span> Add this timestep's input at full magnitude.</li>
-  </ol>
-  <p>
-    Firing happens before integration, so input arriving at timestep <code>t</code> can influence
-    the output no earlier than <code>t+1</code>. A network of five spiking layers therefore
-    produces its response five timesteps after the input that caused it. Section 5.4 uses this
-    fact directly.
-  </p>
-
-  <div class="demo">
-    <div class="demo-head">
-      <span class="demo-tag">INTERACTIVE</span>
-      <span class="demo-title">The update rule, running</span>
-      <span class="demo-sub">Ported from <code>HardwareLIFNode.single_step_forward</code>. Amber marks input events, the pale trace is the membrane potential, and the top band marks output spikes. The firing rate readout counts spikes over the visible window.</span>
-    </div>
-    <div class="demo-body">
-      <div class="controls">
-        <div class="ctl">
-          <label>input pattern</label>
-          <select id="sim-pattern">
-            <option value="poisson">random</option>
-            <option value="regular">regular</option>
-            <option value="burst">bursts and silence</option>
-            <option value="step">constant drive</option>
-          </select>
-        </div>
-        <div class="ctl">
-          <label>input rate <output id="sim-rate-out">30%</output></label>
-          <input type="range" id="sim-rate" min="5" max="90" value="30">
-        </div>
-        <div class="ctl">
-          <label>weight w <output id="sim-w-out">0.40</output></label>
-          <input type="range" id="sim-w" min="5" max="120" value="40">
-        </div>
-        <div class="ctl">
-          <label>leak &#964; <output id="sim-tau-out">4</output></label>
-          <input type="range" id="sim-tau" min="0" max="7" value="2" step="1">
-        </div>
-        <div class="ctl">
-          <label>threshold &#952; <output id="sim-theta-out">1.00</output></label>
-          <input type="range" id="sim-theta" min="10" max="100" value="100">
-        </div>
-        <button class="btn" id="sim-pause">Pause</button>
-      </div>
-      <canvas id="sim-canvas" height="300"></canvas>
-      <div class="stats">
-        <div class="stat"><div class="k">membrane v</div><div class="val acc" id="sim-v">0.000</div></div>
-        <div class="stat"><div class="k">output firing rate</div><div class="val" id="sim-fr">0.00</div><div class="sub">spikes per timestep</div></div>
-        <div class="stat"><div class="k">&#952; as stored on chip</div><div class="val" id="sim-thint">32767</div><div class="sub">int(&#952; &#215; 32767)</div></div>
-      </div>
-    </div>
-    <div class="demo-note">
-      The threshold slider stops at 1.00 because the chip stores &#952; as a 16-bit integer, and
+<section class="reveal" id="update">
+<h2><span class="sec-num">2.1</span>The update rule</h2><p>In the equation below, <code>v</code> is stored membrane potential, <code>x</code> is the incoming weighted input, <code>theta</code> (θ) is the firing threshold, and <code>tau</code> (τ) sets the leak. A spike is a binary output event. The code tests the old potential before adding this timestep's input.</p>
+<p> A LIF neuron stores one value, the membrane potential <code>v</code>. Its behavior is set by three parameters: </p>
+<dl class="kv">
+<dt>τ</dt><dd>The leak constant. Each timestep <code>v</code> moves toward rest by <code>v/τ</code>. At τ=2 half the potential remains after one step; at τ=63 about 98.4% remains.</dd>
+<dt>θ</dt><dd>The firing threshold. The neuron emits a spike when <code>v</code> exceeds it.</dd>
+<dt>v_reset</dt><dd>The value <code>v</code> takes after firing, fixed at 0 here. The reset is unconditional, so any overshoot above θ is discarded.</dd>
+</dl>
+<p> Input arrives once per timestep as a single number: the sum of connection weights over the upstream neurons that fired. Weights may be negative, which lowers the potential. </p>
+<p>The chip performs the four operations in a fixed order, recorded in the code as:</p>
+<details class="technical-details"><summary>Source excerpt</summary><div class="detail-body"><div class="code-block">
+<div class="code-head"><span class="file">snnsearch/neuron.py</span><span class="loc">HardwareLIFNode docstring</span></div>
+<pre><code class="language-python">#   spike = v &gt; theta ;  v = reset ;  v -= (v - v_reset)/tau ;  v += x</code></pre>
+</div></div></details>
+<ol class="steps">
+<li><span class="s-title">Fire</span> Compare the potential carried in from the previous timestep against θ, using a strict inequality. Emit a spike if it is larger.</li>
+<li><span class="s-title">Reset</span> Set the potential to 0 if the neuron fired.</li>
+<li><span class="s-title">Leak</span> Decay the potential toward rest by <code>v/τ</code>.</li>
+<li><span class="s-title">Integrate</span> Add this timestep's input at full magnitude.</li>
+</ol>
+<p> Firing happens before integration, so input arriving at timestep <code>t</code> can influence the output no earlier than <code>t+1</code>. A network of five spiking layers therefore produces its response five timesteps after the input that caused it. Section 5.4 uses this fact directly. </p>
+<div class="demo">
+<div class="demo-head">
+<span class="demo-tag">INTERACTIVE</span>
+<span class="demo-title">The update rule, running</span>
+<span class="demo-sub">Ported from <code>HardwareLIFNode.single_step_forward</code>. Amber marks input events, the pale trace is the membrane potential, and the top band marks output spikes. The firing rate readout counts spikes over the visible window.</span>
+</div>
+<div class="demo-body">
+<div class="controls">
+<div class="ctl">
+<label for="sim-pattern">input pattern</label>
+<select id="sim-pattern">
+<option value="poisson">random</option>
+<option value="regular">regular</option>
+<option value="burst">bursts and silence</option>
+<option value="step">constant drive</option>
+</select>
+</div>
+<div class="ctl">
+<label for="sim-rate">input rate <output id="sim-rate-out">30%</output></label>
+<input id="sim-rate" max="90" min="5" type="range" value="30"/>
+</div>
+<div class="ctl">
+<label for="sim-w">weight w <output id="sim-w-out">0.40</output></label>
+<input id="sim-w" max="120" min="5" type="range" value="40"/>
+</div>
+<div class="ctl">
+<label for="sim-tau">leak τ <output id="sim-tau-out">4</output></label>
+<input id="sim-tau" max="7" min="0" step="1" type="range" value="2"/>
+</div>
+<div class="ctl">
+<label for="sim-theta">threshold θ <output id="sim-theta-out">1.00</output></label>
+<input id="sim-theta" max="100" min="10" type="range" value="100"/>
+</div>
+<button class="btn" id="sim-pause">Pause</button>
+<button class="btn" id="sim-step" type="button">Advance one timestep</button><button class="btn" id="sim-reset" type="button">Clear history</button></div>
+<canvas height="300" id="sim-canvas"></canvas>
+<div class="stats">
+<div class="stat"><div class="k">membrane v</div><div class="val acc" id="sim-v">0.000</div></div>
+<div class="stat"><div class="k">output firing rate</div><div class="val" id="sim-fr">0.00</div><div class="sub">spikes per timestep</div></div>
+<div class="stat"><div class="k">θ as stored on chip</div><div class="val" id="sim-thint">32767</div><div class="sub">int(θ × 32767)</div></div>
+</div>
+</div>
+<div class="demo-note">
+      The threshold slider stops at 1.00 because the chip stores θ as a 16-bit integer, and
       1.0 maps to the largest value that field holds. Section 2.4 covers how the code keeps a
       learned threshold inside that range.
     </div>
-  </div>
+</div>
+<details class="technical-details"><summary>Work through three timesteps</summary><div class="detail-body"><p>Start with membrane potential v = 0, leak τ = 4, threshold θ = 1, and input 0.6 on each step. The chip tests the old potential before adding the new input.</p><ol><li>At the first step, 0 is below threshold. Leak leaves it at 0, then input raises it to 0.6.</li><li>At the second step, 0.6 is still below threshold. Leak removes 0.6 / 4 = 0.15, and the new input raises the potential to 1.05.</li><li>At the third step, 1.05 exceeds the threshold, so the neuron emits a spike and resets to 0. The new input then raises it to 0.6.</li></ol><p>The spike appears one step after the potential first passes 1. Changing the update order changes the spike time. In a stack of layers, each layer adds its own delay.</p></div></details></section>
+<section class="reveal" id="order">
+<h2><span class="sec-num">2.2</span>Matching the chip's update order</h2>
+<p> The SNN library used here, SpikingJelly, provides a LIF neuron. Its update order differs from the chip's in two ways. It adds input before testing the threshold, so a spike can occur in the same timestep as the input that caused it. It also scales input by the leak, computing <code>v += (x − v)/τ</code>, so a neuron with τ=4 receives a quarter of each input. </p>
+<details class="technical-details"><summary>Matching the hardware update</summary><div class="detail-body">
+<p> Training with the library neuron and converting afterwards produces a network whose spike times and effective input scale both differ from what was trained. The error grows with depth, because each layer contributes its own timing offset. </p>
+<p>Training uses a custom neuron that implements the chip’s update order. This aligns input scaling and spike timing before conversion.</p>
+<p> <code>HardwareLIFNode</code> implements fire, reset, leak, integrate in that order, with undecayed input. <code>build_neuron</code> returns it on every path and raises <code>NotImplementedError</code> for any other neuron type, so no alternative can be selected by accident. </p>
+</div></details>
+<div class="demo">
+<div class="demo-head">
+<span class="demo-tag">INTERACTIVE</span>
+<span class="demo-title">Both neurons, one input train</span>
+<span class="demo-sub">The same input drives the library neuron and the hardware neuron with identical w, τ and θ. Compare the spike positions in each band and the agreement figure below.</span>
+</div>
+<div class="demo-body">
+<div class="controls">
+<div class="ctl">
+<label for="ord-tau">leak τ <output id="ord-tau-out">4</output></label>
+<input id="ord-tau" max="7" min="0" step="1" type="range" value="2"/>
+</div>
+<div class="ctl">
+<label for="ord-w">weight w <output id="ord-w-out">0.55</output></label>
+<input id="ord-w" max="120" min="10" type="range" value="55"/>
+</div>
+<button class="btn primary" id="ord-new">New random input</button>
+</div>
+<canvas height="330" id="ord-canvas"></canvas>
+<div class="stats">
+<div class="stat"><div class="k">spikes, library neuron</div><div class="val" id="ord-sj-n">0</div></div>
+<div class="stat"><div class="k">spikes, hardware neuron</div><div class="val" id="ord-hw-n">0</div></div>
+<div class="stat"><div class="k">timesteps that agree</div><div class="val warn" id="ord-agree">—</div></div>
+</div>
+</div>
+</div>
 </section>
-
-<section id="order" class="reveal">
-  <h2><span class="sec-num">2.2</span>Matching the chip's update order</h2>
-  <p>
-    The SNN library used here, SpikingJelly, provides a LIF neuron. Its update order differs from
-    the chip's in two ways. It adds input before testing the threshold, so a spike can occur in the
-    same timestep as the input that caused it. It also scales input by the leak, computing
-    <code>v += (x &#8722; v)/&#964;</code>, so a neuron with &#964;=4 receives a quarter of each
-    input.
-  </p>
-
-  <div class="motiv">
-    <div class="m-row">
-      <span class="m-label">Observation</span>
-      <p>
-        Training with the library neuron and converting afterwards produces a network whose spike
-        times and effective input scale both differ from what was trained. The error grows with
-        depth, because each layer contributes its own timing offset.
-      </p>
-    </div>
-    <div class="m-row">
-      <span class="m-label">Consequence</span>
-      <p>Training uses a custom neuron that implements the chip’s update order. This aligns input scaling and spike timing before conversion.</p>
-    </div>
-    <div class="m-row code">
-      <span class="m-label">In code</span>
-      <p>
-        <code>HardwareLIFNode</code> implements fire, reset, leak, integrate in that order, with
-        undecayed input. <code>build_neuron</code> returns it on every path and raises
-        <code>NotImplementedError</code> for any other neuron type, so no alternative can be
-        selected by accident.
-      </p>
-    </div>
-  </div>
-
-  <div class="demo">
-    <div class="demo-head">
-      <span class="demo-tag">INTERACTIVE</span>
-      <span class="demo-title">Both neurons, one input train</span>
-      <span class="demo-sub">The same input drives the library neuron and the hardware neuron with identical w, &#964; and &#952;. Compare the spike positions in each band and the agreement figure below.</span>
-    </div>
-    <div class="demo-body">
-      <div class="controls">
-        <div class="ctl">
-          <label>leak &#964; <output id="ord-tau-out">4</output></label>
-          <input type="range" id="ord-tau" min="0" max="7" value="2" step="1">
-        </div>
-        <div class="ctl">
-          <label>weight w <output id="ord-w-out">0.55</output></label>
-          <input type="range" id="ord-w" min="10" max="120" value="55">
-        </div>
-        <button class="btn primary" id="ord-new">New random input</button>
-      </div>
-      <canvas id="ord-canvas" height="330"></canvas>
-      <div class="stats">
-        <div class="stat"><div class="k">spikes, library neuron</div><div class="val" id="ord-sj-n">0</div></div>
-        <div class="stat"><div class="k">spikes, hardware neuron</div><div class="val" id="ord-hw-n">0</div></div>
-        <div class="stat"><div class="k">timesteps that agree</div><div class="val warn" id="ord-agree">&#8212;</div></div>
-      </div>
-    </div>
-  </div>
+<section class="reveal" id="leak">
+<h2><span class="sec-num">2.3</span>The leak is an integer</h2>
+<p> Section 1.3 noted that the chip holds the leak in an integer register. The converter writes <code>round(τ)</code> into it. </p>
+<details class="technical-details"><summary>Implementation details</summary><div class="detail-body">
+<p>An earlier study sampled τ continuously between 1.5 and 2.5. Those values map to the same integer leak value, 2, after conversion. A relationship measured before rounding does not establish a difference between deployed leak settings.</p>
+<p> τ has to be sampled from integers, and a learned τ has to be rounded inside the forward pass so that the loss responds to the value that will actually deploy. The useful integers are closely spaced at the low end, where consecutive values behave differently, and sparse at the high end, where they do not. </p>
+<p> <code>HW_TAU_CHOICES = [2, 3, 4, 6, 8, 16, 32, 63]</code> defines the sampled set. The <code>hw_tau</code> property clamps to the register range and rounds, passing the gradient through unchanged so the parameter remains trainable. </p>
+</div></details>
+<div class="demo">
+<div class="demo-head">
+<span class="demo-tag">INTERACTIVE</span>
+<span class="demo-title">Continuous τ against the deployed leak</span>
+<span class="demo-sub">The terracotta curve shows the decay a continuous τ would produce. The dashed amber curve shows the decay <code>round(τ)</code> produces. Moving the slider within a plateau changes nothing on chip.</span>
+</div>
+<div class="demo-body">
+<div class="controls">
+<div class="ctl" style="flex:1;min-width:220px;">
+<label for="il-tau">continuous τ <output id="il-tau-out">2.10</output></label>
+<input id="il-tau" max="450" min="150" type="range" value="210"/>
+</div>
+</div>
+<canvas height="240" id="il-canvas"></canvas>
+<div class="stats">
+<div class="stat"><div class="k">sampled τ</div><div class="val" id="il-float">2.10</div></div>
+<div class="stat"><div class="k">deployed leak</div><div class="val warn" id="il-int">2</div><div class="sub">round(τ)</div></div>
+<div class="stat"><div class="k">retained per step</div><div class="val" id="il-keep">50%</div></div>
+</div>
+</div>
+</div>
 </section>
-
-<section id="leak" class="reveal">
-  <h2><span class="sec-num">2.3</span>The leak is an integer</h2>
-  <p>
-    Section 1.3 noted that the chip holds the leak in an integer register. The converter writes
-    <code>round(&#964;)</code> into it.
-  </p>
-
-  <div class="motiv">
-    <div class="m-row">
-      <span class="m-label">Observation</span>
-      <p>An earlier study sampled τ continuously between 1.5 and 2.5. Those values map to the same integer leak value, 2, after conversion. A relationship measured before rounding does not establish a difference between deployed leak settings.</p>
-    </div>
-    <div class="m-row">
-      <span class="m-label">Consequence</span>
-      <p>
-        &#964; has to be sampled from integers, and a learned &#964; has to be rounded inside the
-        forward pass so that the loss responds to the value that will actually deploy. The useful
-        integers are closely spaced at the low end, where consecutive values behave differently,
-        and sparse at the high end, where they do not.
-      </p>
-    </div>
-    <div class="m-row code">
-      <span class="m-label">In code</span>
-      <p>
-        <code>HW_TAU_CHOICES = [2, 3, 4, 6, 8, 16, 32, 63]</code> defines the sampled set. The
-        <code>hw_tau</code> property clamps to the register range and rounds, passing the gradient
-        through unchanged so the parameter remains trainable.
-      </p>
-    </div>
-  </div>
-
-  <div class="demo">
-    <div class="demo-head">
-      <span class="demo-tag">INTERACTIVE</span>
-      <span class="demo-title">Continuous &#964; against the deployed leak</span>
-      <span class="demo-sub">The terracotta curve shows the decay a continuous &#964; would produce. The dashed amber curve shows the decay <code>round(&#964;)</code> produces. Moving the slider within a plateau changes nothing on chip.</span>
-    </div>
-    <div class="demo-body">
-      <div class="controls">
-        <div class="ctl" style="flex:1;min-width:220px;">
-          <label>continuous &#964; <output id="il-tau-out">2.10</output></label>
-          <input type="range" id="il-tau" min="150" max="450" value="210">
-        </div>
-      </div>
-      <canvas id="il-canvas" height="240"></canvas>
-      <div class="stats">
-        <div class="stat"><div class="k">sampled &#964;</div><div class="val" id="il-float">2.10</div></div>
-        <div class="stat"><div class="k">deployed leak</div><div class="val warn" id="il-int">2</div><div class="sub">round(&#964;)</div></div>
-        <div class="stat"><div class="k">retained per step</div><div class="val" id="il-keep">50%</div></div>
-      </div>
-    </div>
-  </div>
+<section class="reveal" id="threshold">
+<h2><span class="sec-num">2.4</span>Keeping the threshold representable</h2>
+<p>The chip stores the threshold as <code>int(θ / w_delta)</code>, where <code>w_delta = 1/32767</code>. The project requires a positive threshold no greater than 1.0. Larger values exceed the selected encoding range. Nonpositive thresholds can cause firing at rest and are rejected.</p>
+<details class="technical-details"><summary>Keeping the threshold within range</summary><div class="detail-body">
+<p> The project treats θ as a parameter worth learning per layer. An unconstrained parameter can take any real value during training, including values that cannot be encoded. </p>
+<p>The base threshold uses a constrained parameterization so optimizer updates remain within the supported range. Folding can shift that threshold further. Deployment checks inspect the raw folded value to avoid hiding an illegal result behind a safety clamp.</p>
+<p> The learned value is stored as <code>raw_threshold</code> and read as <code>sigmoid(raw_threshold)</code>, which lies in (0, 1) by construction. <code>fake_quantize_threshold</code> then snaps it to the integer grid. Snapping means rounding a continuous value onto the discrete steps the chip allows, here 1/32767, or about 0.0000305. <code>raw_v_threshold()</code> exposes the unclamped value for the deployment report. </p>
+</div></details>
+<div class="demo">
+<div class="demo-head">
+<span class="demo-tag">INTERACTIVE</span>
+<span class="demo-title">From unconstrained parameter to stored integer</span>
+<span class="demo-sub">Drag the raw parameter the optimizer updates. The curve is the sigmoid that maps it into the legal range, and the readouts show the value the chip would store.</span>
+</div>
+<div class="demo-body">
+<div class="controls">
+<div class="ctl" style="flex:1;min-width:230px;">
+<label for="th-raw">raw_threshold <output id="th-raw-out">0.0</output></label>
+<input id="th-raw" max="60" min="-60" type="range" value="0"/>
+</div>
+</div>
+<canvas height="220" id="th-canvas"></canvas>
+<div class="stats">
+<div class="stat"><div class="k">θ = sigmoid(raw)</div><div class="val acc" id="th-theta">0.50000</div></div>
+<div class="stat"><div class="k">stored integer</div><div class="val" id="th-int">16384</div></div>
+<div class="stat"><div class="k">within range</div><div class="val good" id="th-legal">YES</div><div class="sub">unreachable outside (0, 1)</div></div>
+</div>
+</div>
+</div>
 </section>
-
-<section id="threshold" class="reveal">
-  <h2><span class="sec-num">2.4</span>Keeping the threshold representable</h2>
-  <p>The chip stores the threshold as <code>int(θ / w_delta)</code>, where <code>w_delta = 1/32767</code>. The project requires a positive threshold no greater than 1.0. Larger values exceed the selected encoding range. Nonpositive thresholds can cause firing at rest and are rejected.</p>
-
-  <div class="motiv">
-    <div class="m-row">
-      <span class="m-label">Observation</span>
-      <p>
-        The project treats &#952; as a parameter worth learning per layer. An unconstrained
-        parameter can take any real value during training, including values that cannot be
-        encoded.
-      </p>
-    </div>
-    <div class="m-row">
-      <span class="m-label">Consequence</span>
-      <p>The base threshold uses a constrained parameterization so optimizer updates remain within the supported range. Folding can shift that threshold further. Deployment checks inspect the raw folded value to avoid hiding an illegal result behind a safety clamp.</p>
-    </div>
-    <div class="m-row code">
-      <span class="m-label">In code</span>
-      <p>
-        The learned value is stored as <code>raw_threshold</code> and read as
-        <code>sigmoid(raw_threshold)</code>, which lies in (0, 1) by construction.
-        <code>fake_quantize_threshold</code> then snaps it to the integer grid. Snapping means
-        rounding a continuous value onto the discrete steps the chip allows, here 1/32767, or about
-        0.0000305. <code>raw_v_threshold()</code> exposes the unclamped value for the deployment
-        report.
-      </p>
-    </div>
-  </div>
-
-  <div class="demo">
-    <div class="demo-head">
-      <span class="demo-tag">INTERACTIVE</span>
-      <span class="demo-title">From unconstrained parameter to stored integer</span>
-      <span class="demo-sub">Drag the raw parameter the optimizer updates. The curve is the sigmoid that maps it into the legal range, and the readouts show the value the chip would store.</span>
-    </div>
-    <div class="demo-body">
-      <div class="controls">
-        <div class="ctl" style="flex:1;min-width:230px;">
-          <label>raw_threshold <output id="th-raw-out">0.0</output></label>
-          <input type="range" id="th-raw" min="-60" max="60" value="0">
-        </div>
-      </div>
-      <canvas id="th-canvas" height="220"></canvas>
-      <div class="stats">
-        <div class="stat"><div class="k">&#952; = sigmoid(raw)</div><div class="val acc" id="th-theta">0.50000</div></div>
-        <div class="stat"><div class="k">stored integer</div><div class="val" id="th-int">16384</div></div>
-        <div class="stat"><div class="k">within range</div><div class="val good" id="th-legal">YES</div><div class="sub">unreachable outside (0, 1)</div></div>
-      </div>
-    </div>
-  </div>
-</section>
-
-<section id="surrogate" class="reveal">
-  <h2><span class="sec-num">2.5</span>Training through a binary spike</h2>
-  <p>
-    Gradient descent adjusts a weight using the derivative of the loss with respect to that weight.
-    The spike function stands in the way: it outputs 0 below the threshold and 1 above it, so its
-    derivative is zero everywhere it is defined and undefined at the threshold itself.
-  </p>
-
-  <div class="motiv">
-    <div class="m-row">
-      <span class="m-label">Observation</span>
-      <p>
-        With a zero derivative at the spike, backpropagation delivers no gradient to any weight
-        beneath it. Applied literally, the network cannot be trained by gradient descent.
-      </p>
-    </div>
-    <div class="m-row">
-      <span class="m-label">Consequence</span>
-      <p>
-        The forward pass has to keep the true binary spike, because that is what the chip computes.
-        Only the backward pass can be altered. Substituting the derivative of a smooth function
-        that approximates the step gives each neuron a gradient proportional to how close it came
-        to firing.
-      </p>
-    </div>
-    <div class="m-row code">
-      <span class="m-label">In code</span>
-      <p>
-        The neuron calls <code>surrogate.ATan()</code>, which returns a hard 0 or 1 forward and the
-        derivative <code>&#945;/2 &#183; 1/(1 + (&#960;/2 &#183; &#945;x)&#178;)</code> backward.
-        The same technique appears again in section 4.4 for weight rounding.
-      </p>
-    </div>
-  </div>
-
-  <div class="demo">
-    <div class="demo-head">
-      <span class="demo-tag">INTERACTIVE</span>
-      <span class="demo-title">Forward step against backward gradient</span>
-      <span class="demo-sub">The horizontal axis is the distance from the threshold. The amber step is what the neuron computes. The terracotta curve is the gradient backpropagation receives instead.</span>
-    </div>
-    <div class="demo-body">
-      <div class="controls">
-        <div class="ctl" style="flex:1;min-width:230px;">
-          <label>distance from threshold <output id="sg-x-out">0.00</output></label>
-          <input type="range" id="sg-x" min="-200" max="200" value="0">
-        </div>
-      </div>
-      <canvas id="sg-canvas" height="250"></canvas>
-      <div class="stats">
-        <div class="stat"><div class="k">forward output</div><div class="val" id="sg-fwd">1</div></div>
-        <div class="stat"><div class="k">backward gradient</div><div class="val acc" id="sg-grad">1.000</div></div>
-      </div>
-    </div>
-    <div class="demo-note">
+<section class="reveal" id="surrogate">
+<h2><span class="sec-num">2.5</span>Training through a binary spike</h2>
+<p> Gradient descent adjusts a weight using the derivative of the loss with respect to that weight. The spike function stands in the way: it outputs 0 below the threshold and 1 above it, so its derivative is zero everywhere it is defined and undefined at the threshold itself. </p>
+<details class="technical-details"><summary>Backpropagation through a spike</summary><div class="detail-body">
+<p> With a zero derivative at the spike, backpropagation delivers no gradient to any weight beneath it. Applied literally, the network cannot be trained by gradient descent. </p>
+<p> The forward pass has to keep the true binary spike, because that is what the chip computes. Only the backward pass can be altered. Substituting the derivative of a smooth function that approximates the step gives each neuron a gradient proportional to how close it came to firing. </p>
+<p> The neuron calls <code>surrogate.ATan()</code>, which returns a hard 0 or 1 forward and the derivative <code>α/2 · 1/(1 + (π/2 · αx)²)</code> backward. The same technique appears again in section 4.4 for weight rounding. </p>
+</div></details>
+<div class="demo">
+<div class="demo-head">
+<span class="demo-tag">INTERACTIVE</span>
+<span class="demo-title">Forward step against backward gradient</span>
+<span class="demo-sub">The horizontal axis is the distance from the threshold. The amber step is what the neuron computes. The terracotta curve is the gradient backpropagation receives instead.</span>
+</div>
+<div class="demo-body">
+<div class="controls">
+<div class="ctl" style="flex:1;min-width:230px;">
+<label for="sg-x">distance from threshold <output id="sg-x-out">0.00</output></label>
+<input id="sg-x" max="200" min="-200" type="range" value="0"/>
+</div>
+</div>
+<canvas height="250" id="sg-canvas"></canvas>
+<div class="stats">
+<div class="stat"><div class="k">forward output</div><div class="val" id="sg-fwd">1</div></div>
+<div class="stat"><div class="k">backward gradient</div><div class="val acc" id="sg-grad">1.000</div></div>
+</div>
+</div>
+<div class="demo-note">
       Neurons close to their threshold receive most of the gradient, which matches the intuition
       that a small weight change there would have altered the spike.
     </div>
-  </div>
+</div>
 </section>
-
-<section id="code" class="reveal">
-  <h2><span class="sec-num">2.6</span>The forward pass</h2>
-  <p>The implementation below combines the update order, integer leak, representable threshold, and surrogate gradient.</p>
-  <div class="code-block">
-    <div class="code-head"><span class="file">snnsearch/neuron.py</span><span class="loc">single_step_forward</span></div>
-    <pre><code class="language-python">def single_step_forward(self, x: "torch.Tensor"):
+<section class="reveal" id="code">
+<h2><span class="sec-num">2.6</span>The forward pass</h2>
+<p>The implementation below combines the update order, integer leak, representable threshold, and surrogate gradient.</p>
+<details class="technical-details"><summary>Source excerpt</summary><div class="detail-body"><div class="code-block">
+<div class="code-head"><span class="file">snnsearch/neuron.py</span><span class="loc">single_step_forward</span></div>
+<pre><code class="language-python">def single_step_forward(self, x: "torch.Tensor"):
     self.v_float_to_tensor(x)
     v_reset = 0.0 if self.v_reset is None else float(self.v_reset)
     v_th = self.v_threshold                     # already on the chip's grid
@@ -359,7 +236,7 @@
         x = x + fb.reshape(*shape)
 
     # 1. fire on the membrane carried in from the previous timestep.
-    #    subtracting one grid step turns the surrogate's ">=" into the chip's ">"
+    #    subtracting one grid step turns the surrogate's "&gt;=" into the chip's "&gt;"
     spike = self.surrogate_function(self.v - v_th - W_DELTA)
     # 2. hard reset
     spike_d = spike.detach() if self.detach_reset else spike
@@ -369,30 +246,27 @@
     # 4. integrate this timestep's input, undecayed
     self.v = self.v + x
     return spike</code></pre>
-  </div>
-  <ul>
-    <li><code>self.v</code> holds one potential per neuron in the layer, so the update runs across the whole layer at once.</li>
-    <li>Subtracting <code>W_DELTA</code> before the comparison reproduces the chip's strict inequality using a surrogate that tests for greater-or-equal.</li>
-    <li><code>spike.detach()</code> in the reset keeps gradients from flowing through the reset path, which stabilizes training.</li>
-    <li><code>self.hw_tau</code> returns the stored integer, or the rounded learned value when &#964; is trainable.</li>
-    <li>The <code>_fold_bias</code> block is inactive during ordinary training. Section 4.5 describes what sets it.</li>
-  </ul>
+</div></div></details>
+<ul>
+<li><code>self.v</code> holds one potential per neuron in the layer, so the update runs across the whole layer at once.</li>
+<li>Subtracting <code>W_DELTA</code> before the comparison reproduces the chip's strict inequality using a surrogate that tests for greater-or-equal.</li>
+<li><code>spike.detach()</code> in the reset keeps gradients from flowing through the reset path, which stabilizes training.</li>
+<li><code>self.hw_tau</code> returns the stored integer, or the rounded learned value when τ is trainable.</li>
+<li>The <code>_fold_bias</code> block is inactive during ordinary training. Section 4.5 describes what sets it.</li>
+</ul>
 </section>
-
 </div>
 <aside class="toc"></aside>
 </main>
-
 <nav class="foot-nav">
-  <a class="prev" href="index.html"><span class="dir">Previous</span><span class="pg">01 &#183; The problem</span></a>
-  <a class="next" href="architecture.html"><span class="dir">Next</span><span class="pg">03 &#183; The architecture</span></a>
+<a class="prev" href="index.html"><span class="dir">Previous</span><span class="pg">01 · The problem</span></a>
+<a class="next" href="architecture.html"><span class="dir">Next</span><span class="pg">03 · The architecture</span></a>
 </nav>
 <footer class="site-foot">
-  <span>Documentation for <a href="https://github.com/purujain2006/configurable-snn-classifier">configurable-snn-classifier</a></span>
-  <span>Interactive demonstrations use the same arithmetic as <code>snnsearch</code>, verified against it.</span>
+<span>Documentation for <a href="https://github.com/purujain2006/configurable-snn-classifier">configurable-snn-classifier</a></span>
+<span>Interactive demonstrations use the same arithmetic as <code>snnsearch</code>, verified against it.</span>
 </footer>
-
-<script src="assets/snn.js"></script>
+<script src="assets/snn.js?v=16000"></script>
 <script src="assets/site.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-python.min.js"></script>

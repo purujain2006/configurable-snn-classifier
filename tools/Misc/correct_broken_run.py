@@ -129,21 +129,52 @@ def main():
                     help="the resolution every trial ACTUALLY trained at")
     ap.add_argument("--T", type=int, required=True,
                     help="the frame count every trial ACTUALLY trained at")
+    ap.add_argument("--leaderboard", default="leaderboard.csv",
+                    help="which CSV to correct. Use leaderboard_full.csv when "
+                         "the streamed one is a mix of formats")
     args = ap.parse_args()
 
     run_dir = os.path.expanduser(args.run_dir)
     out_dir = os.path.expanduser(args.out)
     os.makedirs(out_dir, exist_ok=True)
 
-    lb = os.path.join(run_dir, "leaderboard.csv")
+    lb = os.path.join(run_dir, args.leaderboard)
     if not os.path.isfile(lb):
-        sys.exit(f"no leaderboard.csv in {run_dir}")
+        sys.exit(f"no {args.leaderboard} in {run_dir}")
 
     configs, src = load_configs(run_dir)
     with open(lb, newline="", encoding="utf-8") as fh:
         rows = list(csv.DictReader(fh))
     if not rows:
-        sys.exit("leaderboard.csv is empty")
+        sys.exit(f"{args.leaderboard} is empty")
+
+    # A CSV written by append_csv has ONE header and appends forever. Two runs
+    # into the same directory, with LEADERBOARD_COLS having changed between
+    # them, writes the second run's values under the first run's column names.
+    # Field counts still match, so a width check cannot see it; the values are
+    # simply in the wrong columns.
+    #
+    # trials.jsonl is one self-describing object per line and cannot do this, so
+    # comparing the two catches the mix.
+    if configs:
+        csv_keys = set(rows[0])
+        json_keys = set()
+        for cfg in configs.values():
+            json_keys.update(cfg)
+        # Config keys that trials.jsonl has and the CSV header does not. A few
+        # are expected (per-layer keys the fixed header drops); a lot means the
+        # header belongs to a different version of the writer.
+        missing = json_keys - csv_keys
+        if len(missing) > 6:
+            print(f"WARNING: {args.leaderboard} is missing {len(missing)} config "
+                  f"keys that trials.jsonl records, including "
+                  f"{', '.join(sorted(missing)[:6])}.")
+            print("  That usually means this CSV was appended to across two "
+                  "runs with different columns, so some rows sit under the "
+                  "wrong header and their values are shifted.")
+            print("  Rebuild it first:")
+            print(f"    python tools/leaderboard_from_trials.py {run_dir}")
+            print(f"  then rerun this with --leaderboard leaderboard_full.csv\n")
 
     fields = list(rows[0].keys())
     for old, new in (("resize_to", "resize_to_recorded"), ("T", "T_recorded"),

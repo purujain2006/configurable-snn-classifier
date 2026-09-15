@@ -1,7 +1,7 @@
 // Structural validation: every element the demo scripts reach for must exist on
 // the page that loads them, tags must balance, and cross-refs must resolve.
 const fs = require('fs'), path = require('path');
-const DOCS = path.join(__dirname, '..', 'docs');
+const DOCS = path.join(__dirname, '..', '..', 'docs');
 let fail = 0;
 const bad = m => { console.log('  FAIL ' + m); fail++; };
 
@@ -14,7 +14,7 @@ for (const p of pages) {
   const scripts = [...html.matchAll(/<script src="(assets\/[^"]+)"/g)].map(m => m[1]);
   let checked = 0;
   for (const s of scripts) {
-    const sp = path.join(DOCS, s);
+    const sp = path.join(DOCS, s.split(/[?#]/)[0]);
     if (!fs.existsSync(sp)) { bad(`${p}: missing script ${s}`); continue; }
     const js = fs.readFileSync(sp, 'utf8');
     const usesDollar = /\$\s*=\s*id\s*=>\s*document\.getElementById/.test(js);

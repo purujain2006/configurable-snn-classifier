@@ -234,6 +234,41 @@
   }
 
   /* ---------- boot ---------- */
+  function openLinkedDetails() {
+    if (!location.hash) return;
+    let id;
+    try { id = decodeURIComponent(location.hash.slice(1)); } catch { return; }
+    const target = document.getElementById(id);
+    if (!target) return;
+    let parent = target.parentElement;
+    while (parent) {
+      if (parent.tagName === 'DETAILS') parent.open = true;
+      parent = parent.parentElement;
+    }
+    requestAnimationFrame(() => target.scrollIntoView({block: 'start'}));
+  }
+
+  function demoControls() {
+    document.querySelectorAll('.demo').forEach(demo => {
+      const controls = demo.querySelector('.controls');
+      if (!controls) return;
+      const inputs = [...demo.querySelectorAll('input, select')];
+      const defaults = inputs.map(el => ({el, value: el.value, checked: el.checked}));
+      const reset = document.createElement('button');
+      reset.type = 'button'; reset.className = 'btn demo-defaults'; reset.textContent = 'Reset controls';
+      reset.addEventListener('click', () => {
+        defaults.forEach(({el, value, checked}) => {
+          el.value = value;
+          if (el.type === 'checkbox' || el.type === 'radio') el.checked = checked;
+          el.dispatchEvent(new Event('input', {bubbles: true}));
+          el.dispatchEvent(new Event('change', {bubbles: true}));
+        });
+        demo.dispatchEvent(new Event('demo:reset'));
+      });
+      controls.append(reset);
+    });
+  }
+
   document.addEventListener("DOMContentLoaded", () => {
     const main = document.querySelector("main");
     if (main) {
@@ -246,6 +281,13 @@
     }
     buildNav();
     buildTOC();
+    demoControls();
+    openLinkedDetails();
+    window.addEventListener('hashchange', openLinkedDetails);
+    // Plots inside disclosures must measure their visible width after opening.
+    document.querySelectorAll('details').forEach(details => details.addEventListener('toggle', () => {
+      if (details.open) window.dispatchEvent(new Event('resize'));
+    }));
     document.querySelectorAll(".tbl-wrap").forEach((table, index) => {
       table.tabIndex = 0;
       table.setAttribute("role", "region");

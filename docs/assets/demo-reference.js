@@ -3,7 +3,7 @@
 const R = [
 {g:"snnsearch/config.py"},
 {n:"InputSpec", k:"dataclass", s:"N=16, C=2, H=128, W=128, T=16, resize_to=0", o:"Shape of the input tensor: batch size, polarity channels, sensor resolution, timesteps, optional square resize.",
- b:"resize_to=0 feeds the native 128×128 through unchanged, which needs 32,768 input axons against a limit of 16,383, so configurations must select a smaller resolution, such as the 48×48 used by the current leading candidate. T is the number of frames each recording is divided into. See <a href='architecture.html#configs'>3.1</a>."},
+ b:"resize_to=0 feeds the native 128×128 through unchanged, which needs 32,768 input axons against a limit of 16,000, so configurations must select a smaller resolution, such as the 48×48 used by the current leading candidate. T is the number of frames each recording is divided into. See <a href='architecture.html#configs'>3.1</a>."},
 {n:"effective_hw", k:"function", s:"effective_hw(input_cfg) -> (H, W)", o:"Returns the effective input height and width after resizing.",
  b:"Provides a shared input shape for planning and model construction."},
 {n:"ConvLayerSpec", k:"dataclass", s:"out_channels, kernel_size, stride, padding, dilation, pool, tau, v_threshold", o:"Geometry of one convolution, with optional per-layer neuron parameters.",
@@ -40,7 +40,7 @@ const R = [
  b:"Flatten gives C×H×W features and GAP gives C. That number determines most feasibility outcomes."},
 
 {g:"snnsearch/hardware.py"},
-{n:"AXON_LIMITS / NEURON_LIMITS", k:"constant", s:"16,383 axons · axon fan-out 4,096, fan-in 8,191 · neuron fan-out 4,095, fan-in 8,159", o:"The chip's connection budgets.",
+{n:"AXON_LIMITS / NEURON_LIMITS", k:"constant", s:"16,000 axons · axon fan-out 4,096, fan-in 8,191 · neuron fan-out 4,095, fan-in 8,159", o:"The chip's connection budgets.",
  b:"The first block draws on the axon budgets because it reads the input. Later layers use the neuron budgets. See <a href='hardware.html#limits'>4.1</a>."},
 {n:"check_feasibility", k:"function", s:"check_feasibility(input, encoder, downsample, head, output) -> (bool, [violations])", o:"Applies the connection-limit formulas to every convolution block and linear layer in the plan.",
  b:"Fan-in is k²·C_in and fan-out is ceil(k/s)²·C_out, except for the last convolution block, whose fan-out is the width of the first linear layer. An earlier version omitted the head from the check entirely."},

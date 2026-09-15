@@ -14,7 +14,7 @@ from unittest.mock import patch
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-import build_from_practice2 as generator
+import tools.Misc.build_from_practice2 as generator
 from snnsearch.hardware import check_feasibility
 from snnsearch.planning import plan_network
 from snnsearch.spaces import config_to_specs, make_define_by_run

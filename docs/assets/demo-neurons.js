@@ -32,8 +32,8 @@
       return 0;
     }
 
-    function step() {
-      if (paused) return;
+    function step(force = false) {
+      if (paused && !force) return;
       const p = parseInt(els.rate.value, 10) / 100;
       const w = parseInt(els.w.value, 10) / 100;
       const tau = TAUS[parseInt(els.tau.value, 10)];
@@ -96,7 +96,18 @@
     els.pause.addEventListener("click", () => {
       paused = !paused;
       els.pause.textContent = paused ? "Resume" : "Pause";
+      els.pause.setAttribute("aria-pressed", String(paused));
     });
+    document.getElementById("sim-step").addEventListener("click", () => {
+      paused = true; els.pause.textContent = "Resume"; els.pause.setAttribute("aria-pressed", "true");
+      step(true); draw();
+    });
+    function clearHistory() {
+      state.v = 0; t = 0; vH.fill(0); inH.fill(0); spH.fill(0);
+      els.v.textContent = '0.000'; els.fr.textContent = '0'; draw();
+    }
+    document.getElementById("sim-reset").addEventListener("click", clearHistory);
+    cv.closest('.demo').addEventListener('demo:reset', clearHistory);
     setInterval(step, 70);
     (function loop() { draw(); requestAnimationFrame(loop); })();
   })();

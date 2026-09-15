@@ -1,92 +1,60 @@
 <!DOCTYPE html>
+
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
 <title>Architecture</title>
-<meta name="description" content="Expressing a network as configuration, planning layer shapes once, and counting what a configuration would occupy on chip.">
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' fill='%23000'/><path d='M3 22h5l3-13 4 19 3-11h4l2 5h5' fill='none' stroke='%23e0a94f' stroke-width='2.4' stroke-linejoin='round'/></svg>">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:ital,wght@0,400;0,600;0,700;1,400&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="assets/style.css">
+<meta content="Expressing a network as configuration, planning layer shapes once, and counting what a configuration would occupy on chip." name="description"/>
+<link href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'&gt;&lt;rect width='32' height='32' fill='%23000'/&gt;&lt;path d='M3 22h5l3-13 4 19 3-11h4l2 5h5' fill='none' stroke='%23e0a94f' stroke-width='2.4' stroke-linejoin='round'/&gt;&lt;/svg&gt;" rel="icon"/>
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&amp;family=JetBrains+Mono:ital,wght@0,400;0,600;0,700;1,400&amp;display=swap" rel="stylesheet"/>
+<link href="assets/style.css" rel="stylesheet"/>
 </head>
 <body>
-
 <header class="hero">
-  <div class="hero-inner">
-    <p class="kicker">Page 3</p>
-    <h1>The architecture</h1>
-    <p class="lede">The architecture is stored as configuration so the search can vary it. A shared plan computes layer shapes before model construction, allowing connection limits and network size to be checked without training.</p>
-  </div>
+<div class="hero-inner">
+<p class="kicker">Page 3</p>
+<h1>The architecture</h1>
+<p class="lede">The configuration specifies layer dimensions and training settings. Before constructing the model, a shared planner derives the dimensions needed by the connection checks. The builder below lets you vary those settings and inspect the resulting network.</p>
+</div>
 </header>
-
 <main class="with-toc">
 <div class="wrap">
-<aside class="recap" aria-label="Page summary"><strong>Configuration and execution</strong><p>One shared layer plan supplies the model builder, connection checks, and structural counts. SynOps require input-dependent evaluation.</p></aside>
-
-
-<section id="configs" class="reveal">
-  <h2><span class="sec-num">3.1</span>The network as configuration</h2>
-
-  <div class="motiv">
-    <div class="m-row">
-      <span class="m-label">Observation</span>
-      <p>
-        Research code usually hardcodes its architecture. Changing the depth or the kernel size
-        then means editing the model class, which a search process cannot do.
-      </p>
-    </div>
-    <div class="m-row">
-      <span class="m-label">Consequence</span>
-      <p>
-        Every property the search may vary has to live in a data structure that can be constructed and compared. Properties that affect the shape of the network should be
-        separated from properties that affect only training, so the feasibility check can run
-        without knowing the optimizer.
-      </p>
-    </div>
-    <div class="m-row code">
-      <span class="m-label">In code</span>
-      <p>
-        Seven dataclasses hold the shape-determining settings, and an eighth,
-        <code>TrainSpec</code>, holds the optimization recipe. A dataclass is simply a Python structure of
-        named fields with types and defaults.
-      </p>
-    </div>
-  </div>
-
-  <div class="tbl-wrap">
-    <table class="tbl">
-      <thead><tr><th>Dataclass</th><th>Holds</th><th>Fields, with defaults</th></tr></thead>
-      <tbody>
-        <tr><td class="layer-name">InputSpec</td><td>The input tensor</td><td><code>C=2</code> polarity channels, <code>H=W=128</code> sensor size, <code>T=16</code> timesteps, <code>resize_to=0</code>, batch <code>N=16</code></td></tr>
-        <tr><td class="layer-name">ConvLayerSpec</td><td>One convolution</td><td><code>out_channels</code>, <code>kernel_size</code>, <code>stride</code>, <code>padding</code>, <code>dilation</code>, <code>pool</code>, and optional per-layer <code>tau</code> and <code>v_threshold</code></td></tr>
-        <tr><td class="layer-name">EncoderSpec</td><td>The convolution stack</td><td>Uniform fields (<code>depth</code>, <code>channels</code>, <code>kernel_size</code>) or a per-layer <code>layers_json</code>, plus <code>bias</code> and <code>norm</code></td></tr>
-        <tr><td class="layer-name">OutputSpec</td><td>The classifier width</td><td><code>num_classes=11</code></td></tr>
-        <tr><td class="layer-name">DownsampleSpec</td><td>Resolution reduction</td><td><code>mode</code> of stride or pool, <code>pool_type</code>, pool kernel and stride</td></tr>
-        <tr><td class="layer-name">HeadSpec</td><td>The classifier head</td><td><code>final_reduction</code> of flatten or gap, <code>fc_widths</code>, <code>dropout_rate</code></td></tr>
-        <tr><td class="layer-name">NeuronSpec</td><td>The neuron of page 2</td><td><code>tau</code> as an integer, <code>v_threshold</code>, <code>v_reset</code>, <code>trainable_tau</code>, <code>trainable_threshold</code></td></tr>
-      </tbody>
-    </table>
-  </div>
-
-  <h3>Reaching the fields from a command line</h3>
-  <p>
-    Each group is exposed as a flag that accepts <code>key=value</code> pairs. One function,
-    <code>fill_from_kv</code>, reads the dataclass's own field list to decide which keys are valid
-    and what type each value should become. Adding a field to a dataclass therefore adds its
-    command-line option without further work.
-  </p>
-  <div class="code-block">
-    <div class="code-head"><span class="file">terminal</span><span class="loc">a fully specified configuration</span></div>
-    <pre><code class="language-bash">python main.py summary -c configs/dvs128.yaml \
+<section class="reveal" id="configs">
+<h2><span class="sec-num">3.1</span>The network as configuration</h2><p>The configuration describes a sequence of convolutional layers that extract image features, followed by a classifier head that turns those features into class scores. The planner calculates the size of every intermediate array before the network is built. <a href="#scope">Other model families require additional support.</a></p><details class="technical-details"><summary>Read the configuration names</summary><div class="detail-body"><dl class="glossary"><dt>N, C, H, W, T</dt><dd>Batch size, input channels, image height, image width, and input timesteps. A batch groups examples for training. It does not multiply the input connections required by one deployed example.</dd><dt>Kernel, stride, padding, dilation</dt><dd>The kernel is the filter window. Stride is the distance between window positions. Padding adds a border around the input. Dilation spaces the filter's sample points apart.</dd><dt>Encoder and head</dt><dd>Here, EncoderSpec names the convolutional feature extractor. It differs from the input encoding on the Training page, which decides how data enters the network over time. The head maps extracted features to class scores.</dd><dt>tau, v_threshold, v_reset</dt><dd>The leak setting, firing threshold, and potential after reset. They are neuron parameters, rather than layer dimensions.</dd><dt>flatten, gap, fc_widths</dt><dd>Flatten keeps every feature position in a vector. Global average pooling (gap) reduces each feature channel to one average. fc_widths lists the sizes of optional hidden fully connected layers before the class outputs.</dd><dt>layers_json</dt><dd>A list of per-layer settings written in JSON, a text format for named values. It overrides the uniform shape settings.</dd></dl></div></details>
+<details class="technical-details"><summary>Configuration fields and command-line parsing</summary><div class="detail-body">
+<p>If layer dimensions are hardcoded in a model class, changing them requires editing code. This project stores the dimensions in configuration fields so the search can propose a different network for each trial.</p>
+<p>Architecture fields describe the network’s shape. Training fields describe how its weights are fitted. Separating them lets the planner check connection limits without constructing an optimizer.</p>
+<p> Seven dataclasses hold the shape-determining settings, and an eighth, <code>TrainSpec</code>, holds the optimization recipe. A dataclass is simply a Python structure of named fields with types and defaults. </p>
+</div></details>
+<details class="technical-details"><summary>Configuration fields and defaults</summary><div class="tbl-wrap">
+<table class="tbl">
+<thead><tr><th>Dataclass</th><th>Holds</th><th>Fields, with defaults</th></tr></thead>
+<tbody>
+<tr><td class="layer-name">InputSpec</td><td>The input tensor</td><td><code>C=2</code> polarity channels, <code>H=W=128</code> sensor size, <code>T=16</code> timesteps, <code>resize_to=0</code>, batch <code>N=16</code></td></tr>
+<tr><td class="layer-name">ConvLayerSpec</td><td>One convolution</td><td><code>out_channels</code>, <code>kernel_size</code>, <code>stride</code>, <code>padding</code>, <code>dilation</code>, <code>pool</code>, and optional per-layer <code>tau</code> and <code>v_threshold</code></td></tr>
+<tr><td class="layer-name">EncoderSpec</td><td>The convolution stack</td><td>Uniform fields (<code>depth</code>, <code>channels</code>, <code>kernel_size</code>) or a per-layer <code>layers_json</code>, plus <code>bias</code> and <code>norm</code></td></tr>
+<tr><td class="layer-name">OutputSpec</td><td>The classifier width</td><td><code>num_classes=11</code></td></tr>
+<tr><td class="layer-name">DownsampleSpec</td><td>Resolution reduction</td><td><code>mode</code> of stride or pool, <code>pool_type</code>, pool kernel and stride</td></tr>
+<tr><td class="layer-name">HeadSpec</td><td>The classifier head</td><td><code>final_reduction</code> of flatten or gap, <code>fc_widths</code>, <code>dropout_rate</code></td></tr>
+<tr><td class="layer-name">NeuronSpec</td><td>The neuron of page 2</td><td><code>tau</code> as an integer, <code>v_threshold</code>, <code>v_reset</code>, <code>trainable_tau</code>, <code>trainable_threshold</code></td></tr>
+</tbody>
+</table>
+</div></details>
+<h3>Reaching the fields from a command line</h3>
+<p> Each group is exposed as a flag that accepts <code>key=value</code> pairs. One function, <code>fill_from_kv</code>, reads the dataclass's own field list to decide which keys are valid and what type each value should become. Adding a field to a dataclass therefore adds its command-line option without further work. </p>
+<details class="technical-details"><summary>Source excerpt</summary><div class="detail-body"><div class="code-block">
+<div class="code-head"><span class="file">terminal</span><span class="loc">a fully specified configuration</span></div>
+<pre><code class="language-bash">python main.py summary -c configs/dvs128.yaml \
   --encoder depth=2 channels=32 kernel_size=7 stride=2 norm=bn \
   --head    fc_widths= dropout_rate=0.28 \
   --neuron  tau=2</code></pre>
-  </div>
-  <div class="code-block">
-    <div class="code-head"><span class="file">snnsearch/config.py</span><span class="loc">fill_from_kv</span></div>
-    <pre><code class="language-python">def fill_from_kv(schema_cls, values: list[str]):
+</div></div></details>
+<details class="technical-details"><summary>Source excerpt</summary><div class="detail-body"><div class="code-block">
+<div class="code-head"><span class="file">snnsearch/config.py</span><span class="loc">fill_from_kv</span></div>
+<pre><code class="language-python">def fill_from_kv(schema_cls, values: list[str]):
     obj = schema_cls()                                    # start from defaults
     field_types = {f.name: f.type for f in fields(schema_cls)}
     aliases = _FIELD_ALIASES.get(schema_cls.__name__, {})
@@ -100,166 +68,112 @@
             raise ValueError(f"Unknown field {key!r}. Valid: {list(field_types)}")
         setattr(obj, key, _cast(raw_value, field_types[key]))
     return obj</code></pre>
-  </div>
-  <p class="footnote">
-    An unrecognized key raises with the list of valid field names rather than failing further down
-    the call stack.
-  </p>
-  <p class="footnote"><code>norm</code> selects batch normalization (<code>bn</code>), a variant that also normalizes over timesteps (<code>tdbn</code>), or no normalization (<code>none</code>). With no normalization, the model enables convolution bias. <code>dilation</code> spaces filter positions apart to increase the receptive field without adding weights. It remains 1 in this project.</p>
+</div></div></details>
+<p class="footnote"> An unrecognized key raises with the list of valid field names rather than failing further down the call stack. </p>
+<p class="footnote"><code>norm</code> selects batch normalization (<code>bn</code>), a variant that also normalizes over timesteps (<code>tdbn</code>), or no normalization (<code>none</code>). With no normalization, the model enables convolution bias. <code>dilation</code> spaces filter positions apart to increase the receptive field without adding weights. It remains 1 in this project.</p>
 </section>
-
-<section id="planning" class="reveal">
-  <h2><span class="sec-num">3.2</span>Deriving layer shapes once</h2>
-
-  <div class="motiv">
-    <div class="m-row">
-      <span class="m-label">Observation</span>
-      <p>
-        Three parts of the program need the spatial size of every layer: the module that builds the
-        network, the check against the connection limits, and the count of neurons and connections. 
-      </p>
-    </div>
-    <div class="m-row">
-      <span class="m-label">Consequence</span>
-      <p>
-        The shapes need to be computed once, stored, and read by all three consumers. Doing so also
-        makes the geometry testable without a GPU, since the computation is ordinary arithmetic.
-      </p>
-    </div>
-    <div class="m-row code">
-      <span class="m-label">In code</span>
-      <p>
-        <code>plan_network()</code> returns a <code>NetPlan</code> listing every convolution block
-        and linear layer with its input size, output size, channel counts, and cumulative stride, meaning
-        the product of every stride up to that point. The
-        model builder, <code>check_feasibility</code> and <code>count_neurons_and_synapses</code>
-        all take that object as their input.
-      </p>
-    </div>
-  </div>
-
-  <p>The per-layer size comes from the standard convolution formula:</p>
-  <div class="formula">
-    out = &#8970;( in + 2&#183;<span class="v">padding</span> &#8722; <span class="v">dilation</span>&#183;(<span class="v">kernel</span> &#8722; 1) &#8722; 1 ) / <span class="v">stride</span>&#8971; + 1
-    <span class="note">A 64&#215;64 map through a kernel of 7 at stride 2 with no padding gives &#8970;(64 &#8722; 7 &#8722; 1)/2&#8971; + 1 = 29&#215;29. The floor discards positions where the kernel would not fit.</span>
-  </div>
-
-  <p><code>plan_encoder()</code> applies three rules while walking the stack:</p>
-  <ol class="steps">
-    <li><span class="s-title">Stop shrinking small maps</span> If a feature map has reached 3&#215;3 or smaller, the layer is forced to stride 1 with size-preserving padding whatever the configuration requested. A kernel larger than the remaining map raises <code>InfeasibleConfig</code> with the sizes involved.</li>
-    <li><span class="s-title">Resolve where downsampling comes from</span> A per-layer <code>pool</code> flag takes precedence and produces a stride-1 convolution followed by pooling. Otherwise the global mode decides between a strided convolution and a pooling layer.</li>
-    <li><span class="s-title">Record the result</span> Each block stores its input size, its post-convolution size, which is where the neurons sit, and its post-pooling size, which feeds the next block.</li>
-  </ol>
+<section class="reveal" id="planning">
+<h2><span class="sec-num">3.2</span>Deriving layer shapes once</h2>
+<details class="technical-details"><summary>How the planner derives shapes</summary><div class="detail-body">
+<p> Three parts of the program need the spatial size of every layer: the module that builds the network, the check against the connection limits, and the count of neurons and connections. </p>
+<p>The planner computes the layer shapes once. Model construction, feasibility checks, and counts then read the same plan, avoiding separate calculations that could disagree.</p>
+<p> <code>plan_network()</code> returns a <code>NetPlan</code> listing every convolution block and linear layer with its input size, output size, channel counts, and cumulative stride, meaning the product of every stride up to that point. The model builder, <code>check_feasibility</code> and <code>count_neurons_and_synapses</code> all take that object as their input. </p>
+</div></details>
+<p>The per-layer size comes from the standard convolution formula:</p>
+<div class="formula">
+    out = ⌊( in + 2·<span class="v">padding</span> − <span class="v">dilation</span>·(<span class="v">kernel</span> − 1) − 1 ) / <span class="v">stride</span>⌋ + 1
+    <span class="note">A 64×64 map through a kernel of 7 at stride 2 with no padding gives ⌊(64 − 7 − 1)/2⌋ + 1 = 29×29. The floor discards positions where the kernel would not fit.</span>
+</div>
+<p><code>plan_encoder()</code> applies three rules while walking the stack:</p>
+<ol class="steps">
+<li><span class="s-title">Stop shrinking small maps</span> If a feature map has reached 3×3 or smaller, the layer is forced to stride 1 with size-preserving padding whatever the configuration requested. A kernel larger than the remaining map raises <code>InfeasibleConfig</code> with the sizes involved.</li>
+<li><span class="s-title">Resolve where downsampling comes from</span> A per-layer <code>pool</code> flag takes precedence and produces a stride-1 convolution followed by pooling. Otherwise the global mode decides between a strided convolution and a pooling layer.</li>
+<li><span class="s-title">Record the result</span> Each block stores its input size, its post-convolution size, which is where the neurons sit, and its post-pooling size, which feeds the next block.</li>
+</ol>
 </section>
-
-<section id="cost" class="reveal">
-  <h2><span class="sec-num">3.3</span>Four different measures of size</h2>
-  <p>
-    Asking how large a network is has four answers here, and they differ by orders of magnitude.
-    The first three come from the plan alone. For a convolution with kernel k, C<sub>in</sub> input
-    channels, C<sub>out</sub> output channels and an H&#215;W output map:
-  </p>
-  <div class="tbl-wrap">
-    <table class="tbl">
-      <thead><tr><th>Measure</th><th>Formula</th><th>Meaning</th></tr></thead>
-      <tbody>
-        <tr>
-          <td class="layer-name">neurons</td><td class="num">C<sub>out</sub> &#183; H &#183; W</td>
-          <td>Spiking units, one per output position per channel, counted once rather than per timestep.</td>
-        </tr>
-        <tr>
-          <td class="layer-name">connections</td><td class="num">neurons &#183; k&#178; &#183; C<sub>in</sub></td>
-          <td>One row per connection the chip has to store, since each output neuron reads its own window.</td>
-        </tr>
-        <tr>
-          <td class="layer-name">parameters</td><td class="num">k&#178; &#183; C<sub>in</sub> &#183; C<sub>out</sub></td>
-          <td>Trainable values in PyTorch. One filter is reused at every position, so this is far smaller than the connection count.</td>
-        </tr>
-        <tr>
-          <td class="layer-name">SynOps</td><td class="num">&#8721; spikes &#215; fan-out</td>
-          <td>Accumulate events actually performed, measured on real data rather than derived from the shape. Covered below.</td>
-        </tr>
-      </tbody>
-    </table>
-  </div>
-  <h3>The fourth measure, which the plan cannot give you</h3>
-
-  <div class="motiv">
-    <div class="m-row">
-      <span class="m-label">Observation</span>
-      <p>Parameter, neuron, and connection counts describe network structure. Computational activity also depends on how many spikes pass through those connections.</p>
-    </div>
-    <div class="m-row">
-      <span class="m-label">Consequence</span>
-      <p>A synaptic operation is one addition to a downstream neuron caused by an incoming spike. Summing these operations over a clip estimates activity for that input. The estimate does not include all hardware costs.</p>
-    </div>
-    <div class="m-row code">
-      <span class="m-label">In code</span>
-      <p>
-        <code>SynOpsCounter</code> hooks every spiking layer during evaluation and multiplies the
-        spikes each emits by its fan-out. Every run reports <code>synops_per_sample</code> whether or not
-        the search is asked to act on it.
-      </p>
-    </div>
-  </div>
-
-  <div class="formula">
-    SynOps = &#8721;<sub>layers</sub> ( spikes emitted ) &#215; ( fan-out )
+<section class="reveal" id="cost">
+<h2><span class="sec-num">3.3</span>Four different measures of size</h2>
+<p>Network size can refer to parameters, neurons, or connections. These counts differ because convolutional filters share weights across spatial positions. For a kernel of size k, C<sub>in</sub> input channels, C<sub>out</sub> output channels, and an H×W output map, the formulas are as follows.</p>
+<div class="tbl-wrap">
+<table class="tbl">
+<thead><tr><th>Measure</th><th>Formula</th><th>Meaning</th></tr></thead>
+<tbody>
+<tr>
+<td class="layer-name">neurons</td><td class="num">C<sub>out</sub> · H · W</td>
+<td>Spiking units, one per output position per channel, counted once rather than per timestep.</td>
+</tr>
+<tr>
+<td class="layer-name">connections</td><td class="num">neurons · k² · C<sub>in</sub></td>
+<td>One row per connection the chip has to store, since each output neuron reads its own window.</td>
+</tr>
+<tr>
+<td class="layer-name">parameters</td><td class="num">k² · C<sub>in</sub> · C<sub>out</sub></td>
+<td>Trainable values in PyTorch. One filter is reused at every position, so this is far smaller than the connection count.</td>
+</tr>
+<tr>
+<td class="layer-name">SynOps</td><td class="num">∑ spikes × fan-out</td>
+<td>Accumulate events actually performed, measured on real data rather than derived from the shape. Covered below.</td>
+</tr>
+</tbody>
+</table>
+</div>
+<h3>The fourth measure, which the plan cannot give you</h3>
+<details class="technical-details"><summary>How the counts are measured</summary><div class="detail-body">
+<p>Parameter, neuron, and connection counts describe network structure. Computational activity also depends on how many spikes pass through those connections.</p>
+<p>A synaptic operation is one addition to a downstream neuron caused by an incoming spike. Summing these operations over a clip estimates activity for that input. The estimate does not include all hardware costs.</p>
+<p> <code>SynOpsCounter</code> hooks every spiking layer during evaluation and multiplies the spikes each emits by its fan-out. Every run reports <code>synops_per_sample</code> whether or not the search is asked to act on it. </p>
+</div></details>
+<div class="formula">
+    SynOps = ∑<sub>layers</sub> ( spikes emitted ) × ( fan-out )
     <span class="note">Counted from real spike activity, so it depends on the data as well as the architecture. An ANN of the same shape performs one multiply-accumulate per connection per inference regardless of activity, which is the comparison worth quoting.</span>
-  </div>
-
-  <p>SynOps count operations. Energy measurements would also need to account for memory traffic, routing between cores, and static power.</p>
-
-  <h3>Optimizing for it, or not</h3>
-  <p>SynOps are reported during evaluation. The search offers four ways to use that count when selecting configurations:</p>
-  <div class="tbl-wrap">
-    <table class="tbl">
-      <thead><tr><th>Mode</th><th>What it maximizes</th><th>When</th></tr></thead>
-      <tbody>
-        <tr><td class="layer-name">accuracy</td><td>Accuracy alone. SynOps is recorded and ignored.</td><td>The default, and what every run before this change used.</td></tr>
-        <tr><td class="layer-name">constrained</td><td>Accuracy, scoring zero above a SynOps budget.</td><td>Matches deployment: there is a power envelope and you fit or you do not.</td></tr>
-        <tr><td class="layer-name">weighted</td><td>accuracy &#8722; weight &#215; SynOps / reference</td><td>Only when you can defend the weight, since it encodes how much accuracy a halving of energy is worth.</td></tr>
-        <tr><td class="layer-name">pareto</td><td>Both, returning the front.</td><td>When the trade-off is not yet decided. Defers the choice until the front can be looked at.</td></tr>
-      </tbody>
-    </table>
-  </div>
-  <div class="file-view" id="fv-synops" data-file="snnsearch/synops.py" data-start="150" data-hl="13-22"
-       data-note="Four ways to combine accuracy with energy. The mode is a decision the user makes; nothing here can guess the trade-off for them.">
-    <pre class="fv-src">def score_with_energy(accuracy, synops, mode=&quot;accuracy&quot;,
+</div>
+<p>SynOps count operations. Energy measurements would also need to account for memory traffic, routing between cores, and static power.</p>
+<h3>Optimizing for it, or not</h3>
+<p>SynOps are reported during evaluation. The search offers four ways to use that count when selecting configurations:</p>
+<div class="tbl-wrap">
+<table class="tbl">
+<thead><tr><th>Mode</th><th>What it maximizes</th><th>When</th></tr></thead>
+<tbody>
+<tr><td class="layer-name">accuracy</td><td>Accuracy alone. SynOps is recorded and ignored.</td><td>The default, and what every run before this change used.</td></tr>
+<tr><td class="layer-name">constrained</td><td>Accuracy, scoring zero above a SynOps budget.</td><td>Matches deployment: there is a power envelope and you fit or you do not.</td></tr>
+<tr><td class="layer-name">weighted</td><td>accuracy − weight × SynOps / reference</td><td>Only when you can defend the weight, since it encodes how much accuracy a halving of energy is worth.</td></tr>
+<tr><td class="layer-name">pareto</td><td>Both, returning the front.</td><td>When the trade-off is not yet decided. Defers the choice until the front can be looked at.</td></tr>
+</tbody>
+</table>
+</div>
+<details class="technical-details"><summary>Source excerpt</summary><div class="detail-body"><div class="file-view" data-file="snnsearch/synops.py" data-hl="13-22" data-note="Four ways to combine accuracy with energy. The mode is a decision the user makes; nothing here can guess the trade-off for them." data-start="150" id="fv-synops">
+<pre class="fv-src">def score_with_energy(accuracy, synops, mode="accuracy",
                       synops_budget=None, synops_reference=None, weight=0.0):
-    &quot;&quot;&quot;Combine accuracy and SynOps into whatever the search should maximize.
+    """Combine accuracy and SynOps into whatever the search should maximize.
 
     Four modes, because the right one depends on a decision the user has to
     make rather than one this code can make for them:
 
-      &quot;accuracy&quot;    ignore SynOps entirely. The default, and what every
+      "accuracy"    ignore SynOps entirely. The default, and what every
                     previously recorded run used.
 
-      &quot;constrained&quot; maximize accuracy, but score 0 above `synops_budget`.
+      "constrained" maximize accuracy, but score 0 above `synops_budget`.
                     Matches how deployment actually works: there is a power
                     envelope and you either fit or you do not.
 
-      &quot;weighted&quot;    accuracy - weight * (synops / synops_reference). Requires
+      "weighted"    accuracy - weight * (synops / synops_reference). Requires
                     choosing `weight`, which encodes how much accuracy a
                     halving of energy is worth. Nothing here can guess it.
 
-      &quot;pareto&quot;      return both and let a multi-objective sampler handle it.
+      "pareto"      return both and let a multi-objective sampler handle it.
                     Preferred when the trade-off is not yet decided, since it
                     defers the choice until the front can be looked at.
-    &quot;&quot;&quot;
-    if synops is None or mode == &quot;accuracy&quot;:
+    """
+    if synops is None or mode == "accuracy":
         return accuracy
-    if mode == &quot;constrained&quot;:
+    if mode == "constrained":
         if synops_budget is None:</pre>
-  </div>
-
-  <p class="footnote">A Pareto comparison retains candidates for which neither accuracy nor operation count can improve without worsening the other. A weighted objective instead requires choosing the relative importance of those metrics in advance.</p>
-
-  <p>In the example below, the second convolution has 50,176 parameters and 7.2 million connections. The filter weights are shared across 144 output positions in the model, while the hardware represents the connections individually. Parameter storage therefore differs from connection storage.</p>
-
-  <div class="term-block">
-    <div class="term-head">python main.py summary -c configs/dvs128.yaml --encoder depth=2 channels=32 kernel_size=7 stride=2</div>
-    <pre>==============================================================================
+</div></div></details>
+<p class="footnote">A Pareto comparison retains candidates for which neither accuracy nor operation count can improve without worsening the other. A weighted objective instead requires choosing the relative importance of those metrics in advance.</p>
+<p>In the example below, the second convolution has 50,176 parameters and 7.2 million connections. The filter weights are shared across 144 output positions in the model, while the hardware represents the connections individually. Parameter storage therefore differs from connection storage.</p>
+<div class="term-block">
+<div class="term-head">python main.py summary -c configs/dvs128.yaml --encoder depth=2 channels=32 kernel_size=7 stride=2</div>
+<pre>==============================================================================
 DVS Gesture SNN -- architecture summary
 ==============================================================================
 input        : 2x64x64  (native 128x128, resize_to=64), T=16, batch=16
@@ -267,192 +181,172 @@ encoder      : uniform, depth=2 bias=False norm=bn
 downsample   : mode=stride pool=avg k=2 s=2
 head         : reduction=flatten fc_widths=[] dropout=0.28
 neuron       : LIF leak=2 v_th=1.0 v_reset=0.0
-  -> hardware: LIF_neuron(threshold=32767, shift=0, leak=2)
+  -&gt; hardware: LIF_neuron(threshold=32767, shift=0, leak=2)
 
 layer        shape / detail                                    neurons    connections       params
 --------------------------------------------------------------------------------------------------
-conv0        2x64x64 -> 32x29x29  k=7 s=2 p=0                   26,912      2,637,376        3,136
+conv0        2x64x64 -&gt; 32x29x29  k=7 s=2 p=0                   26,912      2,637,376        3,136
 bn0          BatchNorm2d(32)                                         0              0           64
-conv1        32x29x29 -> 32x12x12  k=7 s=2 p=0                   4,608      7,225,344       50,176
+conv1        32x29x29 -&gt; 32x12x12  k=7 s=2 p=0                   4,608      7,225,344       50,176
 bn1          BatchNorm2d(32)                                         0              0           64
-classifier   4608 -> 11                                             11         50,688       50,688
+classifier   4608 -&gt; 11                                             11         50,688       50,688
 --------------------------------------------------------------------------------------------------
 TOTAL                                                           31,531      9,913,408      104,128
 
-input axons             : 8,192  (limit 16,383)
+input axons             : 8,192  (limit 16,000)
 neuron updates / sample : 504,496  (31,531 x T=16)
 pipeline flush steps    : 3
 
 <span class="ok">HiAER-Spike feasibility : PASS</span>
 ==============================================================================</pre>
-  </div>
-  <p class="footnote">
-    The batch normalization rows carry parameters but no neurons and no connections. Section 4.3
-    removes them before deployment. The flush step count is the number of spiking layers, for the
-    reason given in section 2.1.
-  </p>
+</div>
+<p class="footnote"> The batch normalization rows carry parameters but no neurons and no connections. Section 4.3 removes them before deployment. The flush step count is the number of spiking layers, for the reason given in section 2.1. </p>
+<details class="technical-details"><summary>Calculate parameters, connections, and activity</summary><div class="detail-body"><p>A convolution with 32 input channels, 32 output channels, and a 7×7 kernel has 32 × 32 × 7 × 7 = 50,176 weights. If its output is 12×12, it has 32 × 12 × 12 = 4,608 output neurons.</p><p>The same weights are applied at 144 spatial positions. That gives 50,176 × 144 = 7,225,344 connections in the expanded representation. Parameters count the reusable filter values. Connections count all the places those values are used.</p><p>Neither count specifies how many additions occur during a clip. A source neuron that stays silent triggers no downstream additions. A neuron that spikes repeatedly can activate its outgoing connections repeatedly. SynOps therefore depend on both the wiring and the input-driven spike activity.</p><p>For the classifier head, flattening a 32×12×12 feature map produces 4,608 inputs per class neuron. Global average pooling first reduces it to 32 channel averages. This reduces fan-in, but removes the spatial position of features. The interactive builder shows how each choice changes the counts.</p></div></details></section>
+<section class="reveal" id="builder">
+<h2><span class="sec-num">3.4</span>Building a configuration</h2>
+<p>The panel runs JavaScript versions of the planning, counting, and feasibility checks, compared against the Python implementation. Change the channel count or classifier head to inspect the connection limits. Increasing depth also demonstrates the small-map guard from section 3.2.</p>
+<div class="demo">
+<div class="demo-head">
+<span class="demo-tag">INTERACTIVE</span>
+<span class="demo-title">Configuration builder</span>
+<span class="demo-sub">Equivalent to <code>summary</code> mode. The verdict at the bottom is the same check the search applies before allocating a GPU.</span>
+</div>
+<div class="demo-body">
+<div class="controls">
+<div class="ctl">
+<label for="nb-preset">preset</label>
+<select id="nb-preset">
+<option value="seed1">two layers, kernel 7, 32 channels</option>
+<option value="seed3">three layers, kernel 7, 32 channels</option>
+<option value="default">file defaults</option>
+<option value="perlayer">per-layer geometry with pooling</option>
+<option value="gap">GAP head with a hidden layer</option>
+<option value="collapse">too deep for the input size</option>
+</select>
+</div>
+<div class="ctl">
+<label for="nb-resize">input resolution</label>
+<select id="nb-resize">
+<option value="32">32 × 32</option>
+<option selected="" value="64">64 × 64</option>
+<option value="0">128 × 128</option>
+</select>
+</div>
+<div class="ctl">
+<label for="nb-T">timesteps T</label>
+<select id="nb-T"><option>8</option><option selected="">16</option></select>
+</div>
+<div class="ctl">
+<label for="nb-ds">downsampling</label>
+<select id="nb-ds"><option selected="" value="stride">stride</option><option value="pool">pool</option></select>
+</div>
+<div class="ctl">
+<label for="nb-norm">normalization</label>
+<select id="nb-norm"><option selected="" value="bn">bn</option><option value="tdbn">tdbn</option><option value="none">none</option></select>
+</div>
+</div>
+<div class="tbl-wrap">
+<table class="tbl" id="nb-layers">
+<thead><tr><th>layer</th><th>channels</th><th>kernel</th><th>stride</th><th>pool</th><th></th></tr></thead>
+<tbody></tbody>
+</table>
+</div>
+<div class="controls" style="margin-top:4px;">
+<button class="btn small" id="nb-add">Add layer</button>
+<div class="ctl">
+<label for="nb-red">head reduction</label>
+<select id="nb-red"><option selected="" value="flatten">flatten</option><option value="gap">GAP</option></select>
+</div>
+<div class="ctl">
+<label for="nb-fc">hidden widths</label>
+<input id="nb-fc" placeholder="blank, or 512" style="width:150px;" type="text" value=""/>
+</div>
+</div>
+<h4>Shape flow</h4>
+<div class="flow" id="nb-flow"></div>
+<h4>Cost</h4>
+<div class="tbl-wrap">
+<table class="tbl">
+<thead><tr><th>layer</th><th>detail</th><th class="num">neurons</th><th class="num">connections</th><th class="num">params</th></tr></thead>
+<tbody id="nb-cost"></tbody>
+</table>
+</div>
+<div class="stats">
+<div class="stat"><div class="k">input axons</div><div class="val" id="nb-axons">—</div><div class="sub">limit 16,000</div></div>
+<div class="stat"><div class="k">neurons</div><div class="val" id="nb-neurons">—</div></div>
+<div class="stat"><div class="k">connections</div><div class="val" id="nb-conns">—</div></div>
+<div class="stat"><div class="k">parameters</div><div class="val" id="nb-params">—</div></div>
+<div class="stat"><div class="k">neuron updates per sample</div><div class="val" id="nb-updates">—</div></div>
+<div class="stat"><div class="k">flush steps</div><div class="val" id="nb-flush">—</div></div>
+</div>
+<div id="nb-verdict"></div>
+<h4>Equivalent command</h4>
+<div class="term-block"><div class="term-head">reproduce this configuration</div><pre id="nb-cli"></pre></div>
+</div>
+</div>
 </section>
-
-<section id="builder" class="reveal">
-  <h2><span class="sec-num">3.4</span>Building a configuration</h2>
-  <p>The panel runs JavaScript versions of the planning, counting, and feasibility checks, compared against the Python implementation. Change the channel count or classifier head to inspect the connection limits. Increasing depth also demonstrates the small-map guard from section 3.2.</p>
-
-  <div class="demo">
-    <div class="demo-head">
-      <span class="demo-tag">INTERACTIVE</span>
-      <span class="demo-title">Configuration builder</span>
-      <span class="demo-sub">Equivalent to <code>summary</code> mode. The verdict at the bottom is the same check the search applies before allocating a GPU.</span>
-    </div>
-    <div class="demo-body">
-      <div class="controls">
-        <div class="ctl">
-          <label>preset</label>
-          <select id="nb-preset">
-            <option value="seed1">two layers, kernel 7, 32 channels</option>
-            <option value="seed3">three layers, kernel 7, 32 channels</option>
-            <option value="default">file defaults</option>
-            <option value="perlayer">per-layer geometry with pooling</option>
-            <option value="gap">GAP head with a hidden layer</option>
-            <option value="collapse">too deep for the input size</option>
-          </select>
-        </div>
-        <div class="ctl">
-          <label>input resolution</label>
-          <select id="nb-resize">
-            <option value="32">32 &#215; 32</option>
-            <option value="64" selected>64 &#215; 64</option>
-            <option value="0">128 &#215; 128</option>
-          </select>
-        </div>
-        <div class="ctl">
-          <label>timesteps T</label>
-          <select id="nb-T"><option>8</option><option selected>16</option></select>
-        </div>
-        <div class="ctl">
-          <label>downsampling</label>
-          <select id="nb-ds"><option value="stride" selected>stride</option><option value="pool">pool</option></select>
-        </div>
-        <div class="ctl">
-          <label>normalization</label>
-          <select id="nb-norm"><option value="bn" selected>bn</option><option value="tdbn">tdbn</option><option value="none">none</option></select>
-        </div>
-      </div>
-
-      <div class="tbl-wrap">
-        <table class="tbl" id="nb-layers">
-          <thead><tr><th>layer</th><th>channels</th><th>kernel</th><th>stride</th><th>pool</th><th></th></tr></thead>
-          <tbody></tbody>
-        </table>
-      </div>
-      <div class="controls" style="margin-top:4px;">
-        <button class="btn small" id="nb-add">Add layer</button>
-        <div class="ctl">
-          <label>head reduction</label>
-          <select id="nb-red"><option value="flatten" selected>flatten</option><option value="gap">GAP</option></select>
-        </div>
-        <div class="ctl">
-          <label>hidden widths</label>
-          <input type="text" id="nb-fc" value="" placeholder="blank, or 512" style="width:150px;">
-        </div>
-      </div>
-
-      <h4>Shape flow</h4>
-      <div class="flow" id="nb-flow"></div>
-
-      <h4>Cost</h4>
-      <div class="tbl-wrap">
-        <table class="tbl">
-          <thead><tr><th>layer</th><th>detail</th><th class="num">neurons</th><th class="num">connections</th><th class="num">params</th></tr></thead>
-          <tbody id="nb-cost"></tbody>
-        </table>
-      </div>
-
-      <div class="stats">
-        <div class="stat"><div class="k">input axons</div><div class="val" id="nb-axons">&#8212;</div><div class="sub">limit 16,383</div></div>
-        <div class="stat"><div class="k">neurons</div><div class="val" id="nb-neurons">&#8212;</div></div>
-        <div class="stat"><div class="k">connections</div><div class="val" id="nb-conns">&#8212;</div></div>
-        <div class="stat"><div class="k">parameters</div><div class="val" id="nb-params">&#8212;</div></div>
-        <div class="stat"><div class="k">neuron updates per sample</div><div class="val" id="nb-updates">&#8212;</div></div>
-        <div class="stat"><div class="k">flush steps</div><div class="val" id="nb-flush">&#8212;</div></div>
-      </div>
-      <div id="nb-verdict"></div>
-
-      <h4>Equivalent command</h4>
-      <div class="term-block"><div class="term-head">reproduce this configuration</div><pre id="nb-cli"></pre></div>
-    </div>
-  </div>
+<section class="reveal" id="head">
+<h2><span class="sec-num">3.5</span>The classifier head</h2>
+<p> After the convolution stack, a block of shape channels × height × width has to become 11 class scores. The two available reductions differ in how much fan-in they demand from the first linear layer, which section 1.3 limits to 8,159. </p>
+<div class="two-up">
+<div class="panel">
+<div class="p-title"><span class="chip neutral">flatten</span></div>
+<ul>
+<li>Unrolls the block into one vector, so 32×12×12 becomes 4,608 features.</li>
+<li>Every neuron in the following linear layer then has a fan-in of 4,608.</li>
+<li>Flatten retains spatial position. The leading candidates in the reported search used this head, although that observation does not isolate its effect.</li>
+</ul>
+</div>
+<div class="panel">
+<div class="p-title"><span class="chip rust">gap</span></div>
+<ul>
+<li>Global average pooling reduces each channel to its mean, so 32×12×12 becomes 32 features.</li>
+<li>Fan-in drops to the channel count, and many more configurations pass the feasibility check.</li>
+<li>An average is a fixed-weight linear map, so the chip can absorb it into the following layer.</li>
+<li>GAP discards spatial position. In the comparison at the first stopping checkpoint, it had lower accuracy. Its performance after full training was not measured.</li>
+</ul>
+</div>
+</div>
+<p> Between the reduction and the classifier the configuration may place hidden linear layers. The 65-trial study described in section 6.6 found that the best configurations used none, so the search now allows at most one. Linear layers are built without bias, since the chip provides no bias term. </p>
 </section>
-
-<section id="head" class="reveal">
-  <h2><span class="sec-num">3.5</span>The classifier head</h2>
-  <p>
-    After the convolution stack, a block of shape channels &#215; height &#215; width has to become
-    11 class scores. The two available reductions differ in how much fan-in they demand from the
-    first linear layer, which section 1.3 limits to 8,159.
-  </p>
-  <div class="two-up">
-    <div class="panel">
-      <div class="p-title"><span class="chip neutral">flatten</span></div>
-      <ul>
-        <li>Unrolls the block into one vector, so 32&#215;12&#215;12 becomes 4,608 features.</li>
-        <li>Every neuron in the following linear layer then has a fan-in of 4,608.</li>
-        <li>Flatten retains spatial position. The leading candidates in the reported search used this head, although that observation does not isolate its effect.</li>
-      </ul>
-    </div>
-    <div class="panel">
-      <div class="p-title"><span class="chip rust">gap</span></div>
-      <ul>
-        <li>Global average pooling reduces each channel to its mean, so 32&#215;12&#215;12 becomes 32 features.</li>
-        <li>Fan-in drops to the channel count, and many more configurations pass the feasibility check.</li>
-        <li>An average is a fixed-weight linear map, so the chip can absorb it into the following layer.</li>
-        <li>GAP discards spatial position. In the comparison at the first stopping checkpoint, it had lower accuracy. Its performance after full training was not measured.</li>
-      </ul>
-    </div>
-  </div>
-  <p>
-    Between the reduction and the classifier the configuration may place hidden linear layers. The
-    65-trial study described in section 6.6 found that the best configurations used none, so the
-    search now allows at most one. Linear layers are built without bias, since the chip provides no
-    bias term.
-  </p>
-</section>
-
-<section id="perlayer" class="reveal">
-  <h2><span class="sec-num">3.6</span>Uniform and per-layer encoders</h2>
-  <p>
-    <code>EncoderSpec</code> accepts two forms. The uniform form takes a depth, a channel count and
-    a kernel size, and repeats them. The per-layer form takes a JSON list of layer dictionaries and
-    gives each layer its own geometry, including per-layer neuron overrides.
-  </p>
-  <div class="code-block">
-    <div class="code-head"><span class="file">per-layer encoder</span><span class="loc">emitted by the per-layer search space</span></div>
-    <pre><code class="language-python">--encoder layers_json='[
+<section class="reveal" id="perlayer">
+<h2><span class="sec-num">3.6</span>Uniform and per-layer encoders</h2>
+<p> <code>EncoderSpec</code> accepts two forms. The uniform form takes a depth, a channel count and a kernel size, and repeats them. The per-layer form takes a JSON list of layer dictionaries and gives each layer its own geometry, including per-layer neuron overrides. </p>
+<details class="technical-details"><summary>Source excerpt</summary><div class="detail-body"><div class="code-block">
+<div class="code-head"><span class="file">per-layer encoder</span><span class="loc">emitted by the per-layer search space</span></div>
+<pre><code class="language-python">--encoder layers_json='[
   {"out_channels": 32, "kernel_size": 7, "stride": 2},
   {"out_channels": 64, "kernel_size": 5, "stride": 1, "pool": true},
   {"out_channels": 32, "kernel_size": 5, "stride": 2, "tau": 4, "v_threshold": 0.8}
 ]'</code></pre>
-  </div>
-  <ul>
-    <li>When <code>layers_json</code> is present it determines the shape and the uniform fields are ignored.</li>
-    <li><code>resolve_conv_layers()</code> reduces either form to one list, so the planner, the checker, the cost model and the builder each handle a single representation.</li>
-    <li>Per-layer neuron parameters cost nothing on chip, which reads a neuron model per neuron. Per-channel parameters were considered and rejected as too many degrees of freedom for a dataset of this size.</li>
-  </ul>
+</div></div></details>
+<ul>
+<li>When <code>layers_json</code> is present it determines the shape and the uniform fields are ignored.</li>
+<li><code>resolve_conv_layers()</code> reduces either form to one list, so the planner, the checker, the cost model and the builder each handle a single representation.</li>
+<li>Per-layer neuron parameters cost nothing on chip, which reads a neuron model per neuron. Per-channel parameters were considered and rejected as too many degrees of freedom for a dataset of this size.</li>
+</ul>
 </section>
-
-</div>
+<section class="reveal" id="scope"><h2><span class="sec-num">3.7</span>Supported models and extension work</h2><p><strong>The package does not accept an arbitrary model.</strong> Its builder creates a sequential convolutional spiking classifier from the configuration. Changing the dataset or layer widths does not change that underlying model family.</p>
+<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Proposed use</th><th>Current support</th><th>What a lab member needs to do</th></tr></thead><tbody>
+<tr><td>Change a convolutional classifier</td><td>Configurable depth, per-layer geometry, pooling, neuron settings, and classifier head.</td><td>Choose settings the planner can express, then check shapes, connection limits, and converted accuracy.</td></tr>
+<tr><td>Use another image or event dataset</td><td>Built-in loaders and a custom dataset factory.</td><td>Return training and test datasets plus image dimensions and class count. Match the input encoding and verify the split and labels.</td></tr>
+<tr><td>Load any existing PyTorch model</td><td>No general model-import interface. build_model constructs DVSGesturePuru, the configurable model class retained from the gesture project.</td><td>Adapt the model to the supported configuration, or implement and test a new builder with planning and conversion support.</td></tr>
+<tr><td>Add residual connections, attention, or recurrent graphs</td><td>The current sequential planner and conversion path do not represent these graphs.</td><td>Define graph structure, branch timing and merge behavior, then implement supported operations, cost accounting, and conversion.</td></tr>
+<tr><td>Use detection, segmentation, or regression</td><td>The current head, loss, and accuracy evaluation assume classification.</td><td>Add task-specific outputs, training loss, metrics, and data handling. A dataset loader alone is insufficient.</td></tr>
+<tr><td>Target another device</td><td>Hardware arithmetic and conversion are specialized to HiAER-Spike.</td><td>Replace the hardware rules, neuron arithmetic, parameter representation, and exporter. Changing connection limits alone does not retarget the tool.</td></tr>
+</tbody></table></div>
+<details class="technical-details"><summary>A staged path to broader model support</summary><div class="detail-body"><p>The following are proposed extensions, not existing interfaces.</p><ol><li><strong>Separate experiments from model construction.</strong> Define an adapter that supplies a model, its input contract, state reset, loss, and metrics. Ray and Optuna can then manage experiments for other models even when those models cannot run on HiAER-Spike.</li><li><strong>Describe supported operations explicitly.</strong> Extend the planner from a layer sequence to a graph. Each operation needs shape rules, connection counts, timing semantics, and a supported conversion. Report unsupported operations before training.</li><li><strong>Separate device assumptions.</strong> Put limits, number formats, neuron updates, and export behavior behind a hardware interface. A new backend needs its own tests against the target runtime.</li><li><strong>Validate each extension with a small model.</strong> Compare layer outputs and spike timing before and after transformation, then run the converted model on the target device. Follow with accuracy, latency, and energy measurements on a fixed protocol.</li></ol><p>General experiment management is achievable without universal hardware support. For a model whose operations cannot be represented on the chip, possible research directions include replacing unsupported operations or training a supported smaller model to imitate its outputs. Either approach changes the model and requires fresh evaluation.</p><p class="source-note">Implementation anchors: <code>snnsearch/model.py</code> builds the sequential model; <code>planning.py</code> derives its shapes; <code>folding.py</code> and <code>quantize.py</code> transform it; <code>data/base.py</code> defines the dataset interface.</p></div></details></section></div>
 <aside class="toc"></aside>
 </main>
-
 <nav class="foot-nav">
-  <a class="prev" href="neurons.html"><span class="dir">Previous</span><span class="pg">02 &#183; The neuron</span></a>
-  <a class="next" href="hardware.html"><span class="dir">Next</span><span class="pg">04 &#183; Fitting the chip</span></a>
+<a class="prev" href="neurons.html"><span class="dir">Previous</span><span class="pg">02 · The neuron</span></a>
+<a class="next" href="hardware.html"><span class="dir">Next</span><span class="pg">04 · Fitting the chip</span></a>
 </nav>
 <footer class="site-foot">
-  <span>Documentation for <a href="https://github.com/purujain2006/configurable-snn-classifier">configurable-snn-classifier</a></span>
-  <span>Interactive demonstrations use the same arithmetic as <code>snnsearch</code>, verified against it.</span>
+<span>Documentation for <a href="https://github.com/purujain2006/configurable-snn-classifier">configurable-snn-classifier</a></span>
+<span>Interactive demonstrations use the same arithmetic as <code>snnsearch</code>, verified against it.</span>
 </footer>
-
-<script src="assets/snn.js"></script>
+<script src="assets/snn.js?v=16000"></script>
 <script src="assets/site.js"></script>
 <script src="assets/fileview.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js"></script>

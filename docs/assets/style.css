@@ -942,3 +942,52 @@ p code, li code, dd code { white-space: normal; overflow-wrap: anywhere; }
 @media (min-width: 1300px) {
   .hero-inner { max-width: calc(var(--maxw) + 228px); }
 }
+
+/* Short reading path with the complete technical explanation available nearby. */
+.technical-details { margin: 24px 0; border: 1px solid var(--line); background: var(--surface-1); }
+.technical-details > summary { cursor: pointer; padding: 16px 20px; color: var(--text); font-size: 16px; font-weight: 500; line-height: 1.5; }
+.technical-details[open] > summary { border-bottom: 1px solid var(--line); }
+.detail-body { padding: 6px 22px 20px; min-width: 0; }
+.detail-body > p { max-width: 74ch; }
+.detail-body .code-block, .detail-body .file-view { margin: 18px 0 0; }
+.demo .stats { display: flex; flex-wrap: wrap; }
+.demo .stat { flex: 1 1 150px; }
+.demo .stat .val { font-size: 25px; }
+.demo .demo-head { gap: 9px; }
+.demo .demo-tag { font-family: var(--sans); text-transform: none; letter-spacing: 0; }
+.demo .demo-sub { max-width: 76ch; font-size: 15px; line-height: 1.65; }
+.demo .controls { gap: 16px; }
+.demo .ctl { min-width: 145px; }
+.demo .demo-note { font-size: 15px; line-height: 1.65; }
+.demo-defaults { margin-left: auto; }
+.overview-main > .wrap { max-width: 1080px; }
+.overview-page .hero { padding: 44px 30px 32px; }
+.overview-page .hero-inner { max-width: 1020px; }
+.overview-page .hero h1 { font-size: clamp(30px, 4vw, 44px); max-width: 25ch; line-height: 1.15; }
+.overview-page .hero .lede { max-width: 68ch; font-size: 18px; }
+.overview-page .hero-canvas { display: none; }
+.overview-page .kicker { font-size: 12px; border: 0; padding: 0; margin-bottom: 18px; text-transform: none; letter-spacing: .02em; }
+.project-overview { max-width: 78ch; margin: 12px 0 36px; }
+.project-overview p { font-size: 16px; }
+.reading-links { display: flex; flex-wrap: wrap; gap: 10px 24px; margin-top: 24px; font-size: 14px; }
+.overview-page .sec-num { display: none; }
+.overview-page section { margin: 40px 0; }
+.overview-page h2 { font-size: 26px; }
+.overview-page .demo { margin: 24px 0; }
+.overview-page .background-chapter { margin: 18px 0; }
+.overview-page .background-chapter > summary { font-size: 18px; padding: 20px; }
+.overview-page .figure.wide { width: 100%; margin-left: 0; transform: none; }
+.overview-page .background-chapter .detail-body { padding: 0 24px 24px; }
+.overview-page .background-chapter .detail-body section:first-child h2 { border-top: 0; }
+.results-page .finding { border-top: 0; padding-top: 0; }
+@media (max-width: 760px) {
+ .detail-body { padding: 4px 16px 16px; }
+ .overview-page .hero { padding: 30px 20px 24px; }
+ .overview-page .background-chapter .detail-body { padding: 0 16px 16px; }
+ .demo .controls { gap: 12px; }
+ .demo .ctl { flex: 1 1 140px; }
+ .demo-defaults { margin-left: 0; }
+ .technical-details > summary { padding: 14px 16px; }
+}
+.overview-page .hero h1 { font-size: clamp(29px, 3.5vw, 40px); max-width: 100%; }
+.demo .stat output { display: block; }

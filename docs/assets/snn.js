@@ -15,7 +15,7 @@
   "use strict";
 
   /* ---------------- hardware constants (section 3 + 4b) ---------------- */
-  const AXON_LIMITS = { total_axons: 16383, fan_out: 4096, fan_in: 8191 };
+  const AXON_LIMITS = { total_axons: 16000, fan_out: 4096, fan_in: 8191 };
   const NEURON_LIMITS = { fan_out: 4095, fan_in: 8159 };
 
   const W_BITS = 16;

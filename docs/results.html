@@ -1,395 +1,341 @@
 <!DOCTYPE html>
+
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
 <title>Results — Configurable SNN Classifier</title>
-<meta name="description" content="Results from a 400-configuration SNN search: candidate accuracy, operation counts, reproducibility corrections, and limits of the evidence.">
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' fill='%23000'/><path d='M3 22h5l3-13 4 19 3-11h4l2 5h5' fill='none' stroke='%23e0a94f' stroke-width='2.4' stroke-linejoin='round'/></svg>">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:ital,wght@0,400;0,600;0,700;1,400&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="assets/style.css">
+<meta content="Results from a 400-configuration SNN search: candidate accuracy, operation counts, reproducibility corrections, and limits of the evidence." name="description"/>
+<link href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'&gt;&lt;rect width='32' height='32' fill='%23000'/&gt;&lt;path d='M3 22h5l3-13 4 19 3-11h4l2 5h5' fill='none' stroke='%23e0a94f' stroke-width='2.4' stroke-linejoin='round'/&gt;&lt;/svg&gt;" rel="icon"/>
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&amp;family=JetBrains+Mono:ital,wght@0,400;0,600;0,700;1,400&amp;display=swap" rel="stylesheet"/>
+<link href="assets/style.css" rel="stylesheet"/>
 </head>
 <body class="results-page">
-
 <header class="hero">
-  <div class="hero-inner">
-    <p class="kicker">Page 7</p>
-    <h1>Results</h1>
-    <p class="lede">A search of 400 configurations selected five candidates for longer training. Their reported test accuracies range from <strong>78.8% to 83.3%</strong> on DVS128 Gesture. The leading candidate uses more synaptic operations than the other four.</p>
-  </div>
+<div class="hero-inner">
+<p class="kicker">Page 7</p>
+<h1>Results</h1>
+<p class="lede">The search evaluated 400 configurations and selected five for longer training. Test accuracy ranged from 78.8% to 83.3%. The highest-scoring model used 50.1 million synaptic operations per clip, compared with 18.5 to 22.6 million for the other four.</p>
+</div>
 </header>
-
 <main class="with-toc">
 <div class="wrap">
-
-<section id="headline" class="reveal">
-  <h2><span class="sec-num">7.1</span>The result</h2>
-
-  <div class="result-grid">
-    <div>
-      <div class="r-k">Highest test accuracy</div>
-      <div class="r-v accent">83.33%</div>
-      <div class="r-s">240 of 288 test clips classified correctly by the leading candidate.</div>
-    </div>
-    <div>
-      <div class="r-k">Mean across five candidates</div>
-      <div class="r-v">80.49%</div>
-      <div class="r-s">Different architectures, each retrained for 300 epochs. This is not a mean across random seeds.</div>
-    </div>
-    <div>
-      <div class="r-k">Published baseline</div>
-      <div class="r-v">68.75%</div>
-      <div class="r-s">Highest DVS Gesture accuracy reported in the HiAER-Spike paper. See the protocol note below.</div>
-    </div>
-    <div>
-      <div class="r-k">Margin</div>
-      <div class="r-v accent">+14.6 pts</div>
-      <div class="r-s">Percentage-point difference from the published reference; not a significance estimate.</div>
-    </div>
-  </div>
-
-
-  <aside class="recap" aria-label="Evidence summary">
-    <strong>Finding</strong>
-    <p>The leading candidate reports 83.33% test accuracy at 50.1 million synaptic operations (SynOps) per clip. A candidate at 80.56% uses 20.3 million. This comparison measures computational activity. Energy and variation across repeated training runs remain unmeasured.</p>
-  </aside>
-  <p class="source-note">Published reference: <a href="https://www.nature.com/articles/s44335-026-00062-8">HiAER-Spike, DVS Gesture comparison</a> reports 68.75% accuracy. Its models use different input resolutions and hardware measurements. The 14.6-point difference here is descriptive, not a matched reproduction or proof of equivalent hardware performance.</p>
-
-  <div class="teach">
-    <div class="t-title">Evaluation protocol</div>
-    <p>Training data fits the weights. A validation set of 176 clips, sampled from the training partition, selects configurations and checkpoints. The test set contains 288 clips from six participants excluded from training.</p>
-    <p>Validation clips can share participants with training clips. Repeatedly selecting configurations against the same validation set can also favor those that happen to perform well on that set. Use the test scores for the external comparison, with the protocol limitations noted below.</p>
-    <p>The leading candidate reached 92.05% validation accuracy and 83.33% test accuracy. Each of the five retrained candidates was evaluated on test. Section 7.4 also reports test results for a weight-decay sweep, so the page does not describe a single test evaluation across the entire study.</p>
-  </div>
-
-  <details class="reading-notes">
-    <summary>Terms used in this page</summary>
-    <dl class="glossary">
-      <dt>Trial / epoch / checkpoint</dt><dd>A trial trains one sampled configuration. An epoch is one pass through the training data. A checkpoint saves model state or marks a scheduled comparison.</dd>
-      <dt>Validation / test</dt><dd>Validation selects settings and checkpoints. Test evaluates data held apart from training. Test results used to choose further experiments become part of development.</dd>
-      <dt>SynOps / dense MACs</dt><dd>SynOps count estimated spike-triggered additions. Dense MACs count multiplications followed by additions in a conventional network of the same shape. Neither directly measures energy.</dd>
-      <dt>Fan-in / fan-out</dt><dd>The number of incoming or outgoing connections at one neuron. The hardware limits these counts.</dd>
-      <dt>Kernel / channels / stride / pooling</dt><dd>A kernel is a filter’s spatial window. Channels are the output feature maps. Stride sets the spacing between filter positions. Pooling combines neighboring outputs to reduce spatial size.</dd>
-      <dt>Head / flatten / GAP</dt><dd>The head maps features to class scores. Flatten preserves spatial positions in a vector. Global average pooling (GAP) averages each channel over all spatial positions.</dd>
-      <dt>τ / θ</dt><dd>The leak constant τ controls how much membrane potential persists between steps. The threshold θ sets the potential required to emit a spike.</dd>
-      <dt>Learning rate / schedule / weight decay</dt><dd>The learning rate sets the optimizer’s update size. A learning-rate schedule changes it during training. Weight decay discourages large weights.</dd>
-      <dt>Dropout / label smoothing / gradient clipping</dt><dd>Dropout suppresses selected activations during training. Label smoothing distributes some target probability to other classes. Gradient clipping limits update-driving gradient magnitudes.</dd>
-      <dt>Quantization / folding</dt><dd>Quantization maps values to a finite numeric grid. Folding combines batch normalization with a neighboring layer for export. Export checks do not by themselves verify hardware inference.</dd>
-      <dt>Early stopping / pruning / scheduler</dt><dd>The search scheduler stops trials with low intermediate scores. This is distinct from the learning-rate schedule, which changes update sizes within a trial.</dd>
-      <dt>Random seed / uncertainty</dt><dd>A seed controls randomized initialization and training choices. Repeating a configuration across seeds estimates training variability. Variation between epochs or different architectures measures something else.</dd>
-    </dl>
-  </details>
-
+<section class="reveal" id="headline">
+<h2><span class="sec-num">7.1</span>The result</h2><p>This study exercises the lab's search workflow on gesture classification. The tool rejected infeasible designs, recorded early-stopped trials, and produced configurations that could be retrained and compared. The scores below evaluate transformed models in software; they do not establish successful execution or energy use on the physical chip.</p>
+<div class="result-grid">
+<div>
+<div class="r-k">Highest test accuracy</div>
+<div class="r-v accent">83.33%</div>
+<div class="r-s">240 of 288 test clips classified correctly by the leading candidate.</div>
+</div>
+<div>
+<div class="r-k">Mean across five candidates</div>
+<div class="r-v">80.49%</div>
+<div class="r-s">Different architectures, each retrained for 300 epochs. This is not a mean across random seeds.</div>
+</div>
+</div>
+<aside aria-label="Evidence summary" class="recap">
+<strong>Finding</strong>
+<p>The leading candidate reports 83.33% test accuracy at 50.1 million synaptic operations (SynOps) per clip. A candidate at 80.56% uses 20.3 million. This comparison measures computational activity. Energy and variation across repeated training runs remain unmeasured.</p>
+</aside>
+<p class="source-note">Published reference: <a href="https://www.nature.com/articles/s44335-026-00062-8">HiAER-Spike, DVS Gesture comparison</a> reports 68.75% accuracy. Its models use different input resolutions and hardware measurements. The 14.6-point difference here is descriptive, not a matched reproduction or proof of equivalent hardware performance.</p>
+<div class="teach">
+<div class="t-title">Evaluation protocol</div>
+<p>Training data fits the weights. A validation set of 176 clips, sampled from the training partition, selects configurations and checkpoints. The test set contains 288 clips from six participants excluded from training.</p>
+<p>Validation clips can share participants with training clips. Repeatedly selecting configurations against the same validation set can also favor those that happen to perform well on that set. Use the test scores for the external comparison, with the protocol limitations noted below.</p>
+<p>The leading candidate reached 92.05% validation accuracy and 83.33% test accuracy. Each of the five retrained candidates was evaluated on test. Section 7.4 also reports test results for a weight-decay sweep, so the page does not describe a single test evaluation across the entire study.</p>
+</div>
+<details class="reading-notes">
+<summary>Terms used in this page</summary>
+<dl class="glossary">
+<dt>Trial / epoch / checkpoint</dt><dd>A trial trains one sampled configuration. An epoch is one pass through the training data. A checkpoint saves model state or marks a scheduled comparison.</dd>
+<dt>Validation / test</dt><dd>Validation selects settings and checkpoints. Test evaluates data held apart from training. Test results used to choose further experiments become part of development.</dd>
+<dt>SynOps / dense MACs</dt><dd>SynOps count estimated spike-triggered additions. Dense MACs count multiplications followed by additions in a conventional network of the same shape. Neither directly measures energy.</dd>
+<dt>Fan-in / fan-out</dt><dd>The number of incoming or outgoing connections at one neuron. The hardware limits these counts.</dd>
+<dt>Kernel / channels / stride / pooling</dt><dd>A kernel is a filter’s spatial window. Channels are the output feature maps. Stride sets the spacing between filter positions. Pooling combines neighboring outputs to reduce spatial size.</dd>
+<dt>Head / flatten / GAP</dt><dd>The head maps features to class scores. Flatten preserves spatial positions in a vector. Global average pooling (GAP) averages each channel over all spatial positions.</dd>
+<dt>τ / θ</dt><dd>The leak constant τ controls how much membrane potential persists between steps. The threshold θ sets the potential required to emit a spike.</dd>
+<dt>Learning rate / schedule / weight decay</dt><dd>The learning rate sets the optimizer’s update size. A learning-rate schedule changes it during training. Weight decay discourages large weights.</dd>
+<dt>Dropout / label smoothing / gradient clipping</dt><dd>Dropout suppresses selected activations during training. Label smoothing distributes some target probability to other classes. Gradient clipping limits update-driving gradient magnitudes.</dd>
+<dt>Quantization / folding</dt><dd>Quantization maps values to a finite numeric grid. Folding combines batch normalization with a neighboring layer for export. Export checks do not by themselves verify hardware inference.</dd>
+<dt>Early stopping / pruning / scheduler</dt><dd>The search scheduler stops trials with low intermediate scores. This is distinct from the learning-rate schedule, which changes update sizes within a trial.</dd>
+<dt>Random seed / uncertainty</dt><dd>A seed controls randomized initialization and training choices. Repeating a configuration across seeds estimates training variability. Variation between epochs or different architectures measures something else.</dd>
+</dl>
+</details>
 </section>
-
-<section id="search" class="reveal">
-  <h2><span class="sec-num">7.2</span>The search</h2>
-  <p>The search allowed different settings for each layer. Completed trials were ranked by validation accuracy after export to signed 16-bit integer (INT16) values. The early-stopping scheduler compared intermediate scores at epochs 10 and 30, with a maximum training budget of 60 epochs.</p>
-
-  <div class="tbl-wrap">
-    <table class="tbl">
-      <thead><tr><th>Outcome</th><th class="num">Trials</th><th class="num">Share</th><th>Meaning</th></tr></thead>
-      <tbody>
-        <tr><td class="layer-name">Rejected before training</td><td class="num">82</td><td class="num">20.50%</td><td>Exceeded a hardware connection limit</td></tr>
-        <tr><td class="layer-name">Stopped early</td><td class="num">207</td><td class="num">51.75%</td><td>Below the scheduler’s threshold at a checkpoint.</td></tr>
-        <tr><td class="layer-name good">Completed and scored</td><td class="num good">111</td><td class="num good">27.75%</td><td>Completed 60 epochs and evaluated the exported model.</td></tr>
-      </tbody>
-    </table>
-  </div>
-
-  <details class="reading-notes"><summary>Search parameters and ranges</summary>
-  <div class="tbl-wrap">
-    <table class="tbl">
-      <thead><tr><th>Parameter</th><th>Range</th><th>Per layer</th></tr></thead>
-      <tbody>
-        <tr><td class="layer-name">depth</td><td>2 to 4 convolution blocks</td><td class="dim">n/a</td></tr>
-        <tr><td class="layer-name">channels</td><td>8 to 128, log scale, every integer</td><td class="good">yes</td></tr>
-        <tr><td class="layer-name">kernel</td><td>3, 5, 7, 9</td><td class="good">yes</td></tr>
-        <tr><td class="layer-name">downsampling</td><td>stride-2, 2&times;2 average pool, or neither</td><td class="good">yes</td></tr>
-        <tr><td class="layer-name">input resolution</td><td>24 to 88 pixels, step 8</td><td class="dim">n/a</td></tr>
-        <tr><td class="layer-name">frames per clip</td><td>8 or 16</td><td class="dim">n/a</td></tr>
-        <tr><td class="layer-name">head</td><td>0 or 1 hidden layer at 128, 256 or 512</td><td class="dim">n/a</td></tr>
-        <tr><td class="layer-name">leak &#964;</td><td>2, 3, 4, 6, 8, 16, 32, 63</td><td class="dim">one value, all layers</td></tr>
-        <tr><td class="layer-name">&#964; and &#952; learned</td><td>on or off, independently</td><td class="good">yes, when on</td></tr>
-        <tr><td class="layer-name">optimizer, learning rate, schedule</td><td>Adam or AdamW, 5e-4 to 5e-3 log, four schedules</td><td class="dim">n/a</td></tr>
-        <tr><td class="layer-name">regularization</td><td>dropout, weight decay, label smoothing, gradient clipping</td><td class="dim">n/a</td></tr>
-      </tbody>
-    </table>
-  </div>
-
-  </details>
-  <p>The leading candidate uses a 3&times;3 kernel with 81 channels in its first block and a 5&times;5 kernel with 56 channels in its second. Allowing different settings in each layer makes this configuration possible. Its result alone does not establish that this search space outperforms a uniform one.</p>
+<section class="reveal" id="search">
+<h2><span class="sec-num">7.2</span>The search</h2><details class="technical-details"><summary>What these results let the lab decide</summary><div class="detail-body"><p>If classification accuracy is the priority, the candidate with 83.33% test accuracy is the strongest of these five. If operation count is constrained, the candidate at 80.56% uses 20.3 million operations per clip, compared with 50.1 million for the leading candidate. The next experiment can compare these candidates under repeated training runs and the same hardware measurement protocol.</p><p>The study demonstrates that the workflow produces inspectable candidates and failure records. It does not isolate the search algorithm's contribution to accuracy. A comparison with a manual or random-search baseline under the same compute budget would test that question.</p></div></details>
+<p>The search allowed different settings for each layer. Completed trials were ranked by validation accuracy after export to signed 16-bit integer (INT16) values. The early-stopping scheduler compared intermediate scores at epochs 10 and 30, with a maximum training budget of 60 epochs.</p>
+<div class="tbl-wrap">
+<table class="tbl">
+<thead><tr><th>Outcome</th><th class="num">Trials</th><th class="num">Share</th><th>Meaning</th></tr></thead>
+<tbody>
+<tr><td class="layer-name">Rejected before training</td><td class="num">82</td><td class="num">20.50%</td><td>Exceeded a hardware connection limit</td></tr>
+<tr><td class="layer-name">Stopped early</td><td class="num">207</td><td class="num">51.75%</td><td>Below the scheduler’s threshold at a checkpoint.</td></tr>
+<tr><td class="layer-name good">Completed and scored</td><td class="num good">111</td><td class="num good">27.75%</td><td>Completed 60 epochs and evaluated the exported model.</td></tr>
+</tbody>
+</table>
+</div>
+<details class="reading-notes"><summary>Search parameters and ranges</summary>
+<div class="tbl-wrap">
+<table class="tbl">
+<thead><tr><th>Parameter</th><th>Range</th><th>Per layer</th></tr></thead>
+<tbody>
+<tr><td class="layer-name">depth</td><td>2 to 4 convolution blocks</td><td class="dim">n/a</td></tr>
+<tr><td class="layer-name">channels</td><td>8 to 128, log scale, every integer</td><td class="good">yes</td></tr>
+<tr><td class="layer-name">kernel</td><td>3, 5, 7, 9</td><td class="good">yes</td></tr>
+<tr><td class="layer-name">downsampling</td><td>stride-2, 2×2 average pool, or neither</td><td class="good">yes</td></tr>
+<tr><td class="layer-name">input resolution</td><td>24 to 88 pixels, step 8</td><td class="dim">n/a</td></tr>
+<tr><td class="layer-name">frames per clip</td><td>8 or 16</td><td class="dim">n/a</td></tr>
+<tr><td class="layer-name">head</td><td>0 or 1 hidden layer at 128, 256 or 512</td><td class="dim">n/a</td></tr>
+<tr><td class="layer-name">leak τ</td><td>2, 3, 4, 6, 8, 16, 32, 63</td><td class="dim">one value, all layers</td></tr>
+<tr><td class="layer-name">τ and θ learned</td><td>on or off, independently</td><td class="good">yes, when on</td></tr>
+<tr><td class="layer-name">optimizer, learning rate, schedule</td><td>Adam or AdamW, 5e-4 to 5e-3 log, four schedules</td><td class="dim">n/a</td></tr>
+<tr><td class="layer-name">regularization</td><td>dropout, weight decay, label smoothing, gradient clipping</td><td class="dim">n/a</td></tr>
+</tbody>
+</table>
+</div>
+</details>
+<p>The leading configuration has 81 channels with a 3×3 kernel in the first block and 56 channels with a 5×5 kernel in the second. These settings require a search space that allows each layer to differ. Comparing this search with one that forces uniform layers would test whether that extra flexibility improves results.</p>
 </section>
-
-<section id="topfive" class="reveal">
-  <h2><span class="sec-num">7.3</span>Performance of the top five configurations</h2>
-  <p>The five candidates with the highest validation scores after the 60-epoch search were retrained for 300 epochs with weight decay set to 0.001. Total retraining time was reported as 107 minutes. Rows below are ordered by test accuracy, while the first column retains the original search rank.</p>
-
-  <p class="table-note">Accuracy columns use fractions (0.8333 = 83.33%). M means million. MACs are multiply-accumulate operations. Channel counts list the first and second blocks.</p>
-  <div class="tbl-wrap">
-    <table class="tbl">
-      <thead><tr>
-        <th>Search rank</th><th>Second block</th><th class="num">Channels</th><th class="num">Search validation</th>
-        <th class="num">Validation, 300 epochs</th><th class="num">Test</th>
-        <th class="num">SynOps / sample</th><th class="num">SynOps / dense MACs</th>
-      </tr></thead>
-      <tbody>
-        <tr class="best">
-          <td class="layer-name">1</td><td><strong>pool</strong></td><td class="num">81&#8594;56</td>
-          <td class="num">0.9091</td><td class="num">0.9205</td>
-          <td class="num good">0.8333</td>
-          <td class="num bad">50.1M</td><td class="num good">0.73&times;</td>
-        </tr>
-        <tr>
-          <td class="layer-name">3</td><td>stride</td><td class="num">84&#8594;72</td>
-          <td class="num">0.9034</td><td class="num">0.9034</td>
-          <td class="num">0.8056</td>
-          <td class="num good">20.3M</td><td class="num bad">1.07&times;</td>
-        </tr>
-        <tr>
-          <td class="layer-name">4</td><td>stride</td><td class="num">57&#8594;70</td>
-          <td class="num">0.8977</td><td class="num">0.9034</td>
-          <td class="num">0.7986</td>
-          <td class="num good">19.2M</td><td class="num bad">1.53&times;</td>
-        </tr>
-        <tr>
-          <td class="layer-name">5</td><td>stride</td><td class="num">91&#8594;79</td>
-          <td class="num">0.8977</td><td class="num">0.8977</td>
-          <td class="num">0.7986</td>
-          <td class="num good">22.6M</td><td class="num bad">1.02&times;</td>
-        </tr>
-        <tr>
-          <td class="layer-name">2</td><td>stride</td><td class="num">79&#8594;71</td>
-          <td class="num">0.9034</td><td class="num">0.8977</td>
-          <td class="num">0.7882</td>
-          <td class="num good">18.5M</td><td class="num bad">1.06&times;</td>
-        </tr>
-      </tbody>
-    </table>
-  </div>
-
-  <div class="finding yes"><p class="finding-label">Observation</p><h3>Search rank 1 remained first after retraining</h3>
-    <p>The other four candidates changed order. These are five different configurations, each evaluated in one retraining run. They do not measure how consistently any one configuration performs across random seeds.</p>
-  </div>
-
-  <div class="finding open"><p class="finding-label">Limitation</p><h3>Uncertainty in the ranking</h3>
-    <p>Rank 1 classified 240 of the 288 test clips correctly, compared with 232 for rank 3. That is an eight-clip advantage, or 2.78 percentage points. To assess this difference, we would compare which clips each model got wrong and repeat training with different starting weights and data orders. This would help determine whether rank 1's advantage persists across runs.</p>
-    <p>The five models scored between 78.8% and 83.3% in these runs. Those are the lowest and highest scores observed. A newly trained model could score outside that range.</p>
-  </div>
-
-  <h3>Shared architecture settings</h3>
-  <p>All five candidates use two convolution blocks, 3&times;3 then 5&times;5 kernels, 48&times;48 inputs, 16 frames, no hidden fully connected layer, and average pooling after the first block. They differ in channel counts and in how the second block reduces spatial resolution.</p>
-
-  <div class="finding yes"><p class="finding-label">Observation</p><h3>Average pooling and stride-2 convolution</h3>
-    <p>Rank 1 uses average pooling after the second convolution and reports 83.33% test accuracy at 50.1 million synaptic operations per clip. The four candidates using stride-2 convolution report 78.82% to 80.56% at 18.5 to 22.6 million operations.</p>
-    <p>Stride-2 convolution evaluates fewer spatial positions. Average pooling combines outputs after the convolution has evaluated those positions, which increases computation. Because channel counts also differ between these candidates, a matched experiment is needed to isolate the effect of pooling.</p>
-  </div>
-
-  <div class="finding open"><p class="finding-label">Interpretation</p><h3>Absolute and relative operation counts</h3>
-    <p>Synaptic operations (SynOps) estimate spike-triggered additions to downstream neurons per input clip. They are a measure of computational activity. Energy and latency were not measured for these candidates.</p>
-    <p>The dense ratio divides each candidate’s SynOps by the multiply-accumulate count for a conventional artificial neural network (ANN) of the same shape. Rank 1 has a ratio of 0.73, so its counted operations are 27% fewer than its own dense reference.</p>
-    <p>Each ratio uses a different reference: 69.0 million dense operations for rank 1 and 12.5 million for rank 4. A lower ratio does not imply fewer absolute operations across architectures. Additions and multiply-accumulates also have different energy costs.</p>
-  </div>
-
-  <div class="finding open"><p class="finding-label">Open</p><h3>Choosing an accuracy–computation tradeoff</h3>
-    <p>Rank 3 uses 20.3 million SynOps at 80.56% accuracy, compared with rank 1’s 50.1 million at 83.33%. The project has not set a budget that determines which is preferable. Its untested <code>pareto</code> search objective would retain configurations for which improving one objective requires worsening another.</p>
-  </div>
+<section class="reveal" id="topfive">
+<h2><span class="sec-num">7.3</span>Performance of the top five configurations</h2>
+<p>The five candidates with the highest validation scores after the 60-epoch search were retrained for 300 epochs with weight decay set to 0.001. Total retraining time was reported as 107 minutes. Rows below are ordered by test accuracy, while the first column retains the original search rank.</p>
+<p class="table-note">Accuracy columns use fractions (0.8333 = 83.33%). M means million. MACs are multiply-accumulate operations. Channel counts list the first and second blocks.</p>
+<div class="tbl-wrap">
+<table class="tbl">
+<thead><tr>
+<th>Search rank</th><th>Second block</th><th class="num">Channels</th><th class="num">Search validation</th>
+<th class="num">Validation, 300 epochs</th><th class="num">Test</th>
+<th class="num">SynOps / sample</th><th class="num">SynOps / dense MACs</th>
+</tr></thead>
+<tbody>
+<tr class="best">
+<td class="layer-name">1</td><td><strong>pool</strong></td><td class="num">81→56</td>
+<td class="num">0.9091</td><td class="num">0.9205</td>
+<td class="num good">0.8333</td>
+<td class="num bad">50.1M</td><td class="num good">0.73×</td>
+</tr>
+<tr>
+<td class="layer-name">3</td><td>stride</td><td class="num">84→72</td>
+<td class="num">0.9034</td><td class="num">0.9034</td>
+<td class="num">0.8056</td>
+<td class="num good">20.3M</td><td class="num bad">1.07×</td>
+</tr>
+<tr>
+<td class="layer-name">4</td><td>stride</td><td class="num">57→70</td>
+<td class="num">0.8977</td><td class="num">0.9034</td>
+<td class="num">0.7986</td>
+<td class="num good">19.2M</td><td class="num bad">1.53×</td>
+</tr>
+<tr>
+<td class="layer-name">5</td><td>stride</td><td class="num">91→79</td>
+<td class="num">0.8977</td><td class="num">0.8977</td>
+<td class="num">0.7986</td>
+<td class="num good">22.6M</td><td class="num bad">1.02×</td>
+</tr>
+<tr>
+<td class="layer-name">2</td><td>stride</td><td class="num">79→71</td>
+<td class="num">0.9034</td><td class="num">0.8977</td>
+<td class="num">0.7882</td>
+<td class="num good">18.5M</td><td class="num bad">1.06×</td>
+</tr>
+</tbody>
+</table>
+</div>
+<div class="finding yes"><h3>Search rank 1 remained first after retraining</h3>
+<p>Search ranks 2 through 5 changed order after longer training. Each row represents a different configuration trained once. Repeating a configuration with different initial weights would show how much of its score depends on training randomness.</p>
+</div>
+<div class="finding open"><h3>Uncertainty in the ranking</h3>
+<p>Rank 1 classified 240 of the 288 test clips correctly, compared with 232 for rank 3. That is an eight-clip advantage, or 2.78 percentage points. To assess this difference, we would compare which clips each model got wrong and repeat training with different starting weights and data orders. This would help determine whether rank 1's advantage persists across runs.</p>
+<p>The five models scored between 78.8% and 83.3% in these runs. Those are the lowest and highest scores observed. A newly trained model could score outside that range.</p>
+</div>
+<h3>Shared architecture settings</h3>
+<p>All five candidates use two convolution blocks, 3×3 then 5×5 kernels, 48×48 inputs, 16 frames, no hidden fully connected layer, and average pooling after the first block. They differ in channel counts and in how the second block reduces spatial resolution.</p>
+<div class="finding yes"><h3>Average pooling and stride-2 convolution</h3>
+<p>Rank 1 uses average pooling after the second convolution and reports 83.33% test accuracy at 50.1 million synaptic operations per clip. The four candidates using stride-2 convolution report 78.82% to 80.56% at 18.5 to 22.6 million operations.</p>
+<p>Stride-2 convolution evaluates fewer spatial positions. Average pooling combines outputs after the convolution has evaluated those positions, which increases computation. Because channel counts also differ between these candidates, a matched experiment is needed to isolate the effect of pooling.</p>
+</div>
+<div class="finding open"><h3>Absolute and relative operation counts</h3>
+<p>Synaptic operations (SynOps) estimate spike-triggered additions to downstream neurons per input clip. They are a measure of computational activity. Energy and latency were not measured for these candidates.</p>
+<p>The dense ratio divides each candidate’s SynOps by the multiply-accumulate count for a conventional artificial neural network (ANN) of the same shape. Rank 1 has a ratio of 0.73, so its counted operations are 27% fewer than its own dense reference.</p>
+<p>Each ratio uses a different reference: 69.0 million dense operations for rank 1 and 12.5 million for rank 4. A lower ratio does not imply fewer absolute operations across architectures. Additions and multiply-accumulates also have different energy costs.</p>
+</div>
+<div class="finding open"><h3>Choosing an accuracy–computation tradeoff</h3>
+<p>Rank 3 uses 20.3 million SynOps at 80.56% accuracy, compared with rank 1’s 50.1 million at 83.33%. The project has not set a budget that determines which is preferable. Its untested <code>pareto</code> search objective would retain configurations for which improving one objective requires worsening another.</p>
+</div>
+<details class="technical-details"><summary>Read the operation-count comparison</summary><div class="detail-body"><p>Rank 1 uses 50.1 million SynOps per clip and has a ratio of 0.73 to its dense reference. Dividing 50.1 by the rounded ratio gives about 68.6 million dense operations, close to the reported 69.0 million before rounding.</p><p>Rank 3 uses 20.3 million SynOps and has a ratio of 1.07. Its dense reference is about 19 million operations. Although its ratio is higher, it performs fewer absolute operations than rank 1.</p><p>These columns answer two practical questions. The absolute count compares the work performed by different candidates. The ratio compares each candidate with a conventional network of its own shape. An energy comparison would additionally need the cost of each operation, data transfer, memory access, and idle power on the target hardware.</p></div></details></section>
+<section class="reveal" id="decay">
+<h2><span class="sec-num">7.4</span>Effects of weight decay</h2>
+<p>A weight controls how strongly one neuron's output affects the next neuron. <strong>Weight decay</strong> adds a tendency for weights to move toward zero during training, alongside the updates that improve classification. A larger decay setting makes this tendency stronger.</p>
+<p>This can reduce overfitting, where a model learns details specific to its training examples and performs less well on new examples. In a spiking network, smaller weights can also make neurons less likely to reach their firing threshold, reducing spike activity. Too much decay can weaken useful connections and lower accuracy.</p>
+<p>To test these effects, the rank-1 architecture was trained for 300 epochs at each of three decay settings, with the other settings held fixed. Each setting was tested once, so the results do not show how much the scores would vary if training were repeated.</p>
+<p class="table-note">Accuracy is shown as a fraction. Weight decay 1e-3 means 0.001. Operation ratios use a dense reference of 69.0 million MACs.</p>
+<div class="tbl-wrap">
+<table class="tbl">
+<thead><tr>
+<th class="num">Weight decay</th><th class="num">Training accuracy</th><th class="num">Test accuracy</th>
+<th class="num">SynOps / sample</th><th class="num">SynOps / dense MACs</th><th class="num">Spikes / sample</th>
+</tr></thead>
+<tbody>
+<tr>
+<td class="num">9.4e-5 <span class="dim">(as sampled)</span></td>
+<td class="num">0.998</td><td class="num">0.8229</td>
+<td class="num">80.1M</td><td class="num bad">1.16×</td><td class="num">263,034</td>
+</tr>
+<tr class="best">
+<td class="num">1e-3</td>
+<td class="num">0.987</td><td class="num good">0.8333</td>
+<td class="num">50.1M</td><td class="num good">0.73×</td><td class="num">141,940</td>
+</tr>
+<tr>
+<td class="num">1e-2</td>
+<td class="num bad">0.80</td><td class="num bad">0.6840</td>
+<td class="num">28.9M</td><td class="num">0.42×</td><td class="num">61,635</td>
+</tr>
+</tbody>
+</table>
+</div>
+<div class="finding yes"><h3>Fewer operations at weight decay 0.001</h3>
+<p>SynOps fell from 80.1 million to 50.1 million per clip, while test accuracy increased from 82.29% to 83.33%, a difference of three correctly classified clips. The operation-count change is substantial. The accuracy difference needs repeated runs before it can be attributed reliably to weight decay.</p>
+<p>Spike counts also fell from 263,034 to 141,940 per clip. Smaller weights can reduce input currents and threshold crossings, which is consistent with this observation. The sweep did not directly isolate that mechanism.</p>
+</div>
+<div class="finding no"><h3>Accuracy declined at weight decay 0.01</h3>
+<p>Training accuracy fell to 80.0% and test accuracy to 68.40%, compared with the published reference of 68.75%. Of the three settings tested, 0.001 had the highest test accuracy. Three values do not locate the optimum.</p>
+</div>
+<aside class="recap"><strong>Weight-decay result</strong><p>From 0.000094 to 0.001, counted operations fell 37.5% and test accuracy rose by three clips. At 0.01, accuracy declined. Repeated runs are needed to assess the small accuracy increase.</p></aside>
+<p>Across the 111 completed search trials, larger weight decay was associated with higher validation accuracy (ρ = 0.227, adjusted p-value = 0.0364). The three-setting experiment tests that association more directly by holding the architecture fixed. Its accuracy fell at the largest decay value, so the result supports testing an intermediate range.</p>
 </section>
-
-<section id="decay" class="reveal">
-  <h2><span class="sec-num">7.4</span>Effects of weight decay</h2>
-  <p>A weight controls how strongly one neuron's output affects the next neuron. <strong>Weight decay</strong> adds a tendency for weights to move toward zero during training, alongside the updates that improve classification. A larger decay setting makes this tendency stronger.</p>
-  <p>This can reduce overfitting, where a model learns details specific to its training examples and performs less well on new examples. In a spiking network, smaller weights can also make neurons less likely to reach their firing threshold, reducing spike activity. Too much decay can weaken useful connections and lower accuracy.</p>
-  <p>To test these effects, the rank-1 architecture was trained for 300 epochs at each of three decay settings, with the other settings held fixed. Each setting was tested once, so the results do not show how much the scores would vary if training were repeated.</p>
-
-  <p class="table-note">Accuracy is shown as a fraction. Weight decay 1e-3 means 0.001. Operation ratios use a dense reference of 69.0 million MACs.</p>
-  <div class="tbl-wrap">
-    <table class="tbl">
-      <thead><tr>
-        <th class="num">Weight decay</th><th class="num">Training accuracy</th><th class="num">Test accuracy</th>
-        <th class="num">SynOps / sample</th><th class="num">SynOps / dense MACs</th><th class="num">Spikes / sample</th>
-      </tr></thead>
-      <tbody>
-        <tr>
-          <td class="num">9.4e-5 <span class="dim">(as sampled)</span></td>
-          <td class="num">0.998</td><td class="num">0.8229</td>
-          <td class="num">80.1M</td><td class="num bad">1.16&times;</td><td class="num">263,034</td>
-        </tr>
-        <tr class="best">
-          <td class="num">1e-3</td>
-          <td class="num">0.987</td><td class="num good">0.8333</td>
-          <td class="num">50.1M</td><td class="num good">0.73&times;</td><td class="num">141,940</td>
-        </tr>
-        <tr>
-          <td class="num">1e-2</td>
-          <td class="num bad">0.80</td><td class="num bad">0.6840</td>
-          <td class="num">28.9M</td><td class="num">0.42&times;</td><td class="num">61,635</td>
-        </tr>
-      </tbody>
-    </table>
-  </div>
-
-  <div class="finding yes"><p class="finding-label">Observation</p><h3>Fewer operations at weight decay 0.001</h3>
-    <p>SynOps fell from 80.1 million to 50.1 million per clip, while test accuracy increased from 82.29% to 83.33%, a difference of three correctly classified clips. The operation-count change is substantial. The accuracy difference needs repeated runs before it can be attributed reliably to weight decay.</p>
-    <p>Spike counts also fell from 263,034 to 141,940 per clip. Smaller weights can reduce input currents and threshold crossings, which is consistent with this observation. The sweep did not directly isolate that mechanism.</p>
-  </div>
-
-  <div class="finding no"><p class="finding-label">Higher decay</p><h3>Accuracy declined at weight decay 0.01</h3>
-    <p>Training accuracy fell to 80.0% and test accuracy to 68.40%, compared with the published reference of 68.75%. Of the three settings tested, 0.001 had the highest test accuracy. Three values do not locate the optimum.</p>
-  </div>
-
-  <aside class="recap"><strong>Weight-decay result</strong><p>From 0.000094 to 0.001, counted operations fell 37.5% and test accuracy rose by three clips. At 0.01, accuracy declined. Repeated runs are needed to assess the small accuracy increase.</p></aside>
-  <p>Across the 111 scored search trials, weight decay had a positive rank correlation with validation accuracy (&#961; = 0.227, adjusted p-value = 0.0364). This association and the sweep concern the same project and are not independent replications. The benefit also did not extend to the largest decay value tested.</p>
+<section class="reveal" id="negatives">
+<h2><span class="sec-num">7.5</span>Separating hyperparameter effects from limited sampling and implementation errors</h2>
+<p>A hyperparameter is a setting chosen before training, such as dropout strength or the weight-decay value. A low score alone does not show that a setting is ineffective. Here, the learning curves, trial counts, and implementation checks help distinguish a limited observed benefit from too few trials or an error in how the setting was applied.</p>
+<div class="finding no"><h3>No delayed improvement within 300 epochs</h3>
+<p>Training accuracy plateaued near epoch 80. At the best tested decay, the final 216 epochs improved validation accuracy by about 0.6 percentage points.</p>
+<p>Grokking describes a delayed improvement on unseen data after a model has already fitted its training data. These runs did not show that pattern within their training budget. A longer run would test whether improvement occurs later, but changing label smoothing or quantization at the same time would confound that comparison.</p>
+</div>
+<div class="finding no"><h3>Lower early accuracy with global average pooling</h3>
+<p>A flatten head retains each spatial position as a separate input to the classifier. Global average pooling (GAP) averages each channel over space, reducing classifier fan-in to the channel count. Reported rejection rates were 6% for GAP and 22% for flatten heads.</p>
+<p>At the first stopping checkpoint, GAP reports 29.6% accuracy and a gain of 0.43 percentage points per epoch. Flatten heads report 65.1% and 0.63 points per epoch. Their eventual performance cannot be inferred from these stopped runs.</p>
+</div>
+<div class="finding open"><h3>Convolutional dropout needs more trials</h3>
+<p>Spatiotemporal dropout suppresses selected convolutional activations during training to reduce reliance on them. It appeared in 44 of 318 trials that passed the hardware checks, and only 12 reached a final score. The reported p-value of 0.50 does not establish either a benefit or no effect.</p>
+<p>At the first checkpoint, 43% of trials with dropout stopped, compared with 47% without it. This does not suggest a large difference in early stopping. A balanced comparison with dropout enabled and disabled is more informative than comparing a new forced-on search with this adaptive search.</p>
+</div>
+<div class="finding no"><h3>Output spikes were included in the activity penalty</h3>
+<p>The penalty discouraged spikes in every spiking layer, including the classifier. Since output spike rates are also the class scores used by the classification loss, this added an objective that could suppress the prediction signal.</p>
+<p>Trials with the penalty stopped at the first checkpoint at a rate of 92%, compared with 43% without it. Their reported early accuracies were 33.2% and 62.6%. The output layer has since been excluded, but the effect of that fix still requires an experiment.</p>
+</div>
 </section>
-
-<section id="negatives" class="reveal">
-  <h2><span class="sec-num">7.5</span>Separating hyperparameter effects from limited sampling and implementation errors</h2>
-  <p>A hyperparameter is a setting chosen before training, such as dropout strength or the weight-decay value. A low score alone does not show that a setting is ineffective. Here, the learning curves, trial counts, and implementation checks help distinguish a limited observed benefit from too few trials or an error in how the setting was applied.</p>
-
-  <div class="finding no"><p class="finding-label">Within this training budget</p><h3>No delayed improvement within 300 epochs</h3>
-    <p>Training accuracy plateaued near epoch 80. At the best tested decay, the final 216 epochs improved validation accuracy by about 0.6 percentage points.</p>
-    <p>Grokking describes a delayed improvement on unseen data after a model has already fitted its training data. These runs did not show that pattern within their training budget. A longer run would test whether improvement occurs later, but changing label smoothing or quantization at the same time would confound that comparison.</p>
-  </div>
-
-  <div class="finding no"><p class="finding-label">Early performance</p><h3>Lower early accuracy with global average pooling</h3>
-    <p>A flatten head retains each spatial position as a separate input to the classifier. Global average pooling (GAP) averages each channel over space, reducing classifier fan-in to the channel count. Reported rejection rates were 6% for GAP and 22% for flatten heads.</p>
-    <p>At the first stopping checkpoint, GAP reports 29.6% accuracy and a gain of 0.43 percentage points per epoch. Flatten heads report 65.1% and 0.63 points per epoch. Their eventual performance cannot be inferred from these stopped runs.</p>
-  </div>
-
-  <div class="finding open"><p class="finding-label">Insufficient evidence</p><h3>Convolutional dropout needs more trials</h3>
-    <p>Spatiotemporal dropout suppresses selected convolutional activations during training to reduce reliance on them. It appeared in 44 of 318 trials that passed the hardware checks, and only 12 reached a final score. The reported p-value of 0.50 does not establish either a benefit or no effect.</p>
-    <p>At the first checkpoint, 43% of trials with dropout stopped, compared with 47% without it. This does not suggest a large difference in early stopping. A balanced comparison with dropout enabled and disabled is more informative than comparing a new forced-on search with this adaptive search.</p>
-  </div>
-
-  <div class="finding no"><p class="finding-label">Implementation error</p><h3>Output spikes were included in the activity penalty</h3>
-    <p>The penalty discouraged spikes in every spiking layer, including the classifier. Since output spike rates are also the class scores used by the classification loss, this added an objective that could suppress the prediction signal.</p>
-    <p>Trials with the penalty stopped at the first checkpoint at a rate of 92%, compared with 43% without it. Their reported early accuracies were 33.2% and 62.6%. The output layer has since been excluded, but the effect of that fix still requires an experiment.</p>
-  </div>
+<section class="reveal" id="licenses">
+<h2><span class="sec-num">7.6</span>Statistical analysis and limitations</h2>
+<p>The analysis reports estimates from 111 scored trials and 1,549 late-training epochs. It uses permutation tests, which compare the observed statistic with statistics obtained by reshuffling labels. The estimates below describe this analysis, not uncertainty across repeated training runs.</p>
+<aside class="recap"><strong>Interpretation</strong><p>Search associations can identify settings to test next. They do not isolate causal effects, and within-run score variation does not estimate variation across random seeds.</p></aside>
+<details class="reading-notes"><summary>Statistical estimates and methods</summary>
+<div class="stats">
+<div class="stat"><div class="k">Within-run score variation</div><div class="val">0.0073</div><div class="sub">0.73 percentage points on validation, about 1.3 clips. Not a significance threshold.</div></div>
+<div class="stat"><div class="k">Estimated between-trial share</div><div class="val good">96.6%</div><div class="sub">Model-based decomposition of observed score variance; does not isolate causal effects.</div></div>
+<div class="stat"><div class="k">Selection optimism</div><div class="val warn">0.0176</div><div class="sub">Estimated selection optimism: 1.76 percentage points. Not a correction to the test score.</div></div>
+<div class="stat"><div class="k">Detectable difference</div><div class="val">0.0092</div><div class="sub">Estimated under the analysis assumptions for 10 trials per group. Not established for repeated runs.</div></div>
+</div>
+<p class="source-note"><strong>Provenance:</strong> these values are retained from the project’s results narrative. The linked <a href="data/trial_analysis.txt">local trial analysis</a> describes an older 82-trial dataset and does not reproduce this 400-trial search. The current run manifest, per-trial output, and statistical report are needed to verify these estimates.</p>
+<h3>Associations after multiple-comparison adjustment</h3>
+<p><code>q</code> denotes the p-value adjusted for false-discovery rate across 13 tested settings. A p-value measures how unusual the observed statistic is under the test’s null model. Adjustment addresses multiple comparisons, but cannot remove confounding or selection effects. ρ (Spearman’s rho) measures rank association from −1 to +1.</p>
+<div class="tbl-wrap">
+<table class="tbl">
+<thead><tr><th>Parameter</th><th class="num">q</th><th>Direction</th><th>Limitation</th></tr></thead>
+<tbody>
+<tr><td class="layer-name">scheduler</td><td class="num">0.0003</td><td>Highest observed group score with a step schedule</td><td class="dim">Varies together with three other parameters</td></tr>
+<tr><td class="layer-name">resize_to</td><td class="num">0.0003</td><td>Highest observed group score at 48 px</td><td class="dim">94 of 111 scored trials used 48</td></tr>
+<tr><td class="layer-name">dropout_rate</td><td class="num">0.0009</td><td>ρ = −0.509, negative association in this search</td><td class="dim">measured at a 60-epoch horizon</td></tr>
+<tr><td class="layer-name">tau</td><td class="num">0.0060</td><td>Highest observed group score at 3, lowest at 4</td><td class="dim">group sizes of 15 and 3</td></tr>
+<tr><td class="layer-name">label_smoothing</td><td class="num">0.0161</td><td>ρ = −0.264, negative association in this search</td><td class="dim">varies together with scheduler</td></tr>
+<tr><td class="layer-name good">weight_decay</td><td class="num good">0.0364</td><td class="good">ρ = +0.227, positive association in this search</td><td class="good">Three-value sweep in section 7.4; no repeated seeds</td></tr>
+</tbody>
+</table>
+</div>
+<div class="teach">
+<div class="t-title">Confounding and adaptive sampling</div>
+<p>Optuna adapts its sampling to earlier results, so promising settings appear together more often. In this run, the learning-rate schedule correlates with dropout at −0.57, leak constant at +0.46, and weight decay at +0.42.</p>
+<p>When settings change together, separate tests cannot identify which setting caused a score difference. Adaptive sampling and early stopping also limit the interpretation of permutation p-values. Matched experiments are needed to test the individual effects.</p>
+<p>The sampled settings were unbalanced: 93% of trials used depth 2, 95% had no hidden head layer, and 93% used 16 frames. These frequencies describe the search’s allocation of trials. They provide limited evidence for comparison with rarely sampled alternatives.</p>
+</div>
+</details>
+<p class="source-note">The narrative previously said all 30 GAP trials stopped at the first checkpoint, while the table reports 97%. An exact numerator and denominator are needed to resolve that discrepancy.</p>
+<h3>What early stopping can establish</h3>
+<p>To compare early performance, the analysis groups trials stopped at the same checkpoint. This avoids comparing scores after different training budgets. Early slopes can describe progress up to that checkpoint, but cannot determine how a stopped trial would perform after full training.</p>
+<div class="tbl-wrap">
+<table class="tbl">
+<thead><tr><th>Setting</th><th class="num">Stopped at first checkpoint</th><th class="num">Accuracy there</th><th class="num">Accuracy gain / epoch</th><th>Interpretation</th></tr></thead>
+<tbody>
+<tr><td class="layer-name">flatten head</td><td class="num">42%</td><td class="num">0.651</td><td class="num">+0.0063</td><td class="dim">reference</td></tr>
+<tr><td class="layer-name">GAP head</td><td class="num bad">97%</td><td class="num bad">0.296</td><td class="num bad">+0.0043</td><td class="bad">Lower accuracy and slower early improvement</td></tr>
+<tr><td class="layer-name">conv dropout on</td><td class="num">43%</td><td class="num">0.565</td><td class="num">+0.0039</td><td class="warn">Similar stopping rate, few completed trials</td></tr>
+<tr><td class="layer-name">rate penalty on</td><td class="num bad">92%</td><td class="num bad">0.332</td><td class="num">+0.0050</td><td class="bad">Output-layer penalty included (section 7.5)</td></tr>
+</tbody>
+</table>
+</div>
+<p>An earlier comparison mixed trials stopped at different epochs. Restricting the analysis to the first checkpoint changed the interpretation of GAP’s early performance. The table above uses the matched checkpoint.</p>
 </section>
-
-<section id="licenses" class="reveal">
-  <h2><span class="sec-num">7.6</span>Statistical analysis and limitations</h2>
-  <p>The analysis reports estimates from 111 scored trials and 1,549 late-training epochs. It uses permutation tests, which compare the observed statistic with statistics obtained by reshuffling labels. The estimates below describe this analysis, not uncertainty across repeated training runs.</p>
-
-  <aside class="recap"><strong>Interpretation</strong><p>Search associations can identify settings to test next. They do not isolate causal effects, and within-run score variation does not estimate variation across random seeds.</p></aside>
-  <details class="reading-notes"><summary>Statistical estimates and methods</summary>
-  <div class="stats">
-    <div class="stat"><div class="k">Within-run score variation</div><div class="val">0.0073</div><div class="sub">0.73 percentage points on validation, about 1.3 clips. Not a significance threshold.</div></div>
-    <div class="stat"><div class="k">Estimated between-trial share</div><div class="val good">96.6%</div><div class="sub">Model-based decomposition of observed score variance; does not isolate causal effects.</div></div>
-    <div class="stat"><div class="k">Selection optimism</div><div class="val warn">0.0176</div><div class="sub">Estimated selection optimism: 1.76 percentage points. Not a correction to the test score.</div></div>
-    <div class="stat"><div class="k">Detectable difference</div><div class="val">0.0092</div><div class="sub">Estimated under the analysis assumptions for 10 trials per group. Not established for repeated runs.</div></div>
-  </div>
-
-  <p class="source-note"><strong>Provenance:</strong> these values are retained from the project’s results narrative. The linked <a href="data/trial_analysis.txt">local trial analysis</a> describes an older 82-trial dataset and does not reproduce this 400-trial search. The current run manifest, per-trial output, and statistical report are needed to verify these estimates.</p>
-  <h3>Associations after multiple-comparison adjustment</h3>
-  <p><code>q</code> denotes the p-value adjusted for false-discovery rate across 13 tested settings. A p-value measures how unusual the observed statistic is under the test’s null model. Adjustment addresses multiple comparisons, but cannot remove confounding or selection effects. &#961; (Spearman’s rho) measures rank association from −1 to +1.</p>
-
-  <div class="tbl-wrap">
-    <table class="tbl">
-      <thead><tr><th>Parameter</th><th class="num">q</th><th>Direction</th><th>Limitation</th></tr></thead>
-      <tbody>
-        <tr><td class="layer-name">scheduler</td><td class="num">0.0003</td><td>Highest observed group score with a step schedule</td><td class="dim">Varies together with three other parameters</td></tr>
-        <tr><td class="layer-name">resize_to</td><td class="num">0.0003</td><td>Highest observed group score at 48 px</td><td class="dim">94 of 111 scored trials used 48</td></tr>
-        <tr><td class="layer-name">dropout_rate</td><td class="num">0.0009</td><td>&#961; = &#8722;0.509, negative association in this search</td><td class="dim">measured at a 60-epoch horizon</td></tr>
-        <tr><td class="layer-name">tau</td><td class="num">0.0060</td><td>Highest observed group score at 3, lowest at 4</td><td class="dim">group sizes of 15 and 3</td></tr>
-        <tr><td class="layer-name">label_smoothing</td><td class="num">0.0161</td><td>&#961; = &#8722;0.264, negative association in this search</td><td class="dim">varies together with scheduler</td></tr>
-        <tr><td class="layer-name good">weight_decay</td><td class="num good">0.0364</td><td class="good">&#961; = +0.227, positive association in this search</td><td class="good">Three-value sweep in section 7.4; no repeated seeds</td></tr>
-      </tbody>
-    </table>
-  </div>
-
-  <div class="teach">
-    <div class="t-title">Confounding and adaptive sampling</div>
-    <p>Optuna adapts its sampling to earlier results, so promising settings appear together more often. In this run, the learning-rate schedule correlates with dropout at −0.57, leak constant at +0.46, and weight decay at +0.42.</p>
-    <p>When settings change together, separate tests cannot identify which setting caused a score difference. Adaptive sampling and early stopping also limit the interpretation of permutation p-values. Matched experiments are needed to test the individual effects.</p>
-    <p>The sampled settings were unbalanced: 93% of trials used depth 2, 95% had no hidden head layer, and 93% used 16 frames. These frequencies describe the search’s allocation of trials. They provide limited evidence for comparison with rarely sampled alternatives.</p>
-  </div>
-
-  </details>
-  <p class="source-note">The narrative previously said all 30 GAP trials stopped at the first checkpoint, while the table reports 97%. An exact numerator and denominator are needed to resolve that discrepancy.</p>
-  <h3>What early stopping can establish</h3>
-  <p>To compare early performance, the analysis groups trials stopped at the same checkpoint. This avoids comparing scores after different training budgets. Early slopes can describe progress up to that checkpoint, but cannot determine how a stopped trial would perform after full training.</p>
-
-  <div class="tbl-wrap">
-    <table class="tbl">
-      <thead><tr><th>Setting</th><th class="num">Stopped at first checkpoint</th><th class="num">Accuracy there</th><th class="num">Accuracy gain / epoch</th><th>Interpretation</th></tr></thead>
-      <tbody>
-        <tr><td class="layer-name">flatten head</td><td class="num">42%</td><td class="num">0.651</td><td class="num">+0.0063</td><td class="dim">reference</td></tr>
-        <tr><td class="layer-name">GAP head</td><td class="num bad">97%</td><td class="num bad">0.296</td><td class="num bad">+0.0043</td><td class="bad">Lower accuracy and slower early improvement</td></tr>
-        <tr><td class="layer-name">conv dropout on</td><td class="num">43%</td><td class="num">0.565</td><td class="num">+0.0039</td><td class="warn">Similar stopping rate, few completed trials</td></tr>
-        <tr><td class="layer-name">rate penalty on</td><td class="num bad">92%</td><td class="num bad">0.332</td><td class="num">+0.0050</td><td class="bad">Output-layer penalty included (section 7.5)</td></tr>
-      </tbody>
-    </table>
-  </div>
-
-  <p>An earlier comparison mixed trials stopped at different epochs. Restricting the analysis to the first checkpoint changed the interpretation of GAP’s early performance. The table above uses the matched checkpoint.</p>
+<section class="reveal" id="next">
+<h2><span class="sec-num">7.7</span>Next experiments</h2>
+<div class="tbl-wrap">
+<table class="tbl">
+<thead><tr><th>Question</th><th>Experiment</th><th class="num">Estimated runtime</th><th>Purpose</th></tr></thead>
+<tbody>
+<tr>
+<td class="layer-name">Does the firing-rate fix work?</td>
+<td>One 60-epoch run with the penalty on, output layer now excluded</td>
+<td class="num good">10 min</td>
+<td>Compare accuracy and hidden-layer activity with the penalty disabled.</td>
+</tr>
+<tr>
+<td class="layer-name">Does spatiotemporal dropout help?</td>
+<td>Matched runs with dropout on and off, holding other settings fixed</td>
+<td class="num">To estimate</td>
+<td>Estimate the effect of dropout without adaptive sampling imbalance.</td>
+</tr>
+<tr>
+<td class="layer-name">Does second-block pooling improve accuracy?</td>
+<td>Rank 1 with the second block switched to stride, 300 epochs</td>
+<td class="num good">25 min</td>
+<td>Isolate the second-block operation while retaining the same channel counts.</td>
+</tr>
+<tr>
+<td class="layer-name">Where is the decay optimum?</td>
+<td>Two more 300-epoch runs at 3e-4 and 3e-3</td>
+<td class="num good">50 min</td>
+<td>Refine the tested decay range, then repeat promising settings across seeds.</td>
+</tr>
+<tr>
+<td class="layer-name">How large is run-to-run variation?</td>
+<td>Five runs of one configuration with different random seeds</td>
+<td class="num">2 hr</td>
+<td>Estimate variation attributable to training randomness.</td>
+</tr>
+<tr>
+<td class="layer-name">Does longer training improve generalization?</td>
+<td>3,000 epochs with other settings fixed; test schedule changes separately</td>
+<td class="num bad">4 hr each</td>
+<td>Measure whether improvement occurs beyond the current 300-epoch budget.</td>
+</tr>
+</tbody>
+</table>
+</div>
+<div class="teach">
+<div class="t-title">Repeated runs are still needed</div>
+<p>The five candidate scores come from different architectures. The study reports no repeated final evaluations of one configuration across random seeds. Epoch-to-epoch score variation cannot substitute for that measurement or provide a calibrated confidence interval for a new run.</p>
+<p>These five configurations scored between 78.8% and 83.3%. The next step is to repeat the strongest configurations with different random seeds and compare their predictions on the same test clips.</p>
+</div>
 </section>
-
-<section id="next" class="reveal">
-  <h2><span class="sec-num">7.7</span>Next experiments</h2>
-
-  <div class="tbl-wrap">
-    <table class="tbl">
-      <thead><tr><th>Question</th><th>Experiment</th><th class="num">Estimated runtime</th><th>Purpose</th></tr></thead>
-      <tbody>
-        <tr>
-          <td class="layer-name">Does the firing-rate fix work?</td>
-          <td>One 60-epoch run with the penalty on, output layer now excluded</td>
-          <td class="num good">10 min</td>
-          <td>Compare accuracy and hidden-layer activity with the penalty disabled.</td>
-        </tr>
-        <tr>
-          <td class="layer-name">Does spatiotemporal dropout help?</td>
-          <td>Matched runs with dropout on and off, holding other settings fixed</td>
-          <td class="num">To estimate</td>
-          <td>Estimate the effect of dropout without adaptive sampling imbalance.</td>
-        </tr>
-        <tr>
-          <td class="layer-name">Does second-block pooling improve accuracy?</td>
-          <td>Rank 1 with the second block switched to stride, 300 epochs</td>
-          <td class="num good">25 min</td>
-          <td>Isolate the second-block operation while retaining the same channel counts.</td>
-        </tr>
-        <tr>
-          <td class="layer-name">Where is the decay optimum?</td>
-          <td>Two more 300-epoch runs at 3e-4 and 3e-3</td>
-          <td class="num good">50 min</td>
-          <td>Refine the tested decay range, then repeat promising settings across seeds.</td>
-        </tr>
-        <tr>
-          <td class="layer-name">How large is run-to-run variation?</td>
-          <td>Five runs of one configuration with different random seeds</td>
-          <td class="num">2 hr</td>
-          <td>Estimate variation attributable to training randomness.</td>
-        </tr>
-        <tr>
-          <td class="layer-name">Does longer training improve generalization?</td>
-          <td>3,000 epochs with other settings fixed; test schedule changes separately</td>
-          <td class="num bad">4 hr each</td>
-          <td>Measure whether improvement occurs beyond the current 300-epoch budget.</td>
-        </tr>
-      </tbody>
-    </table>
-  </div>
-
-  <div class="teach">
-    <div class="t-title">Repeated runs are still needed</div>
-    <p>The five candidate scores come from different architectures. The study reports no repeated final evaluations of one configuration across random seeds. Epoch-to-epoch score variation cannot substitute for that measurement or provide a calibrated confidence interval for a new run.</p>
-    <p>The current evidence is an observed range of 78.8% to 83.3% across five candidates. Repeated runs and a fully documented evaluation protocol are needed before making a broader performance claim.</p>
-  </div>
-</section>
-
 </div>
 <aside class="toc"></aside>
 </main>
-
 <nav class="foot-nav">
-  <a class="prev" href="search.html"><span class="dir">Previous</span><span class="pg">06 &#183; The search</span></a>
-  <a class="next" href="reference.html"><span class="dir">Next</span><span class="pg">08 &#183; Reference</span></a>
+<a class="prev" href="search.html"><span class="dir">Previous</span><span class="pg">06 · The search</span></a>
+<a class="next" href="reference.html"><span class="dir">Next</span><span class="pg">08 · Reference</span></a>
 </nav>
-
 <script src="assets/site.js"></script>
 </body>
 </html>

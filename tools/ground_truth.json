@@ -239,7 +239,7 @@
  "default_fail": {
   "feasible": false,
   "violations": [
-   "block0: total_axons 32768 > 16383",
+   "block0: total_axons 32768 > 16000",
    "fc0: neuron_fan_in 28800 > 8159"
   ],
   "rows": [

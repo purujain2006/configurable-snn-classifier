@@ -35,6 +35,8 @@ const BANNED = [
   ['pre-neuron',   'say "input to the neuron"'],
   ['logit',        'say "class score"'],
 ];
+
+//031749
 // The one place the hardware term is named on purpose, matched on block text.
 const BANNED_EXEMPT = [
   /^\s*Hardware documentation calls the table the routing table/,

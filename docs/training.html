@@ -1,131 +1,89 @@
 <!DOCTYPE html>
+
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
 <title>Training</title>
-<meta name="description" content="Preparing event data within the axon budget, reading predictions from spike counts, draining layer delay, and the training schedule.">
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' fill='%23000'/><path d='M3 22h5l3-13 4 19 3-11h4l2 5h5' fill='none' stroke='%23e0a94f' stroke-width='2.4' stroke-linejoin='round'/></svg>">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:ital,wght@0,400;0,600;0,700;1,400&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="assets/style.css">
+<meta content="Preparing event data within the axon budget, reading predictions from spike counts, draining layer delay, and the training schedule." name="description"/>
+<link href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'&gt;&lt;rect width='32' height='32' fill='%23000'/&gt;&lt;path d='M3 22h5l3-13 4 19 3-11h4l2 5h5' fill='none' stroke='%23e0a94f' stroke-width='2.4' stroke-linejoin='round'/&gt;&lt;/svg&gt;" rel="icon"/>
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&amp;family=JetBrains+Mono:ital,wght@0,400;0,600;0,700;1,400&amp;display=swap" rel="stylesheet"/>
+<link href="assets/style.css" rel="stylesheet"/>
 </head>
 <body>
-
 <header class="hero">
-  <div class="hero-inner">
-    <p class="kicker">Page 5</p>
-    <h1>Training</h1>
-    <p class="lede">
-      This page follows one gesture recording through the training pipeline.
-    </p>
-  </div>
+<div class="hero-inner">
+<p class="kicker">Page 5</p>
+<h1>Training</h1>
+<p class="lede">Each gesture clip becomes a sequence of binary input frames. Training runs that sequence through the network, collects the output spikes, and updates the weights using the class label.</p>
+</div>
 </header>
-
 <main class="with-toc">
 <div class="wrap">
-<aside class="recap" aria-label="Page summary"><strong>Evaluation sequence</strong><p>Encode the clip, run its input frames, then allow delayed spikes to reach the classifier. Reset neuron state between clips.</p></aside>
-
-
-<section id="dataset" class="reveal">
-  <h2><span class="sec-num">5.1</span>From recording to tensor</h2>
-  <p>
-    Each DVS128 Gesture recording is a list of events of the form
-    <code>(x, y, polarity, timestamp)</code> at microsecond resolution. The SpikingJelly library
-    converts a recording into frames, and the code requests a fixed number of frames per clip.
-  </p>
-  <dl class="kv">
-    <dt>frames_number</dt><dd>Set to <code>T</code>, so every clip yields the same number of frames regardless of its duration.</dd>
-    <dt>split_by</dt><dd>Set to <code>"number"</code>, so each frame covers an equal count of events rather than an equal span of time. Fast motion produces short frames and slow motion produces long ones.</dd>
-    <dt>rasterization</dt><dd>Events within a frame are accumulated per pixel and per polarity channel.</dd>
-    <dt>result</dt><dd>One tensor of shape (T, 2, 128, 128) per clip.</dd>
-  </dl>
-  <p>Three settings in <code>build_dataloaders</code> affect how comparable the reported numbers are.</p>
-  <ul>
-    <li>The 15% validation split is drawn after <code>torch.manual_seed(1)</code>, so every run and every search trial is scored against the same held-out clips.</li>
-    <li><code>drop_last</code> is enabled on the training loader only. On validation it would discard up to N&#8722;1 clips and bias every accuracy figure.</li>
-    <li><code>num_workers</code> is 0. Each search trial already runs in its own process, and nested worker processes oversubscribe the CPUs and fail on Windows.</li>
-  </ul>
-  <p>Three supporting functions exist because of failures encountered while running searches.</p>
-  <dl class="kv">
-    <dt>warmup_dataset_cache()</dt>
-    <dd>
+<section class="reveal" id="dataset">
+<h2><span class="sec-num">5.1</span>From recording to tensor</h2><p>A tensor is an array with named dimensions in the explanation below. <code>T</code> counts timesteps, <code>N</code> counts examples in a batch, <code>C</code> counts input channels, and <code>H</code> and <code>W</code> give image height and width. The model predicts one class for each example.</p><details class="technical-details"><summary>What the training libraries provide</summary><div class="detail-body"><dl class="glossary"><dt>PyTorch</dt><dd>Creates and operates on tensors, runs neural-network layers, and computes gradients used to update the weights.</dd><dt>SpikingJelly</dt><dd>Provides spiking-network components, timestep handling, and state-reset utilities used by this model.</dd><dt>hs_api</dt><dd>The HiAER-Spike interface used by the lab's conversion and device workflow. It is distinct from the PyTorch evaluation that supplies the search's transformed-model scores.</dd><dt>DatasetBundle</dt><dd>The project's interface for a dataset loader: training and test examples, image dimensions, class count, and optional batching behavior.</dd></dl></div></details>
+<p> Each DVS128 Gesture recording is a list of events of the form <code>(x, y, polarity, timestamp)</code> at microsecond resolution. The SpikingJelly library converts a recording into frames, and the code requests a fixed number of frames per clip. </p>
+<dl class="kv">
+<dt>frames_number</dt><dd>Set to <code>T</code>, so every clip yields the same number of frames regardless of its duration.</dd>
+<dt>split_by</dt><dd>Set to <code>"number"</code>, so each frame covers an equal count of events rather than an equal span of time. Fast motion produces short frames and slow motion produces long ones.</dd>
+<dt>rasterization</dt><dd>Events within a frame are accumulated per pixel and per polarity channel.</dd>
+<dt>result</dt><dd>One tensor of shape (T, 2, 128, 128) per clip.</dd>
+</dl>
+<p>Three settings in <code>build_dataloaders</code> affect how comparable the reported numbers are.</p>
+<ul>
+<li>The 15% validation split is drawn after <code>torch.manual_seed(1)</code>, so every run and every search trial is scored against the same held-out clips.</li>
+<li><code>drop_last</code> is enabled on the training loader only. On validation it would discard up to N−1 clips and bias every accuracy figure.</li>
+<li><code>num_workers</code> is 0. Each search trial already runs in its own process, and nested worker processes oversubscribe the CPUs and fail on Windows.</li>
+</ul>
+<p>The data-loading helpers address failures encountered during searches.</p>
+<dl class="kv">
+<dt>warmup_dataset_cache()</dt>
+<dd>
       Builds the frame cache for every value of T before any parallel trial starts, since two trials
       building the same cache directory can corrupt it. A directory missing class folders counts as
       incomplete rather than usable.
     </dd>
-    <dt>_quiet_with_heartbeat</dt>
-    <dd>
+<dt>_quiet_with_heartbeat</dt>
+<dd>
       Suppresses the library's per-file progress output and prints one line every twenty seconds.
       If the operation fails, the full log is restored.
     </dd>
-    <dt>validate_data_dir()</dt>
-    <dd>
+<dt>validate_data_dir()</dt>
+<dd>
       Reports the expected directory layout up front, so a missing dataset does not surface later as
       a file error raised from inside the library.
     </dd>
-  </dl>
+</dl>
 </section>
-
-<section id="binarize" class="reveal">
-  <h2><span class="sec-num">5.2</span>Turning an input into spikes</h2>
-  <p>
-    A spiking network reads events over <code>T</code> timesteps. An event camera already produces
-    those. A photograph does not, and the step that gives it a time axis is called
-    <span class="term">coding</span>. Which coding is used changes accuracy, latency and energy, so
-    it is a setting rather than an assumption.
-  </p>
-
-  <div class="tbl-wrap">
-    <table class="tbl">
-      <thead><tr><th>Coding</th><th>What it does</th><th>When it suits</th></tr></thead>
-      <tbody>
-        <tr><td class="layer-name">direct</td><td>Presents the same analog value at every timestep and lets the first layer's weights turn it into current.</td><td>The default for images. Nothing is lost at the input, so it converges fastest.</td></tr>
-        <tr><td class="layer-name">poisson</td><td>Emits a spike each timestep with probability equal to the intensity.</td><td>Spiking end to end, but the sampling noise costs accuracy at small <code>T</code> and two runs of one image differ.</td></tr>
-        <tr><td class="layer-name">temporal</td><td>Each unit fires once; brighter fires earlier.</td><td>One spike per pixel makes this the cheapest by SynOps, and the hardest to train.</td></tr>
-        <tr><td class="layer-name">passthrough</td><td>The input is already events. Resize, then binarize.</td><td>DVS and other event cameras.</td></tr>
-      </tbody>
-    </table>
-  </div>
-
-  <p>
-    DVS128 Gesture uses <code>passthrough</code>, and the rest of this section is about the two
-    decisions that coding has to make.
-  </p>
-
-  <div class="motiv">
-    <div class="m-row">
-      <span class="m-label">Observation</span>
-      <p>
-        A 128&#215;128 sensor with two polarity channels needs 32,768 input axons. The chip provides
-        16,383. The native resolution cannot be presented at all. Separately, the network's input
-        layer expects spikes, and a rasterized frame holds event counts.
-      </p>
-    </div>
-    <div class="m-row">
-      <span class="m-label">Consequence</span>
-      <p>Frames must be resized to fit the input-axon limit and converted to binary spikes. The search in section 7.2 considers resolutions from 24 to 88 pixels. Averaging can produce fractional values, so the encoding must specify how they become spikes.</p>
-    </div>
-    <div class="m-row code">
-      <span class="m-label">In code</span>
-      <p>
-        <code>PassthroughEncoder</code> interpolates and then applies <code>&gt; 0</code>, so any
-        non-zero contribution becomes a full spike. Every coding shares the same resize step and
-        differs only in what it emits, so switching between them changes one config field.
-      </p>
-    </div>
-  </div>
-
-  <div class="code-block">
-    <div class="code-head"><span class="file">snnsearch/encoders.py</span><span class="loc">PassthroughEncoder</span></div>
-    <pre><code class="language-python">out[t] = F.interpolate(frames[t]..., size=self.size, mode="bilinear", ...)
-return (out > 0).float()   # any nonzero contribution becomes a full spike</code></pre>
-  </div>
-
-  <div class="file-view" id="fv-encoders" data-file="snnsearch/encoders.py" data-start="118" data-hl="6-13"
-       data-note="Poisson coding: a spike per timestep with probability equal to intensity. Every coding shares the resize step and differs only in what it emits.">
-    <pre class="fv-src">    analog = False
+<section class="reveal" id="binarize">
+<h2><span class="sec-num">5.2</span>Turning an input into spikes</h2>
+<p>An input encoder supplies the network with a value at each timestep. Event recordings already have a time axis. Static images need a rule for distributing their values over time. The chosen encoding affects both the predictions and spike activity.</p>
+<div class="tbl-wrap">
+<table class="tbl">
+<thead><tr><th>Coding</th><th>What it does</th><th>When it suits</th></tr></thead>
+<tbody>
+<tr><td class="layer-name">direct</td><td>Presents the same analog value at every timestep and lets the first layer's weights turn it into current.</td><td>The default for images. Nothing is lost at the input, so it converges fastest.</td></tr>
+<tr><td class="layer-name">poisson</td><td>Emits a spike each timestep with probability equal to the intensity.</td><td>Spiking end to end, but the sampling noise costs accuracy at small <code>T</code> and two runs of one image differ.</td></tr>
+<tr><td class="layer-name">temporal</td><td>Each unit fires once; brighter fires earlier.</td><td>One spike per pixel makes this the cheapest by SynOps, and the hardest to train.</td></tr>
+<tr><td class="layer-name">passthrough</td><td>The input is already events. Resize, then binarize.</td><td>DVS and other event cameras.</td></tr>
+</tbody>
+</table>
+</div>
+<p>DVS128 Gesture uses the <code>passthrough</code> encoder. It resizes the event-count frames and turns positive pixel values into spikes.</p>
+<details class="technical-details"><summary>Resizing and binarization in code</summary><div class="detail-body">
+<p> A 128×128 sensor with two polarity channels needs 32,768 input axons. The chip provides 16,000. The native resolution cannot be presented at all. Separately, the network's input layer expects spikes, and a rasterized frame holds event counts. </p>
+<p>Frames must be resized to fit the input-axon limit and converted to binary spikes. The search in section 7.2 considers resolutions from 24 to 88 pixels. Averaging can produce fractional values, so the encoding must specify how they become spikes.</p>
+<p> <code>PassthroughEncoder</code> interpolates and then applies <code>&gt; 0</code>, so any non-zero contribution becomes a full spike. Every coding shares the same resize step and differs only in what it emits, so switching between them changes one config field. </p>
+</div></details>
+<details class="technical-details"><summary>Source excerpt</summary><div class="detail-body"><div class="code-block">
+<div class="code-head"><span class="file">snnsearch/encoders.py</span><span class="loc">PassthroughEncoder</span></div>
+<pre><code class="language-python">out[t] = F.interpolate(frames[t]..., size=self.size, mode="bilinear", ...)
+return (out &gt; 0).float()   # any nonzero contribution becomes a full spike</code></pre>
+</div></div></details>
+<details class="technical-details"><summary>Source excerpt</summary><div class="detail-body"><div class="file-view" data-file="snnsearch/encoders.py" data-hl="6-13" data-note="Poisson coding: a spike per timestep with probability equal to intensity. Every coding shares the resize step and differs only in what it emits." data-start="118" id="fv-encoders">
+<pre class="fv-src">    analog = False
 
     def encode(self, x):
         x = self._resize(x).clamp(0.0, 1.0)
@@ -140,229 +98,173 @@ return (out > 0).float()   # any nonzero contribution becomes a full spike</code
 
 
 class PassthroughEncoder(Encoder):
-    &quot;&quot;&quot;The input is already events. Optionally resize, then binarize.
+    """The input is already events. Optionally resize, then binarize.
 
     Averaging a sparse binary frame during resize produces small fractional
     values a spiking input cannot represent, and isolated events vanish. So
     anything non-zero after interpolation becomes a full spike: no event is
     lost, and event density per pixel rises as resolution falls.
-    &quot;&quot;&quot;
+    """
 
-    name = &quot;passthrough&quot;
+    name = "passthrough"
     analog = False
 
     def __init__(self, T, size=None, binarize=True):
         super().__init__(T, size)</pre>
-  </div>
-
-  <div class="demo">
-    <div class="demo-head">
-      <span class="demo-tag">INTERACTIVE</span>
-      <span class="demo-title">Two ways to downsample a sparse frame</span>
-      <span class="demo-sub">On the left, a 16&#215;16 frame of events, editable by clicking. On the right, the 8&#215;8 result under each rule.</span>
-    </div>
-    <div class="demo-body">
-      <div class="controls">
-        <button class="btn" id="bz-rand">Randomize events</button>
-        <button class="btn" id="bz-clear">Clear</button>
-        <div class="seg" id="bz-mode">
-          <button class="on" data-m="or">interpolate then threshold</button>
-          <button data-m="avg">average</button>
-        </div>
-      </div>
-      <canvas id="bz-canvas" height="260"></canvas>
-      <div class="stats">
-        <div class="stat"><div class="k">events in</div><div class="val" id="bz-in">0</div><div class="sub" id="bz-ind">0% density</div></div>
-        <div class="stat"><div class="k">active pixels out</div><div class="val acc" id="bz-out">0</div><div class="sub" id="bz-outd">0% density</div></div>
-        <div class="stat"><div class="k">events lost</div><div class="val" id="bz-lost">0</div></div>
-      </div>
-    </div>
-    <div class="demo-note">
+</div></div></details>
+<div class="demo">
+<div class="demo-head">
+<span class="demo-tag">INTERACTIVE</span>
+<span class="demo-title">Two ways to downsample a sparse frame</span>
+<span class="demo-sub">On the left, a 16×16 frame of events, editable by clicking. On the right, the 8×8 result under each rule.</span>
+</div>
+<div class="demo-body">
+<div class="controls">
+<button class="btn" id="bz-rand">Randomize events</button>
+<button class="btn" id="bz-clear">Clear</button>
+<div class="seg" id="bz-mode">
+<button class="on" data-m="or">interpolate then threshold</button>
+<button data-m="avg">average</button>
+</div>
+</div>
+<canvas height="260" id="bz-canvas"></canvas>
+<div class="stats">
+<div class="stat"><div class="k">events in</div><div class="val" id="bz-in">0</div><div class="sub" id="bz-ind">0% density</div></div>
+<div class="stat"><div class="k">active pixels out</div><div class="val acc" id="bz-out">0</div><div class="sub" id="bz-outd">0% density</div></div>
+<div class="stat"><div class="k">events lost</div><div class="val" id="bz-lost">0</div></div>
+</div>
+</div>
+<div class="demo-note">
       Under the threshold rule an isolated event survives the reduction. Under averaging it becomes
       a small fractional value with no spiking equivalent.
     </div>
-  </div>
+</div>
 </section>
-
-<section id="rate" class="reveal">
-  <h2><span class="sec-num">5.3</span>Reading a prediction from spikes</h2>
-  <p>
-    The final layer holds 11 neurons, one per gesture. Each emits a train of spikes across the run
-    rather than a single number, so the prediction is defined as the firing rate: total spikes
-    divided by <code>T</code>. The highest rate wins.
-  </p>
-  <p>
-    During training those 11 rates are treated as class scores and passed to a cross-entropy loss,
-    optionally softened by label smoothing. The winning configurations used a smoothing value near
-    0.15.
-  </p>
+<section class="reveal" id="rate">
+<h2><span class="sec-num">5.3</span>Reading a prediction from spikes</h2>
+<p> The final layer holds 11 neurons, one per gesture. Each emits a train of spikes across the run rather than a single number, so the prediction is defined as the firing rate: total spikes divided by <code>T</code>. The highest rate wins. </p>
+<p> During training those 11 rates are treated as class scores and passed to a cross-entropy loss, optionally softened by label smoothing. The winning configurations used a smoothing value near 0.15. </p>
 </section>
-
-<section id="flush" class="reveal">
-  <h2><span class="sec-num">5.4</span>Draining the pipeline</h2>
-
-  <div class="motiv">
-    <div class="m-row">
-      <span class="m-label">Observation</span>
-      <p>
-        Section 2.1 established that the chip's neuron fires on the potential it carried in from
-        the previous timestep. Each spiking layer therefore holds its output back by one step. When
-        the input ends after T frames, evidence from the final frames is still in transit and has
-        not reached the classifier.
-      </p>
-    </div>
-    <div class="m-row">
-      <span class="m-label">Consequence</span>
-      <p>Stopping after T steps omits responses still propagating through the layers. The number of omitted response steps grows with the number of spiking layers.</p>
-    </div>
-    <div class="m-row code">
-      <span class="m-label">In code</span>
-      <p>
-        <code>forward_over_time()</code> runs the T input frames and then continues for
-        <code>hardware_flush_steps(net)</code> further timesteps with zero input, accumulating
-        output spikes throughout. The total is divided by T rather than by T plus the flush, so
-        rates stay comparable across depths. This matches what the conversion script measures.
-      </p>
-    </div>
-  </div>
-
-  <div class="demo">
-    <div class="demo-head">
-      <span class="demo-tag">INTERACTIVE</span>
-      <span class="demo-title">Evidence moving through the layers</span>
-      <span class="demo-sub">Columns are timesteps and rows are stages. A filled cell means the stage is carrying evidence from a given input frame, colored by frame. The bottom row is what the output has received.</span>
-    </div>
-    <div class="demo-body">
-      <div class="controls">
-        <div class="ctl">
-          <label>spiking layers <output id="fl-l-out">3</output></label>
-          <input type="range" id="fl-l" min="1" max="6" value="3">
-        </div>
-        <label class="toggle"><input type="checkbox" id="fl-flush" checked> run flush steps</label>
-        <button class="btn primary" id="fl-play">Play</button>
-      </div>
-      <canvas id="fl-canvas" height="250"></canvas>
-      <div class="stats">
-        <div class="stat"><div class="k">input frames</div><div class="val">8</div></div>
-        <div class="stat"><div class="k">flush steps</div><div class="val acc" id="fl-fs">3</div><div class="sub">one per spiking layer</div></div>
-        <div class="stat"><div class="k">frames reaching the output</div><div class="val" id="fl-reach">8 / 8</div></div>
-        <div class="stat"><div class="k">evidence discarded</div><div class="val good" id="fl-lost">0%</div></div>
-      </div>
-    </div>
-    <div class="demo-note">
+<section class="reveal" id="flush">
+<h2><span class="sec-num">5.4</span>Draining the pipeline</h2>
+<details class="technical-details"><summary>Implementation details</summary><div class="detail-body">
+<p> Section 2.1 established that the chip's neuron fires on the potential it carried in from the previous timestep. Each spiking layer therefore holds its output back by one step. When the input ends after T frames, evidence from the final frames is still in transit and has not reached the classifier. </p>
+<p>Stopping after T steps omits responses still propagating through the layers. The number of omitted response steps grows with the number of spiking layers.</p>
+<p> <code>forward_over_time()</code> runs the T input frames and then continues for <code>hardware_flush_steps(net)</code> further timesteps with zero input, accumulating output spikes throughout. The total is divided by T rather than by T plus the flush, so rates stay comparable across depths. This matches what the conversion script measures. </p>
+</div></details>
+<div class="demo">
+<div class="demo-head">
+<span class="demo-tag">INTERACTIVE</span>
+<span class="demo-title">Evidence moving through the layers</span>
+<span class="demo-sub">Columns are timesteps and rows are stages. A filled cell means the stage is carrying evidence from a given input frame, colored by frame. The bottom row is what the output has received.</span>
+</div>
+<div class="demo-body">
+<div class="controls">
+<div class="ctl">
+<label for="fl-l">spiking layers <output id="fl-l-out">3</output></label>
+<input id="fl-l" max="6" min="1" type="range" value="3"/>
+</div>
+<label class="toggle"><input checked="" id="fl-flush" type="checkbox"/> run flush steps</label>
+<button class="btn primary" id="fl-play">Play</button>
+</div>
+<canvas height="250" id="fl-canvas"></canvas>
+<div class="stats">
+<div class="stat"><div class="k">input frames</div><div class="val">8</div></div>
+<div class="stat"><div class="k">flush steps</div><div class="val acc" id="fl-fs">3</div><div class="sub">one per spiking layer</div></div>
+<div class="stat"><div class="k">frames reaching the output</div><div class="val" id="fl-reach">8 / 8</div></div>
+<div class="stat"><div class="k">evidence discarded</div><div class="val good" id="fl-lost">0%</div></div>
+</div>
+</div>
+<div class="demo-note">
       Turning the flush off and raising the layer count shows the size of the effect. A six-layer
       network loses the last six frames of an eight-frame clip.
     </div>
-  </div>
-</section>
-
-<section id="loop" class="reveal">
-  <h2><span class="sec-num">5.5</span>The training step</h2>
-  <ol class="steps">
-    <li><span class="s-title">Forward</span> A batch of clips of shape (N, T, 2, H, W) passes through <code>forward_over_time</code>, producing 11 firing rates per clip. Neuron state is reset afterwards so clips do not influence each other.</li>
-    <li><span class="s-title">Loss</span> Cross-entropy between the rates and the true gesture.</li>
-    <li><span class="s-title">Backward</span> Gradients propagate across all T timesteps, through every spike using the surrogate from section 2.5 and through every quantizer using the estimator from section 4.4.</li>
-    <li><span class="s-title">Update</span> Optional gradient clipping, then the optimizer step and any per-batch scheduler step.</li>
-  </ol>
-  <p>
-    Validation accuracy is measured after each epoch and the best weights are retained, so the
-    reported model is the best epoch rather than the last.
-  </p>
-
-  <h3>Optimizer and schedule</h3>
-  <p>
-    <code>build_optimizer</code> offers Adam, AdamW and SGD. The distinction between the first two
-    matters more here than usual: Adam adds weight decay to the gradient, where it interacts with
-    the adaptive step size, while AdamW applies it separately. Since section 4.3 showed that weight
-    decay controls whether folded weights stay inside the representable range, the search samples
-    different decay ranges for the two optimizers.
-  </p>
-
-  <div class="demo">
-    <div class="demo-head">
-      <span class="demo-tag">INTERACTIVE</span>
-      <span class="demo-title">Learning rate schedules</span>
-      <span class="demo-sub">The shapes <code>build_scheduler</code> produces. Warm-up, when configured, is a linear ramp from 10% of the base rate.</span>
-    </div>
-    <div class="demo-body">
-      <div class="controls">
-        <div class="ctl">
-          <label>scheduler</label>
-          <select id="lr-kind">
-            <option value="cosine" selected>cosine</option>
-            <option value="step">step</option>
-            <option value="onecycle">onecycle</option>
-            <option value="none">constant</option>
-          </select>
-        </div>
-        <div class="ctl">
-          <label>epochs <output id="lr-ep-out">40</output></label>
-          <input type="range" id="lr-ep" min="10" max="80" value="40">
-        </div>
-        <div class="ctl">
-          <label>warm-up epochs <output id="lr-wu-out">2</output></label>
-          <input type="range" id="lr-wu" min="0" max="3" value="2">
-        </div>
-      </div>
-      <canvas id="lr-canvas" height="230"></canvas>
-    </div>
-    <div class="demo-note">
+</div>
+<details class="technical-details"><summary>Follow the final frame through a network</summary><div class="detail-body"><p>Consider two spiking layers receiving T input frames. The first layer integrates frame T at the end of timestep T. It can emit the resulting spike at T+1, when the second layer receives it. The second layer can respond at T+2.</p><p>Stopping at T would omit both of those responses. Two additional steps with zero external input allow them to reach the output. A deeper stack needs more steps because the update order delays the response at every layer.</p><p>The implementation accumulates output spikes during both the input and flush periods. It divides by T so the score uses the same denominator when depth changes. This convention must also be used by the converter when comparing software and hardware predictions.</p></div></details></section>
+<section class="reveal" id="loop">
+<h2><span class="sec-num">5.5</span>The training step</h2>
+<ol class="steps">
+<li><span class="s-title">Forward</span> A batch of clips of shape (N, T, 2, H, W) passes through <code>forward_over_time</code>, producing 11 firing rates per clip. Neuron state is reset afterwards so clips do not influence each other.</li>
+<li><span class="s-title">Loss</span> Cross-entropy between the rates and the true gesture.</li>
+<li><span class="s-title">Backward</span> Gradients propagate across all T timesteps, through every spike using the surrogate from section 2.5 and through every quantizer using the estimator from section 4.4.</li>
+<li><span class="s-title">Update</span> Optional gradient clipping, then the optimizer step and any per-batch scheduler step.</li>
+</ol>
+<p> Validation accuracy is measured after each epoch and the best weights are retained, so the reported model is the best epoch rather than the last. </p>
+<h3>Optimizer and schedule</h3>
+<p> <code>build_optimizer</code> offers Adam, AdamW and SGD. The distinction between the first two matters more here than usual: Adam adds weight decay to the gradient, where it interacts with the adaptive step size, while AdamW applies it separately. Since section 4.3 showed that weight decay controls whether folded weights stay inside the representable range, the search samples different decay ranges for the two optimizers. </p>
+<div class="demo">
+<div class="demo-head">
+<span class="demo-tag">INTERACTIVE</span>
+<span class="demo-title">Learning rate schedules</span>
+<span class="demo-sub">The shapes <code>build_scheduler</code> produces. Warm-up, when configured, is a linear ramp from 10% of the base rate.</span>
+</div>
+<div class="demo-body">
+<div class="controls">
+<div class="ctl">
+<label for="lr-kind">scheduler</label>
+<select id="lr-kind">
+<option selected="" value="cosine">cosine</option>
+<option value="step">step</option>
+<option value="onecycle">onecycle</option>
+<option value="none">constant</option>
+</select>
+</div>
+<div class="ctl">
+<label for="lr-ep">epochs <output id="lr-ep-out">40</output></label>
+<input id="lr-ep" max="80" min="10" type="range" value="40"/>
+</div>
+<div class="ctl">
+<label for="lr-wu">warm-up epochs <output id="lr-wu-out">2</output></label>
+<input id="lr-wu" max="3" min="0" type="range" value="2"/>
+</div>
+</div>
+<canvas height="230" id="lr-canvas"></canvas>
+</div>
+<div class="demo-note">
       Cosine and onecycle deliver most of their benefit late in the run. Section 6.4 relies on that
       property when deciding how early a trial may be stopped.
     </div>
-  </div>
+</div>
 </section>
-
-<section id="phases" class="reveal">
-  <h2><span class="sec-num">5.6</span>What a run reports</h2>
-  <p>
-    <code>run_training()</code> combines the pieces above with the inline schedule from section
-    4.5.
-  </p>
-  <div class="tbl-wrap">
-    <table class="tbl">
-      <thead><tr><th>Phase</th><th>What happens</th><th>Reported</th></tr></thead>
-      <tbody>
-        <tr>
-          <td class="layer-name">warm-up</td>
-          <td>About a quarter of the epoch budget in floating point with batch normalization active, so its running statistics become meaningful.</td>
-          <td>Validation accuracy per epoch.</td>
-        </tr>
-        <tr>
-          <td class="layer-name">on-grid</td>
-          <td>The best warm-up weights are reloaded, each convolution and batch normalization pair is fused, and the remaining epochs train on folded and quantized weights at half the learning rate.</td>
-          <td>Validation accuracy per epoch, continuing the same curve.</td>
-        </tr>
-        <tr>
-          <td class="layer-name">export</td>
-          <td>The batch-norm-free INT16 network is frozen, evaluated once, and audited by <code>deployment_report</code>.</td>
-          <td><code>hw_val_accuracy</code>, <code>quant_gap</code>, <code>weight_clip_frac</code>, <code>min_threshold</code>, <code>deployable</code>.</td>
-        </tr>
-      </tbody>
-    </table>
-  </div>
-  <p>
-    In <code>single</code> mode the console prints both accuracies and the gap between them. The
-    checkpoint written to disk holds the trained network, the deployable network, the configuration,
-    the metrics and the per-layer hardware table, so a conversion can proceed without recomputing
-    anything.
-  </p>
+<section class="reveal" id="phases">
+<h2><span class="sec-num">5.6</span>What a run reports</h2>
+<p> <code>run_training()</code> combines the pieces above with the inline schedule from section 4.5. </p>
+<div class="tbl-wrap">
+<table class="tbl">
+<thead><tr><th>Phase</th><th>What happens</th><th>Reported</th></tr></thead>
+<tbody>
+<tr>
+<td class="layer-name">warm-up</td>
+<td>About a quarter of the epoch budget in floating point with batch normalization active, so its running statistics become meaningful.</td>
+<td>Validation accuracy per epoch.</td>
+</tr>
+<tr>
+<td class="layer-name">on-grid</td>
+<td>The best warm-up weights are reloaded, each convolution and batch normalization pair is fused, and the remaining epochs train on folded and quantized weights at half the learning rate.</td>
+<td>Validation accuracy per epoch, continuing the same curve.</td>
+</tr>
+<tr>
+<td class="layer-name">export</td>
+<td>The batch-norm-free INT16 network is frozen, evaluated once, and audited by <code>deployment_report</code>.</td>
+<td><code>hw_val_accuracy</code>, <code>quant_gap</code>, <code>weight_clip_frac</code>, <code>min_threshold</code>, <code>deployable</code>.</td>
+</tr>
+</tbody>
+</table>
+</div>
+<p> In <code>single</code> mode the console prints both accuracies and the gap between them. The checkpoint written to disk holds the trained network, the deployable network, the configuration, the metrics and the per-layer hardware table, so a conversion can proceed without recomputing anything. </p>
 </section>
-
 </div>
 <aside class="toc"></aside>
 </main>
-
 <nav class="foot-nav">
-  <a class="prev" href="hardware.html"><span class="dir">Previous</span><span class="pg">04 &#183; Fitting the chip</span></a>
-  <a class="next" href="search.html"><span class="dir">Next</span><span class="pg">06 &#183; The search</span></a>
+<a class="prev" href="hardware.html"><span class="dir">Previous</span><span class="pg">04 · Fitting the chip</span></a>
+<a class="next" href="search.html"><span class="dir">Next</span><span class="pg">06 · The search</span></a>
 </nav>
 <footer class="site-foot">
-  <span>Documentation for <a href="https://github.com/purujain2006/configurable-snn-classifier">configurable-snn-classifier</a></span>
-  <span>Interactive demonstrations use the same arithmetic as <code>snnsearch</code>, verified against it.</span>
+<span>Documentation for <a href="https://github.com/purujain2006/configurable-snn-classifier">configurable-snn-classifier</a></span>
+<span>Interactive demonstrations use the same arithmetic as <code>snnsearch</code>, verified against it.</span>
 </footer>
-
-<script src="assets/snn.js"></script>
+<script src="assets/snn.js?v=16000"></script>
 <script src="assets/site.js"></script>
 <script src="assets/fileview.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js"></script>
