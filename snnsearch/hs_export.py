@@ -47,8 +47,10 @@ import numpy as np
 
 from .hardware import INT16_MAX, W_DELTA
 
-# simple_sim's formats: membrane "fxp-s35/0", synapse weights "fxp-s16/0"
-MEMBRANE_LIMIT = 2 ** 34
+# simple_sim's membrane format: "fxp-s35/0" on a8f0f7b5, "fxp-s32/0" with
+# two's-complement wraparound on later L6m-testing-suite commits (the FPGA's
+# MP update is 32 bits). The stricter one applies. Weights are "fxp-s16/0".
+MEMBRANE_LIMIT = 2 ** 31
 from ._torch import _require_torch, torch, nn, F, layer
 
 
@@ -308,14 +310,14 @@ class IntegerSim:
             V[0] = V[0] + self._drive(0, x)
             for i in range(1, len(self.layers)):
                 V[i] = V[i] + self._drive(i, spikes[i - 1])
-            # simpleSim stores membranes as 35-bit signed fixed point and
-            # saturates; float64 does not. Equal only while nothing reaches
+            # simpleSim stores membranes as 32-bit signed integers that wrap
+            # (35-bit and saturating on older commits); float64 does neither. Equal only while nothing reaches
             # the rail, so check rather than assume.
             peak = max(float(v.abs().max()) for v in V)
             self.max_abs_membrane = max(getattr(self, "max_abs_membrane", 0.0), peak)
             if peak >= MEMBRANE_LIMIT:
                 raise OverflowError(
-                    f"membrane reached {peak:.0f}, past simpleSim's 35-bit range "
+                    f"membrane reached {peak:.0f}, past simpleSim's 32-bit range "
                     f"({MEMBRANE_LIMIT}); IntegerSim no longer matches it")
             out = spikes[-1].reshape(-1)
             counts = out if counts is None else counts + out
@@ -331,17 +333,34 @@ class IntegerSim:
 # unrolling into hs_api's dictionaries
 # ---------------------------------------------------------------------------
 
-def unroll_to_hs_api(layers, in_shape, neuron_model_factory):
+def hs_lif_neuron(threshold, leak):
+    """hs_api's LIF_neuron with noise off, on any L6m-testing-suite commit.
+
+    Positional on purpose: the keywords were renamed after a8f0f7b5
+    (threshold, shift, leak -> theta, nu, Lambda) but the order was kept.
+
+    nu = -17 is what makes the noise zero. Later commits ADD a perturbation
+    every step: an odd magnitude below 2**17, shifted right by -nu. At -17
+    that is always 0; at anything larger it is not, and simpleSim stops being
+    deterministic.
+    """
+    from hs_api.neuron_models import LIF_neuron
+    return LIF_neuron(int(threshold), -17, int(leak))
+
+
+def unroll_to_hs_api(layers, in_shape, neuron_model_factory=None):
     """Build (axons, connections, outputs) in CRI_network's format.
 
     Keys: input axons "A{i}" over the flattened (C, H, W) frame, the same
     order as Christopher's DVS example; neurons "L{layer}_{flat index}".
 
-    neuron_model_factory(threshold:int, leak:int) -> an hs_api LIF_neuron.
+    neuron_model_factory(threshold:int, leak:int) -> an hs_api LIF_neuron;
+    defaults to hs_lif_neuron.
 
     Only call this on a small network. rank1 unrolls to roughly 260M synapses,
     which hs_api holds as Python tuples.
     """
+    neuron_model_factory = neuron_model_factory or hs_lif_neuron
     C, H, W = in_shape
     n_in = C * H * W
     axons = {f"A{i}": [] for i in range(n_in)}

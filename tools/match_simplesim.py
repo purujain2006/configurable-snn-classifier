@@ -86,17 +86,16 @@ def selftest(args):
     import torch
     from snnsearch.hs_export import IntegerSim, unroll_to_hs_api
     from hs_api.api import CRI_network
-    from hs_api.neuron_models import LIF_neuron
 
     in_shape, T, flush = (2, 8, 8), 10, 3
     all_ok = True
     for small, leak in [(sm, lk) for sm in (False, True) for lk in (1, 2, 3)]:
         rng = np.random.default_rng(10 * leak + small)
         layers = _random_layers(rng, leak, small)
-        # shift=-17 and legacy_noise_en=0 are the pinned defaults; noise is
-        # commented out of simpleSim, so shift has no effect there
+        # hs_lif_neuron sets the noise shift to -17, which is zero noise on
+        # every commit; see its docstring
         axons, conns, keys = unroll_to_hs_api(
-            layers, in_shape, lambda th, lk: LIF_neuron(threshold=th, leak=lk))
+            layers, in_shape)
         all_keys = [k for layer_keys in keys for k in layer_keys]
         net = CRI_network(axons=axons, connections=conns, outputs=all_keys,
                           target="simpleSim")
@@ -236,12 +235,11 @@ def _real_simplesim(layers, in_shape, items, flush):
     import torch
     from snnsearch.hs_export import unroll_to_hs_api
     from hs_api.api import CRI_network
-    from hs_api.neuron_models import LIF_neuron
 
     t0 = time.time()
     print("real simpleSim: unrolling the network into hs_api dictionaries", flush=True)
     axons, conns, keys = unroll_to_hs_api(
-        layers, in_shape, lambda th, lk: LIF_neuron(threshold=th, leak=lk))
+        layers, in_shape)
     n_syn = sum(len(v) for v in axons.values()) + sum(len(v[0]) for v in conns.values())
     print(f"  {len(axons)} axons, {len(conns)} neurons, {n_syn:,} synapses "
           f"({(time.time() - t0) / 60:.1f} min)", flush=True)
@@ -362,7 +360,7 @@ def compare(args):
         print(f"  per-clip disagreements        {len(dis)}"
               + (f"  clips {dis[:20]}" if dis else "  PERFECT MATCH"))
         print(f"  largest |membrane|            {sim.max_abs_membrane:.0f} "
-              f"(simpleSim saturates at {2 ** 34})")
+              f"(simpleSim's 32-bit membrane wraps at {2 ** 31})")
         report["splits"].setdefault(split, {}).update({
             "n": len(labels), "spikingjelly_acc": acc_t, "simplesim_acc": acc_s,
             "disagreements": dis, "pred_spikingjelly": p_torch, "pred_simplesim": p_sim,
