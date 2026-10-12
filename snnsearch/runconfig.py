@@ -51,6 +51,10 @@ DEFAULTS = {
         # processes decoding the same events into the same directory. Build
         # them sequentially before Ray starts (or with tools/build_cache.py).
         "T_choices": None,
+        # "subject" holds out whole people for validation, like the test set
+        # does. "clip" is the split every run before October 2026 used, kept
+        # only to re-score old checkpoints on the clips they were selected on.
+        "val_split": "subject",
     },
     "objective": {
         "mode": "accuracy",          # accuracy | constrained | weighted | pareto

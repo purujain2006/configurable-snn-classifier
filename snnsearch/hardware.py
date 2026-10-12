@@ -102,9 +102,13 @@ W_ALPHA = 1.0
 INT16_MAX = 2 ** (W_BITS - 1) - 1            # 32767
 W_DELTA = W_ALPHA / INT16_MAX                # 1/32767
 
-# The leak values worth searching. Small-tau spacing is coarse *because the
-# hardware register is coarse there* -- tau 2 and tau 3 are genuinely different
-# networks, tau 2.1 and tau 2.4 are the same network. The large-tau end matches
-# the working DVS conversion (Custom_IFNode's default tau=63, leak_lif=63).
-HW_TAU_CHOICES = [2, 3, 4, 6, 8, 16, 32, 63]
+# The leak values worth searching. The chip's leak register is a SHIFT:
+# simpleSim on the pinned L6m commit computes V -= V // 2**leak, so tau must be
+# a power of two. This list used to hold 3, 6 and 63 on the assumption that
+# leak == round(tau). Those taus do not exist on chip, and rank1 trained to
+# tau 3. (The converter's leak=63 is a shift of 63, i.e. no leak at all.)
+HW_TAU_CHOICES = [2, 4, 8, 16]
 HW_TAU_MIN, HW_TAU_MAX = 2, 128
+# trainable tau is learned as log2(tau) and rounded, so it can only land on
+# 2**HW_LOG2_TAU_MIN .. 2**HW_LOG2_TAU_MAX
+HW_LOG2_TAU_MIN, HW_LOG2_TAU_MAX = 1, 7

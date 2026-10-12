@@ -34,6 +34,12 @@ from dataclasses import asdict
 LEADERBOARD_COLS = [
     "trial_id", "status", "val_accuracy", "hw_val_accuracy",
     "pre_export_val_accuracy", "float_val_accuracy",
+    # best_val_accuracy was written by the row builder and absent from this
+    # list, so extrasaction="ignore" discarded it from every leaderboard ever
+    # produced. smoothed_val_accuracy is the window mean that best_val_accuracy
+    # now maximizes; keeping both makes the smoothing visible rather than
+    # silently changing what an existing column means.
+    "best_val_accuracy", "smoothed_val_accuracy",
     "quant_gap", "end_to_end_gain", "deployable", "weight_clip_frac", "min_threshold", "feasible",
     "epochs_run", "stopped_early", "synops_per_sample", "firing_rate", "rate_penalty",
     "neurons", "connections",
@@ -43,6 +49,10 @@ LEADERBOARD_COLS = [
     "resize_to", "T", "tau", "trainable_tau", "trainable_threshold",
     "fc_layers", "final_reduction", "dropout_rate", "conv_dropout", "norm", "tdbn_alpha",
     "optimizer", "lr", "weight_decay", "scheduler", "label_smoothing", "grad_clip",
+    # Appended last so existing column positions do not move. `tau` above is
+    # the value sampled at the start; with trainable tau the deployed one can
+    # differ (rank1: sampled 8, deployed 3,3,3).
+    "deployed_tau",
 ]
 
 
@@ -217,6 +227,7 @@ def make_streaming_callback(writer, target=0.975):
                 "deploy_reasons": r.get("deploy_reasons"),
                 "weight_clip_frac": r.get("weight_clip_frac"),
                 "best_val_accuracy": r.get("best_val_accuracy"),
+                "smoothed_val_accuracy": r.get("smoothed_val_accuracy"),
                 "epochs_run": epochs_run, "epochs_requested": requested,
                 "stopped_early": stopped_early,
                 "violations": r.get("violations"), "config": flat})

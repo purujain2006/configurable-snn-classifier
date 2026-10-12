@@ -15,17 +15,39 @@ from .quantize import deploy_and_measure, deployment_report, hardware_export
 from ._torch import _HAS_TORCH, _require_torch, torch, nn, F, functional
 
 
+def param_groups(net, weight_decay):
+    """Weight decay on conv and linear weights only.
+
+    Every other parameter is a scalar or a per-channel vector: the neuron's
+    raw_log2_tau / raw_tau and raw_threshold, and BatchNorm's gamma and beta.
+    Decaying them pulls each toward zero for no regularization benefit, and
+    it moved real deployment parameters. Measured on the grokking runs, all
+    starting at tau 8 for 300 epochs: weight decay 9.6e-5 ended at tau ~5.5,
+    1e-3 at ~3 (rank1), 1e-2 at 0, the clamp floor. So weight decay was also
+    setting tau, and the two could not be told apart in any result. Decaying
+    beta similarly shifts the folded threshold (theta' = theta - b').
+    """
+    decay, no_decay = [], []
+    for p in net.parameters():
+        if not p.requires_grad:
+            continue
+        (decay if p.ndim > 1 else no_decay).append(p)
+    return [{"params": decay, "weight_decay": weight_decay},
+            {"params": no_decay, "weight_decay": 0.0}]
+
+
 def build_optimizer(net, train_cfg: TrainSpec):
     name = train_cfg.optimizer.lower()
+    groups = param_groups(net, train_cfg.weight_decay)
     if name == "adam":
         # NB: weight_decay in Adam is classic L2 added to the gradient, which
         # interacts with the adaptive step. Use adamw for decoupled decay.
-        return torch.optim.Adam(net.parameters(), lr=train_cfg.lr, weight_decay=train_cfg.weight_decay)
+        return torch.optim.Adam(groups, lr=train_cfg.lr)
     if name == "adamw":
-        return torch.optim.AdamW(net.parameters(), lr=train_cfg.lr, weight_decay=train_cfg.weight_decay)
+        return torch.optim.AdamW(groups, lr=train_cfg.lr)
     if name == "sgd":
-        return torch.optim.SGD(net.parameters(), lr=train_cfg.lr, momentum=train_cfg.momentum,
-                               weight_decay=train_cfg.weight_decay, nesterov=True)
+        return torch.optim.SGD(groups, lr=train_cfg.lr, momentum=train_cfg.momentum,
+                               nesterov=True)
     raise ValueError(f"Unknown optimizer {train_cfg.optimizer!r}")
 
 
@@ -256,12 +278,24 @@ def run_training(cfg: dict, data_dir: str = None, device=None, report_fn=None,
 
     # Written by run_phase rather than returned, so the two call sites below
     # keep their two-value unpacking and cannot drift out of step with it.
-    last = {"firing_rate": None}
+    #
+    # `window` holds the most recent validation accuracies. It is cleared at the
+    # start of every phase: inline QAT folds BatchNorm between the warmup and the
+    # grid phase, so accuracy either side of that boundary comes from two
+    # different models and averaging across it would describe neither.
+    last = {"firing_rate": None, "window": [], "smoothed": None}
+    smooth_k = max(1, int(getattr(train_cfg, "val_smoothing_epochs", 5) or 1))
 
     def run_phase(net, optimizer, scheduler, step_per_batch, n_epochs, epoch0,
                   best, best_state, tag):
         """One training phase; reports each epoch into the shared trajectory so
-        ASHA still sees a continuous per-epoch curve across warmup + grid."""
+        ASHA still sees a continuous per-epoch curve across warmup + grid.
+
+        `best` now tracks the best SMOOTHED validation accuracy, and the saved
+        weights are the ones ending the best recent stretch rather than the ones
+        that happened to land on the luckiest single epoch.
+        """
+        last["window"] = []
         for e in range(n_epochs):
             train_loss, train_acc, rate = train_one_epoch(
                 net, train_loader, optimizer, device, criterion,
@@ -273,12 +307,22 @@ def run_training(cfg: dict, data_dir: str = None, device=None, report_fn=None,
             if scheduler is not None and not step_per_batch:
                 scheduler.step()
             val_acc = evaluate(net, val_loader, device)
-            if val_acc > best:
-                best = val_acc
+
+            # Mean of the last `smooth_k` epochs, or of however many exist so
+            # far. Early epochs therefore average fewer points and are noisier,
+            # which is correct: there is no more evidence to average.
+            last["window"].append(val_acc)
+            del last["window"][:-smooth_k]
+            smoothed = sum(last["window"]) / len(last["window"])
+            last["smoothed"] = smoothed
+
+            if smoothed > best:
+                best = smoothed
                 best_state = deepcopy(net.state_dict())
             if report_fn is not None:
                 report_fn(epoch=epoch0 + e, train_loss=train_loss, train_acc=train_acc,
                           val_acc=val_acc, best_val_acc=best,
+                          smoothed_val_acc=smoothed, smoothing_window=len(last["window"]),
                           lr=optimizer.param_groups[0]["lr"], phase=tag,
                           firing_rate=rate)
         return best, best_state
@@ -344,6 +388,9 @@ def run_training(cfg: dict, data_dir: str = None, device=None, report_fn=None,
         hw_net, hw = deploy_and_measure(net, cfg, train_loader, val_loader, device)
 
     hw["float_val_accuracy"] = float_best
+    # what each spiking layer deploys with, per layer, e.g. "8,8,4"
+    hw["deployed_tau"] = ",".join(str(m.hw_leak()) for m in hw_net.conv_fc
+                                  if isinstance(m, HardwareLIFNode))
 
     # What conversion cost: same weights, same point in training,
     # measured before and after export. Positive means export lost

@@ -333,7 +333,17 @@ def _make_trainable(cfg, out_dir):
                 # absent, or its absence gets read as a value.
                 "feasible": True,
                 "float_val_accuracy": kw.get("val_acc", acc),
+                # best_val_accuracy is now the best SMOOTHED accuracy, so it is
+                # no longer the peak of the curve and will read slightly lower
+                # than it did in earlier runs. That is the point.
                 "best_val_accuracy": kw.get("best_val_acc", acc),
+                # The current window mean. ASHA still prunes on
+                # float_val_accuracy, the raw single epoch. To prune on the
+                # smoothed value instead, set float_val_accuracy to this key --
+                # but change one thing at a time, because it alters which trials
+                # survive rung 1 and therefore the whole search.
+                "smoothed_val_accuracy": kw.get("smoothed_val_acc"),
+                "smoothing_window": kw.get("smoothing_window"),
                 "phase": kw.get("phase", "float"),
                 "train_accuracy": kw.get("train_acc", 0.0),
                 "train_loss": kw.get("train_loss", 0.0),
@@ -395,6 +405,8 @@ def _make_trainable(cfg, out_dir):
             "end_to_end_gain": res.get("end_to_end_gain"),
             "weight_clip_frac": res.get("weight_clip_frac"),
             "min_threshold": res.get("min_threshold"),
+            # the `tau` column is the sampled START; trainable tau moves
+            "deployed_tau": res.get("deployed_tau"),
             "deployable": deployable,
             "deploy_reasons": res.get("deploy_reasons"),
             "phase": "deploy",

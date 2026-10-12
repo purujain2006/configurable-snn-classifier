@@ -8,7 +8,8 @@ import math
 from typing import Callable
 
 from .config import NeuronSpec
-from .hardware import W_ALPHA, W_DELTA, HW_TAU_CHOICES, HW_TAU_MIN, HW_TAU_MAX
+from .hardware import (W_ALPHA, W_DELTA, HW_TAU_CHOICES, HW_TAU_MIN, HW_TAU_MAX,
+                       HW_LOG2_TAU_MIN, HW_LOG2_TAU_MAX)
 from .quantgrid import (_ste, fake_quantize_weight, fake_quantize_threshold,
                         quantized_threshold_int, fold_bias_band, constrain_fold_bias)
 from ._torch import (_HAS_TORCH, _HAS_HS_API, _require_torch, _no_grad,
@@ -104,7 +105,12 @@ if _HAS_TORCH:
 
             tau0 = float(min(max(int(round(float(tau))), HW_TAU_MIN), HW_TAU_MAX))
             if self.learn_tau:
-                self.raw_tau = nn.Parameter(torch.tensor(tau0))
+                # Learned in log2 space and rounded there, so tau can only be
+                # a power of two: the chip's leak is a shift (V -= V >> leak).
+                # Checkpoints from before this stored raw_tau, a linear tau
+                # that rounded to any integer; _load_from_state_dict keeps
+                # those loading as they trained.
+                self.raw_log2_tau = nn.Parameter(torch.tensor(math.log2(tau0)))
             else:
                 self.register_buffer("_tau_const", torch.tensor(tau0))
 
@@ -116,9 +122,24 @@ if _HAS_TORCH:
         @property
         def hw_tau(self):
             if self.learn_tau:
+                if hasattr(self, "raw_log2_tau"):
+                    e = torch.clamp(self.raw_log2_tau, HW_LOG2_TAU_MIN, HW_LOG2_TAU_MAX)
+                    return 2.0 ** _ste(torch.round(e), e)   # power of two, STE gradient
+                # legacy checkpoint: linear tau, any integer
                 t = torch.clamp(self.raw_tau, HW_TAU_MIN, HW_TAU_MAX)
-                return _ste(torch.round(t), t)          # integer leak, STE gradient
+                return _ste(torch.round(t), t)
             return self._tau_const
+
+        def _load_from_state_dict(self, state_dict, prefix, *args, **kwargs):
+            # A checkpoint written before log2 tau holds `raw_tau`. Swap the
+            # parameter so it loads unchanged and deploys the tau it trained
+            # with; converting it to log2 would silently move it (3 -> 2 or 4).
+            if (self.learn_tau and prefix + "raw_tau" in state_dict
+                    and prefix + "raw_log2_tau" not in state_dict
+                    and hasattr(self, "raw_log2_tau")):
+                del self.raw_log2_tau
+                self.raw_tau = nn.Parameter(state_dict[prefix + "raw_tau"].detach().clone())
+            return super()._load_from_state_dict(state_dict, prefix, *args, **kwargs)
 
         @property
         def v_threshold(self):
@@ -215,9 +236,15 @@ if _HAS_TORCH:
             #    floor has zero gradient everywhere it is defined, so the
             #    straight-through estimator passes the float leak's gradient, the
             #    same way fake_quantize_weight does for the weights.
+            #    Behind an AvgPool2d(p) the membrane moves in steps of
+            #    W_DELTA / p^2, and the deployed network keeps it in those finer
+            #    units (see hs_export.py). leak_grid lets evaluation floor on
+            #    that grid, which is what the chip does. Training leaves it at
+            #    W_DELTA.
             leak = (self.v - v_reset) / self.hw_tau
             if getattr(self, "integer_leak", True):
-                leak = _ste(torch.floor(leak / W_DELTA) * W_DELTA, leak)
+                grid = getattr(self, "leak_grid", W_DELTA)
+                leak = _ste(torch.floor(leak / grid) * grid, leak)
             self.v = self.v - leak
             # 4. integrate this timestep's input, undecayed
             self.v = self.v + x

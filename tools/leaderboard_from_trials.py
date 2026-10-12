@@ -61,7 +61,8 @@ ORDER = [
     "optimizer", "lr", "weight_decay", "scheduler", "warmup_epochs",
     # bookkeeping, last because nobody sorts on it
     "epochs", "epochs_requested", "epochs_run", "stopped_early",
-    "best_val_accuracy", "wall_time", "deploy_reasons", "violations",
+    "best_val_accuracy", "smoothed_val_accuracy", "smoothing_window",
+    "wall_time", "deploy_reasons", "violations",
 ]
 
 

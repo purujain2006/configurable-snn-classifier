@@ -129,11 +129,10 @@ class HeadSpec:
 @dataclass
 class NeuronSpec:
     neuron_type: str = "LIF"
-    # tau is an INTEGER. HiAER-Spike's LIF_neuron takes an integer `leak`
-    # register, and the converter's convention is leak == round(tau). A
-    # continuous tau in [1.5, 2.5] therefore deploys as leak=2 for EVERY value
-    # in the range: the dimension exists in training and vanishes on chip. See
-    # HW_TAU_CHOICES.
+    # tau is a POWER OF TWO. HiAER-Spike's LIF_neuron takes an integer `leak`
+    # that simpleSim applies as a shift, V -= V // 2**leak, so tau = 2**leak.
+    # Any other tau has no representation on chip. See HW_TAU_CHOICES. A
+    # trainable tau is learned as log2(tau) and rounded there.
     tau: int = 2
     v_threshold: float = 1.0
     v_reset: float = 0.0
@@ -169,6 +168,14 @@ class TrainSpec:
     # Unlike every other regularizer here it also buys energy, since a spike
     # that does not happen is an accumulate the chip does not perform. 0 = off.
     rate_penalty: float = 0.0
+    # Checkpoint selection averages validation accuracy over this many recent
+    # epochs instead of trusting a single one. Picking the single best epoch is
+    # selection on noise: with 176 validation clips one epoch carries a standard
+    # error near 2.4 points, so the peak of a 60-epoch run sits roughly 2.5
+    # standard errors above the trajectory's real level whether or not the model
+    # improved. Averaging a window estimates the level instead of the peak.
+    # Set to 1 to recover the old best-single-epoch behaviour.
+    val_smoothing_epochs: int = 5
     # --- deployment / quantization-aware training (section 5c) -------------
     # qat_mode selects how the model reaches the deployable INT16 grid:
     #   "inline"  (Option A, default): after a short float warmup, every

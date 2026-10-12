@@ -68,7 +68,7 @@ class InputPipelineTests(unittest.TestCase):
         self.assertEqual(spec["output"].num_classes, 7)
         self.assertEqual(spec["train"].epochs, 3)
         build.assert_called_once_with(bundle, batch_size=4, encoder=encoder,
-                                      num_workers=0, seed=1)
+                                      num_workers=0, seed=1, val_split="subject")
         self.assertEqual((self.cfg, flat), before)
 
     def test_missing_or_null_input_knobs_inherit_config(self):

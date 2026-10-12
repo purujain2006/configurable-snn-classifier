@@ -247,14 +247,10 @@ class DefineByRunSpace:
             return {**consts, "tau": 2, "infeasible_geometry": True}
 
         # ---- neuron: INTEGER leak, per-layer (Q2, Q3) ------------------------
-        # tau was suggest_float(1.5, 2.5). On chip the leak register is an
-        # integer and the converter's convention is leak = round(tau), so EVERY
-        # value in that interval deployed as leak=2: the search was resolving a
-        # difference that does not survive conversion, and the float metric was
-        # rewarding it. The old Spearman rho=-0.60 for tau is therefore a
-        # correlation with a coordinate the hardware cannot represent -- it does
-        # not carry over, which is why the range is reopened rather than
-        # narrowed around the old winners.
+        # Only powers of two: the chip's leak is a shift (V -= V // 2**leak).
+        # Searches 01 and 02 also sampled 3, 6 and 63, which do not exist on
+        # chip. With trainable_tau this is the starting value; the deployed
+        # tau is recorded separately as deployed_tau.
         trial.suggest_categorical("tau", HW_TAU_CHOICES)
         # Now genuinely A/B-able: both are quantized in the forward pass, and
         # hs_api reads a neuron model per neuron key, so per-layer leaks and

@@ -1,0 +1,434 @@
+"""Turn a deployed checkpoint into the integer network HiAER-Spike runs.
+
+WHY THIS EXISTS INSTEAD OF hs_api's CRI_Converter
+
+The converter on the pinned L6m-testing-suite commit (a8f0f7b5) cannot take
+this project's networks:
+
+  * it reads thresholds as `model[k+1].v_threshold` and only recognises
+    SpikingJelly's own LIFNode/IFNode, so HardwareLIFNode is skipped;
+  * it writes leak = 63 for every neuron, which simpleSim reads as a SHIFT
+    (v -= v // 2**63), so every layer becomes a non-leaky IF neuron;
+  * it has no AvgPool path, and its MaxPool path assigns into a tuple and
+    raises before producing anything.
+
+The checkpoint already holds everything needed (folded INT16 weights, the
+per-channel thresholds that absorbed the BN bias, the leak), so this module
+builds the integer network from the checkpoint directly and checks it against
+the real simpleSim instead.
+
+THE ARITHMETIC SIMPLESIM PERFORMS, PER TIMESTEP (hs_api/_simple_sim.py)
+
+    spiked = V > threshold
+    V[spiked] = 0
+    V[LIF] -= V[LIF] // 2**leak          floor division, so leak is a SHIFT
+    V += W_axon @ axons_t + W_neuron @ spiked
+
+So tau must be a power of two. A tau of 3 has no representation.
+
+AVERAGE POOLING
+
+A spike is 0 or 1, and AvgPool2d(2) of spikes is a multiple of 1/4. That is
+linear, so it folds into the next layer: each of the four spikes in a pooling
+window gets the next layer's weight divided by 4. Dividing an INT16 weight by 4
+leaves a fraction, so instead the next layer's membrane is kept in units 4x
+finer. The synapse then carries the INT16 weight unchanged and the threshold is
+scaled to match. `scale` below is that factor, 1 for a layer fed directly by
+spikes and 4 (or 4*4 for two pools in a row) for a layer behind a pool.
+
+The trained model fires when v - theta >= W_DELTA. With v = V * W_DELTA / scale
+that is V >= scale*theta_int + scale, so the integer threshold for `>` is
+scale*theta_int + scale - 1.
+"""
+
+import math
+
+import numpy as np
+
+from .hardware import INT16_MAX, W_DELTA
+
+# simple_sim's formats: membrane "fxp-s35/0", synapse weights "fxp-s16/0"
+MEMBRANE_LIMIT = 2 ** 34
+from ._torch import _require_torch, torch, nn, F, layer
+
+
+# ---------------------------------------------------------------------------
+# loading the deployed network
+# ---------------------------------------------------------------------------
+
+def load_deployed(ckpt_path, device="cpu"):
+    """Rebuild the exact network `hw_test_accuracy` was measured on.
+
+    `hw_state_dict` cannot do this alone: export_deployed() stores the
+    per-channel thresholds as a plain attribute, which state_dict() skips. So
+    the QAT-form network is rebuilt, its state loaded, and export_deployed()
+    run again, which is the same path run_training() took.
+
+    Returns (hw_net, spec, ckpt).
+    """
+    _require_torch()
+    from .config import (InputSpec, EncoderSpec, OutputSpec, DownsampleSpec,
+                         HeadSpec, NeuronSpec, TrainSpec)
+    from .model import build_model
+
+    ckpt = torch.load(ckpt_path, map_location=device, weights_only=False)
+    c = ckpt["config"]
+    spec = {
+        "input": InputSpec(**c["input"]),
+        "encoder": EncoderSpec(**c["encoder"]),
+        "output": OutputSpec(**c["output"]),
+        "downsample": DownsampleSpec(**c["downsample"]),
+        "head": HeadSpec(**c["head"]),
+        "neuron": NeuronSpec(**c["neuron"]),
+        "train": TrainSpec(**c["train"]),
+    }
+    t = spec["train"]
+    net = build_model(spec).to(device)
+    if ckpt.get("qat_mode") == "inline":
+        net.to_qat_folded(bias_mode=t.fold_bias_mode,
+                          fold_bias_margin=t.fold_bias_margin,
+                          fold_bias_qat_form=t.fold_bias_qat_form)
+        net.load_state_dict(ckpt["state_dict"])
+        net.eval()
+        # export_deployed builds its plain Conv2d on the CPU
+        net = net.export_deployed().to(device)
+    else:
+        raise NotImplementedError(
+            f"qat_mode={ckpt.get('qat_mode')!r}: only inline-QAT checkpoints "
+            "are wired here. The thresholds of a tail/ptq checkpoint come from "
+            "fold_bn and would need that path instead.")
+    net.eval()
+    _check_against_export(net, ckpt.get("hardware_export"))
+    return net, spec, ckpt
+
+
+def _check_against_export(net, export):
+    """The rebuilt thresholds must equal the ones saved at training time."""
+    if not export:
+        return
+    from .neuron import HardwareLIFNode
+    nodes = [m for m in net.conv_fc if isinstance(m, HardwareLIFNode)]
+    for node, rec in zip(nodes, export["neuron_layers"]):
+        th = torch.as_tensor(node.hw_threshold_int()).reshape(-1).tolist()
+        saved = rec["threshold_int"]
+        saved = saved if isinstance(saved, list) else [saved]
+        if len(th) == 1 and len(saved) > 1:
+            th = th * len(saved)
+        if th != saved or node.hw_leak() != rec["leak"]:
+            raise RuntimeError(
+                f"rebuilt layer {rec['layer_index']} does not match the "
+                f"checkpoint's hardware_export (threshold or leak differ). The "
+                f"network being converted is not the one that was scored.")
+
+
+# ---------------------------------------------------------------------------
+# the integer description
+# ---------------------------------------------------------------------------
+
+def leak_shift_for(tau):
+    """tau -> the shift simpleSim uses, or None when tau is not a power of 2."""
+    tau = int(tau)
+    if tau >= 1 and tau & (tau - 1) == 0:
+        return int(math.log2(tau))
+    return None
+
+
+def integer_layers(net, tau_override=None):
+    """Read the deployed net into a list of integer layers.
+
+    Each entry:
+        kind        "conv" or "linear"
+        w           int64 array, the INT16 weight the chip stores
+        stride, padding
+        pool        avg-pool kernel applied to this layer's INPUT spikes (1 = none)
+        scale       membrane unit relative to the model's W_DELTA grid
+        threshold   int64 per output channel, for the `V > threshold` compare
+        tau, leak   tau the model trained with, and the simpleSim shift
+    """
+    from .neuron import HardwareLIFNode
+
+    mods = list(net.conv_fc)
+    out, pending_pool, scale = [], 1, 1
+    i = 0
+    while i < len(mods):
+        m = mods[i]
+        if isinstance(m, (layer.AvgPool2d, nn.AvgPool2d)):
+            k = m.kernel_size if isinstance(m.kernel_size, int) else m.kernel_size[0]
+            s = m.stride if isinstance(m.stride, int) else m.stride[0]
+            if k != s:
+                raise NotImplementedError("overlapping avg pool does not fold exactly")
+            pending_pool *= k
+            i += 1
+            continue
+        if isinstance(m, (layer.MaxPool2d, nn.MaxPool2d)):
+            raise NotImplementedError(
+                "max pool of spikes is an OR and needs its own neuron layer, "
+                "which adds a timestep. Not wired.")
+        if isinstance(m, (layer.Conv2d, nn.Conv2d, layer.Linear, nn.Linear)):
+            node = next(x for x in mods[i + 1:] if isinstance(x, HardwareLIFNode))
+            w = m.weight.detach().double().cpu().numpy()
+            w_int = np.rint(w * INT16_MAX).astype(np.int64)
+            # stored as float32, so k/32767 comes back within ~1e-3 of k
+            if np.abs(w * INT16_MAX - w_int).max() > 1e-2:
+                raise RuntimeError(f"{type(m).__name__} weights are not on the INT16 grid")
+            if np.abs(w_int).max() > INT16_MAX:
+                raise RuntimeError("weight outside INT16")
+            # the pool sits between the previous neuron and this layer's
+            # synapses, so it scales THIS layer's membrane
+            pool = pending_pool
+            scale = pool * pool
+            pending_pool = 1
+            th = torch.as_tensor(node.hw_threshold_int()).reshape(-1).cpu().numpy().astype(np.int64)
+            n_out = w.shape[0]
+            if th.size == 1:
+                th = np.full(n_out, int(th[0]), dtype=np.int64)
+            tau = node.hw_leak() if tau_override is None else int(tau_override)
+            entry = {
+                "kind": "conv" if w.ndim == 4 else "linear",
+                "w": w_int,
+                "pool": pool,
+                "scale": scale,
+                "threshold": scale * th + scale - 1,
+                "threshold_int_model": th,
+                "tau": tau,
+                "leak": leak_shift_for(tau),
+            }
+            if w.ndim == 4:
+                entry["stride"] = tuple(m.stride)
+                entry["padding"] = tuple(m.padding)
+            out.append(entry)
+            i += 1
+            continue
+        i += 1      # neuron, dropout, flatten: no synapses of their own
+    return out
+
+
+def make_chip_faithful(net, tau=None):
+    """Make the PyTorch model compute what the chip computes, in place.
+
+    Two changes, both evaluation-only:
+      * tau -> the given power of two, on every spiking layer (None keeps the
+        trained tau, which only works if it already is a power of two);
+      * the leak floors on the membrane's own grid, W_DELTA / scale, instead of
+        W_DELTA. Training floored every layer on W_DELTA, which behind a pool
+        rounds the leak to a multiple of `scale` LSBs where the chip rounds to 1.
+    Returns the per-layer scales applied.
+    """
+    from .neuron import HardwareLIFNode
+    nodes = [m for m in net.conv_fc if isinstance(m, HardwareLIFNode)]
+    scales = [L["scale"] for L in integer_layers(net)]
+    for node, s in zip(nodes, scales):
+        if tau is not None:
+            if node.learn_tau and hasattr(node, "raw_log2_tau"):
+                node.raw_log2_tau.data.fill_(math.log2(float(tau)))
+            elif node.learn_tau:
+                node.raw_tau.data.fill_(float(tau))
+            else:
+                node._tau_const.fill_(float(tau))
+        node.leak_grid = W_DELTA / s
+    return scales
+
+
+# ---------------------------------------------------------------------------
+# the fast simulator
+# ---------------------------------------------------------------------------
+
+class IntegerSim:
+    """simpleSim's arithmetic, layer by layer, on whole tensors.
+
+    Same update as hs_api's simple_sim.step_run, but it keeps the convolution
+    as a convolution instead of unrolling ~260M synapses into a sparse matrix,
+    so a clip takes a fraction of a second on a GPU. float64 holds every
+    membrane exactly (all values are integers far below 2**53).
+
+    tools/match_simplesim.py --selftest is what earns this the right to stand
+    in for simpleSim: it unrolls a small network of the same layer types into
+    hs_api's axon/neuron dicts, runs the real simple_sim, and requires every
+    spike of every neuron at every timestep to agree.
+    """
+
+    def __init__(self, layers, in_shape, device="cpu"):
+        for L in layers:
+            if L["leak"] is None:
+                raise ValueError(
+                    f"tau={L['tau']} is not a power of two, so simpleSim cannot "
+                    f"represent it (its leak is v // 2**leak). Pass a power-of-two "
+                    f"tau_override.")
+        self.layers = layers
+        self.in_shape = tuple(in_shape)
+        self.device = device
+        dt = torch.float64
+        self.w = [torch.as_tensor(L["w"], dtype=dt, device=device) for L in layers]
+        self.th = []
+        for L in layers:
+            t = torch.as_tensor(L["threshold"], dtype=dt, device=device)
+            self.th.append(t.reshape(-1, 1, 1) if L["kind"] == "conv" else t)
+        self.div = [float(2 ** L["leak"]) for L in layers]
+
+    def _drive(self, idx, spikes_in):
+        """Synaptic input to layer idx from the previous layer's 0/1 spikes."""
+        L, x = self.layers[idx], spikes_in
+        if L["pool"] > 1:
+            # sum, not mean: the 1/pool^2 lives in `scale`, which keeps it integer
+            x = F.avg_pool2d(x, L["pool"]) * (L["pool"] ** 2)
+        if L["kind"] == "conv":
+            return F.conv2d(x, self.w[idx], stride=L["stride"], padding=L["padding"])
+        return F.linear(x.flatten(1), self.w[idx])
+
+    @torch.no_grad()
+    def run(self, frames, flush_steps, record=False, record_output=False):
+        """frames: (T, C, H, W) 0/1. Returns (output spike counts per class, extra).
+
+        extra is per-layer spike counts per timestep when record=True, the
+        output layer's spikes per timestep (one 0/1 row per step) when
+        record_output=True, otherwise None."""
+        T = frames.shape[0]
+        V = None
+        counts = None
+        rec = [[] for _ in self.layers] if record else None
+        rows = [] if record_output else None
+        zeros = torch.zeros_like(frames[0])
+        for t in range(T + flush_steps):
+            x = (frames[t] if t < T else zeros).to(self.device, torch.float64).unsqueeze(0)
+            # phase one, every layer at once on the membrane carried in
+            if V is None:
+                drive_shapes = []
+                h = x
+                for i in range(len(self.layers)):
+                    h = self._drive(i, h)
+                    drive_shapes.append(h.shape)
+                V = [torch.zeros(s, dtype=torch.float64, device=self.device) for s in drive_shapes]
+            spikes = []
+            for i in range(len(self.layers)):
+                s = (V[i] > self.th[i]).to(torch.float64)
+                V[i] = V[i] * (1.0 - s)
+                V[i] = V[i] - torch.floor(V[i] / self.div[i])
+                spikes.append(s)
+            # phase two, axons plus the spikes fired this same step
+            V[0] = V[0] + self._drive(0, x)
+            for i in range(1, len(self.layers)):
+                V[i] = V[i] + self._drive(i, spikes[i - 1])
+            # simpleSim stores membranes as 35-bit signed fixed point and
+            # saturates; float64 does not. Equal only while nothing reaches
+            # the rail, so check rather than assume.
+            peak = max(float(v.abs().max()) for v in V)
+            self.max_abs_membrane = max(getattr(self, "max_abs_membrane", 0.0), peak)
+            if peak >= MEMBRANE_LIMIT:
+                raise OverflowError(
+                    f"membrane reached {peak:.0f}, past simpleSim's 35-bit range "
+                    f"({MEMBRANE_LIMIT}); IntegerSim no longer matches it")
+            out = spikes[-1].reshape(-1)
+            counts = out if counts is None else counts + out
+            if record:
+                for i, s in enumerate(spikes):
+                    rec[i].append(int(s.sum().item()))
+            if record_output:
+                rows.append([int(v) for v in out.tolist()])
+        return counts.cpu(), (rows if record_output else rec)
+
+
+# ---------------------------------------------------------------------------
+# unrolling into hs_api's dictionaries
+# ---------------------------------------------------------------------------
+
+def unroll_to_hs_api(layers, in_shape, neuron_model_factory):
+    """Build (axons, connections, outputs) in CRI_network's format.
+
+    Keys: input axons "A{i}" over the flattened (C, H, W) frame, the same
+    order as Christopher's DVS example; neurons "L{layer}_{flat index}".
+
+    neuron_model_factory(threshold:int, leak:int) -> an hs_api LIF_neuron.
+
+    Only call this on a small network. rank1 unrolls to roughly 260M synapses,
+    which hs_api holds as Python tuples.
+    """
+    C, H, W = in_shape
+    n_in = C * H * W
+    axons = {f"A{i}": [] for i in range(n_in)}
+    shapes = []
+    shp = (C, H, W)
+    for L in layers:
+        if L["kind"] == "conv":
+            c, h, w = shp
+            if L["pool"] > 1:
+                h, w = h // L["pool"], w // L["pool"]
+            kh, kw = L["w"].shape[2:]
+            ph, pw = L["padding"]
+            sh, sw = L["stride"]
+            shp = (L["w"].shape[0], (h + 2 * ph - kh) // sh + 1, (w + 2 * pw - kw) // sw + 1)
+        else:
+            shp = (L["w"].shape[0],)
+        shapes.append(shp)
+
+    keys = [[f"L{li}_{j}" for j in range(int(np.prod(s)))] for li, s in enumerate(shapes)]
+    connections = {}
+    for li, L in enumerate(layers):
+        shp = shapes[li]
+        per_ch = int(np.prod(shp[1:])) if len(shp) > 1 else 1
+        models = {}
+        for j, k in enumerate(keys[li]):
+            ch = j // per_ch
+            th = int(L["threshold"][ch])
+            if th not in models:
+                models[th] = neuron_model_factory(th, L["leak"])
+            connections[k] = ([], models[th])
+
+    def add(pre_key, post_key, weight, is_axon):
+        if weight == 0:
+            return
+        if is_axon:
+            axons[pre_key].append((post_key, int(weight)))
+        else:
+            connections[pre_key][0].append((post_key, int(weight)))
+
+    prev_shape = (C, H, W)
+    for li, L in enumerate(layers):
+        is_axon = li == 0
+        pre_keys = [f"A{i}" for i in range(n_in)] if is_axon else keys[li - 1]
+        w = L["w"]
+        if L["kind"] == "conv":
+            c_in, h_in, w_in = prev_shape
+            p = L["pool"]
+            hp, wp = h_in // p, w_in // p
+            c_out, h_out, w_out = shapes[li]
+            kh, kw = w.shape[2:]
+            ph, pw = L["padding"]
+            sh, sw = L["stride"]
+            for ci in range(c_in):
+                for y in range(h_in):
+                    for x in range(w_in):
+                        if y // p >= hp or x // p >= wp:
+                            continue
+                        py, px = y // p, x // p
+                        pre = pre_keys[(ci * h_in + y) * w_in + x]
+                        for oy in range(h_out):
+                            ky = py + ph - oy * sh
+                            if not 0 <= ky < kh:
+                                continue
+                            for ox in range(w_out):
+                                kx = px + pw - ox * sw
+                                if not 0 <= kx < kw:
+                                    continue
+                                for co in range(c_out):
+                                    post = keys[li][(co * h_out + oy) * w_out + ox]
+                                    add(pre, post, w[co, ci, ky, kx], is_axon)
+        else:
+            if prev_shape and len(prev_shape) == 3 and L["pool"] > 1:
+                c_in, h_in, w_in = prev_shape
+                p = L["pool"]
+                hp, wp = h_in // p, w_in // p
+                for ci in range(c_in):
+                    for y in range(h_in):
+                        for x in range(w_in):
+                            if y // p >= hp or x // p >= wp:
+                                continue
+                            pre = pre_keys[(ci * h_in + y) * w_in + x]
+                            flat = (ci * hp + y // p) * wp + x // p
+                            for o in range(w.shape[0]):
+                                add(pre, keys[li][o], w[o, flat], is_axon)
+            else:
+                for j, pre in enumerate(pre_keys):
+                    for o in range(w.shape[0]):
+                        add(pre, keys[li][o], w[o, j], is_axon)
+        prev_shape = shapes[li]
+    return axons, connections, keys

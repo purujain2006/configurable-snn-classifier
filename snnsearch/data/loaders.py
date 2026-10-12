@@ -27,13 +27,80 @@ kept exactly, because each was there for a reason:
                  oversubscription the original comment feared cannot happen.
 """
 
+import os
+import random
+import re
+
 from .._torch import _require_torch, torch, DataLoader, Subset
 from .base import DatasetBundle
 
 
+_SUBJECT = re.compile(r"user(\d+)", re.IGNORECASE)
+
+
+def subject_ids(dataset):
+    """Subject per sample, read from the file names, or None if unavailable.
+
+    DVS128 Gesture names every clip after its recording, e.g.
+    user07_fluorescent_led_3.npz, and spikingjelly's DatasetFolder keeps the
+    paths in `.samples`.
+    """
+    samples = getattr(dataset, "samples", None)
+    if not samples:
+        return None
+    ids = []
+    for s in samples:
+        path = s[0] if isinstance(s, (tuple, list)) else s
+        m = _SUBJECT.search(os.path.basename(str(path)))
+        if m is None:
+            return None
+        ids.append(int(m.group(1)))
+    return ids
+
+
+def split_indices(dataset, val_fraction=0.15, seed=1, val_split="subject"):
+    """(train_idx, val_idx, held_out_subjects) for carving val out of train.
+
+    "subject" holds out whole people. The test set is six people absent from
+    training, so validation should be people absent from training too.
+    Splitting by clip puts every subject on both sides, which makes validation
+    a memorization score: rank1 read 0.92 on it and 0.83 on test.
+
+    "clip" is the old split, kept so checkpoints scored with it can be
+    re-scored on the same clips.
+    """
+    n = len(dataset)
+    if val_split == "subject":
+        ids = subject_ids(dataset)
+        if ids is None:
+            print("loaders   : no subject ids in this dataset, falling back to a clip split")
+            val_split = "clip"
+    if val_split == "clip":
+        torch.manual_seed(seed)
+        indices = torch.randperm(n).tolist()
+        n_val = int(val_fraction * n)
+        return indices[n_val:], indices[:n_val], None
+    if val_split != "subject":
+        raise ValueError(f"val_split must be 'subject' or 'clip', got {val_split!r}")
+
+    # whole subjects, in a seeded order, until val holds val_fraction of clips
+    subjects = sorted(set(ids))
+    random.Random(seed).shuffle(subjects)
+    held, count = [], 0
+    for s in subjects:
+        if count >= val_fraction * n:
+            break
+        held.append(s)
+        count += ids.count(s)
+    held_set = set(held)
+    train_idx = [i for i, s in enumerate(ids) if s not in held_set]
+    val_idx = [i for i, s in enumerate(ids) if s in held_set]
+    return train_idx, val_idx, sorted(held)
+
+
 def build_dataloaders(bundle: DatasetBundle, batch_size: int, encoder=None,
                       val_fraction: float = 0.15, num_workers: int = 0,
-                      seed: int = 1):
+                      seed: int = 1, val_split: str = "subject"):
     """Returns (train_loader, val_loader, test_loader).
 
     `encoder` is applied inside the collate step rather than as a dataset
@@ -42,12 +109,12 @@ def build_dataloaders(bundle: DatasetBundle, batch_size: int, encoder=None,
     """
     _require_torch()
 
-    n = len(bundle.train)
-    n_val = int(val_fraction * n)
-    torch.manual_seed(seed)
-    indices = torch.randperm(n)
-    train_set = Subset(bundle.train, indices[n_val:])
-    val_set = Subset(bundle.train, indices[:n_val])
+    train_idx, val_idx, held = split_indices(bundle.train, val_fraction, seed, val_split)
+    if held is not None:
+        print(f"loaders   : validation = subjects {held} "
+              f"({len(val_idx)} clips), none of them in train")
+    train_set = Subset(bundle.train, train_idx)
+    val_set = Subset(bundle.train, val_idx)
 
     collate = _make_collate(bundle, encoder)
     kwargs = dict(batch_size=batch_size, pin_memory=True,

@@ -194,7 +194,8 @@ def make_loaders(cfg, bundle, encoder, spec, quiet=False):
     workers = cfg["search"].get("num_workers", 0)
     loaders = build_dataloaders(bundle, batch_size=spec["input"].N, encoder=encoder,
                                 num_workers=workers,
-                                seed=cfg["run"].get("seed", 1))
+                                seed=cfg["run"].get("seed", 1),
+                                val_split=cfg["search"].get("val_split", "subject"))
     # A trial and its replay must see the same number of gradient steps per
     # epoch. If these differ the two are not the same experiment, whatever the
     # configs say, and comparing their curves is meaningless.
@@ -359,6 +360,8 @@ def run_single(cfg, ckpt="best.pth", from_best=None, epochs=None,
                "val_acc": kw.get("val_acc", kw.get("hw_val_acc")),
                "train_acc": kw.get("train_acc"), "train_loss": kw.get("train_loss"),
                "lr": kw.get("lr"), "best_val_acc": kw.get("best_val_acc"),
+               "smoothed_val_acc": kw.get("smoothed_val_acc"),
+               "smoothing_window": kw.get("smoothing_window"),
                "firing_rate": kw.get("firing_rate")}
         with open(curve_path, "a", encoding="utf-8") as fh:
             fh.write(json.dumps(rec, default=str) + "\n")
@@ -368,7 +371,9 @@ def run_single(cfg, ckpt="best.pth", from_best=None, epochs=None,
             # alone cannot separate "trained differently" from "scored
             # differently", and that was exactly the question.
             print(f"  epoch {rec['epoch']:>3} [{rec['phase']:<5}] "
-                  f"val {rec['val_acc']:.4f}  best {rec['best_val_acc'] or 0:.4f}  "
+                  f"val {rec['val_acc']:.4f}  "
+                  f"avg{rec['smoothing_window'] or 0} {rec['smoothed_val_acc'] or 0:.4f}  "
+                  f"best {rec['best_val_acc'] or 0:.4f}  "
                   f"train {rec['train_acc'] or 0:.4f}  "
                   f"loss {rec['train_loss'] or 0:.4f}  lr {rec['lr'] or 0:.2e}"
                   + (f"  rate {rec['firing_rate']:.4f}"

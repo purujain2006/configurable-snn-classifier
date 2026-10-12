@@ -139,7 +139,12 @@ def hardware_export(net) -> dict:
                 "threshold_int": (th_int.reshape(-1).tolist() if torch.is_tensor(th_int)
                                   and th_int.numel() > 1 else int(torch.as_tensor(th_int).reshape(-1)[0])),
                 "per_channel_threshold": bool(torch.is_tensor(th_int) and th_int.numel() > 1),
+                # tau, kept under its old name so saved exports still compare
                 "leak": m.hw_leak(),
+                # what LIF_neuron(leak=...) takes: simpleSim does V -= V >> leak.
+                # None means this tau has no representation on chip.
+                "leak_shift": (int(math.log2(m.hw_leak()))
+                               if m.hw_leak() & (m.hw_leak() - 1) == 0 else None),
                 "shift": 0,
             })
             li += 1
