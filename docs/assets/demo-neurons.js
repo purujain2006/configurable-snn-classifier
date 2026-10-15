@@ -200,14 +200,16 @@
       keep: document.getElementById("il-keep")
     };
     function draw() {
+      // The chip leaks by a shift, V -= V >> k, so tau = 2^k. A learned tau is
+      // rounded in log2 space, as HardwareLIFNode.hw_tau does.
       const tauF = parseInt(els.tau.value, 10) / 100;
-      const leak = Math.round(tauF);
+      const leak = Math.pow(2, Math.min(7, Math.max(1, Math.round(Math.log2(tauF)))));
       const T = 24;
       const dec = tau => { const ys = [1]; for (let t = 1; t < T; t++) ys.push(ys[t - 1] * (1 - 1 / tau)); return ys; };
       const xs = Array.from({ length: T }, (_, i) => i);
       window.Site.linePlot(cv, [
-        { xs, ys: dec(tauF), color: "#cf8763", width: 2, label: `float τ=${tauF.toFixed(2)} (training illusion)`, dots: true, dotR: 2 },
-        { xs, ys: dec(leak), color: "#e0a94f", width: 2, dash: [6, 4], label: `chip leak=${leak} (reality)`, dots: true, dotR: 2 }
+        { xs, ys: dec(tauF), color: "#cf8763", width: 2, label: `learned τ=${tauF.toFixed(2)}`, dots: true, dotR: 2 },
+        { xs, ys: dec(leak), color: "#e0a94f", width: 2, dash: [6, 4], label: `on chip, τ=${leak}`, dots: true, dotR: 2 }
       ], { height: 285, xlabel: "timestep", ylabel: "membrane (no input)", ymin: 0, ymax: 1 });
       els.out.textContent = tauF.toFixed(2);
       els.f.textContent = tauF.toFixed(2);

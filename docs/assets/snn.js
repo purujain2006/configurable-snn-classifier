@@ -6,7 +6,7 @@
    Every function mirrors its Python counterpart line-for-line so
    the interactive demos on this site compute the SAME numbers the
    real code does. Verified against snnsearch outputs (see
-   tools/test_snn_port.js in the repo).
+   tests/test_snn_port.js in the repo).
    ============================================================ */
 (function (root, factory) {
   if (typeof module === "object" && module.exports) module.exports = factory();
@@ -22,7 +22,7 @@
   const W_ALPHA = 1.0;
   const INT16_MAX = Math.pow(2, W_BITS - 1) - 1; // 32767
   const W_DELTA = W_ALPHA / INT16_MAX;           // 1/32767
-  const HW_TAU_CHOICES = [2, 3, 4, 6, 8, 16, 32, 63];
+  const HW_TAU_CHOICES = [2, 4, 8, 16];
   const HW_TAU_MIN = 2, HW_TAU_MAX = 128;
 
   /* ---------------- config defaults (section 1 dataclasses) ------------- */
@@ -194,38 +194,46 @@
       throw e;
     }
 
+    // Fan-in counts the neurons that actually connect. An average pool has no
+    // neurons on chip; it folds into the next layer, so every neuron in front
+    // of a 2x2 pool connects directly and fan-in grows by 4. A flatten or GAP
+    // head connects to every neuron of the last conv layer, before its pool.
+    // Mirrors snnsearch/hardware.py check_feasibility.
+    const check = (value, limit, label) => {
+      if (value > limit) violations.push(`${label} ${value} > ${limit}`);
+    };
     const firstFcWidth = plan.linears.length ? plan.linears[0].out_features : 0;
-
+    let prevPool = 1;
     for (const b of plan.blocks) {
       const k = b.kernel_size, s = b.stride;
-      const fanIn = k * k * b.in_channels;
-      const isLast = b.index === plan.blocks.length - 1;
-      let fanOut, fanOutLabel;
-      if (isLast) { fanOut = firstFcWidth; fanOutLabel = "fan_out(->fc)"; }
-      else { fanOut = Math.pow(Math.ceil(k / s), 2) * b.out_channels; fanOutLabel = "fan_out(->conv)"; }
-
+      const scale = prevPool * prevPool;
+      const fanIn = k * k * b.in_channels * scale;
+      const fanOut = Math.pow(Math.ceil(k / s), 2) * b.out_channels;
+      const tag = `block${b.index}`;
       if (b.index === 0) {
-        const totalAxons = b.in_hw[0] * b.in_hw[1] * b.in_channels;
-        if (totalAxons > AXON_LIMITS.total_axons)
-          violations.push(`block0: total_axons ${totalAxons} > ${AXON_LIMITS.total_axons}`);
-        if (fanOut > AXON_LIMITS.fan_out)
-          violations.push(`block0: axonal_${fanOutLabel} ${fanOut} > ${AXON_LIMITS.fan_out}`);
-        if (fanIn > AXON_LIMITS.fan_in)
-          violations.push(`block0: axonal_fan_in ${fanIn} > ${AXON_LIMITS.fan_in}`);
+        check(b.in_hw[0] * b.in_hw[1] * b.in_channels, AXON_LIMITS.total_axons, `${tag}: total_axons`);
+        check(fanOut, AXON_LIMITS.fan_out, `${tag}: axonal_fan_out`);
+        check(fanIn, AXON_LIMITS.fan_in, `${tag}: axonal_fan_in`);
+        check(0, NEURON_LIMITS.fan_in, `${tag}: neuron_fan_in (bias)`);
       } else {
-        if (fanOut > NEURON_LIMITS.fan_out)
-          violations.push(`block${b.index}: neuron_${fanOutLabel} ${fanOut} > ${NEURON_LIMITS.fan_out}`);
-        if (fanIn > NEURON_LIMITS.fan_in)
-          violations.push(`block${b.index}: neuron_fan_in ${fanIn} > ${NEURON_LIMITS.fan_in}`);
+        check(fanOut, NEURON_LIMITS.fan_out, `block${b.index - 1}: neuron_fan_out`);
+        check(fanIn, NEURON_LIMITS.fan_in, `${tag}: neuron_fan_in`);
       }
+      if (b.index === plan.blocks.length - 1)
+        check(firstFcWidth, NEURON_LIMITS.fan_out, `${tag}: neuron_fan_out(->fc)`);
+      prevPool = b.pool ? b.pool_kernel : 1;
     }
 
     for (const lin of plan.linears) {
       const tag = lin.is_classifier ? "classifier" : `fc${lin.index}`;
-      if (lin.in_features > NEURON_LIMITS.fan_in)
-        violations.push(`${tag}: neuron_fan_in ${lin.in_features} > ${NEURON_LIMITS.fan_in}`);
-      if (!lin.is_classifier && lin.out_features > NEURON_LIMITS.fan_out)
-        violations.push(`${tag}: neuron_fan_out ${lin.out_features} > ${NEURON_LIMITS.fan_out}`);
+      let fanIn = lin.in_features;
+      if (lin.index === 0 && plan.blocks.length) {
+        const last = plan.blocks[plan.blocks.length - 1];
+        fanIn = last.out_channels * last.conv_out_hw[0] * last.conv_out_hw[1];
+      }
+      check(fanIn, NEURON_LIMITS.fan_in, `${tag}: neuron_fan_in`);
+      if (!lin.is_classifier)
+        check(lin.out_features, NEURON_LIMITS.fan_out, `${tag}: neuron_fan_out`);
     }
     return [violations.length === 0, violations];
   }

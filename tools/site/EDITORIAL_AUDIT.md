@@ -2699,7 +2699,7 @@ Retained examples include “leaky integrate-and-fire,” “multiply-accumulate
 
 ## Verification
 
-- All eight HTML pages pass `node tools/validate_pages.js`, including element lookups, tag balance, section references, and internal HTML links.
+- All eight HTML pages pass `node tools/site/validate_pages.js`, including element lookups, tag balance, section references, and internal HTML links.
 - Shared navigation and modified demo/reference scripts pass Node syntax checks.
 - Browser checks cover working results anchors, the glossary disclosure, desktop table rendering, and mobile containment of wide tables. At 390 px, all eight pages have no page-level horizontal overflow and all 49 generated section anchors resolve. Results were also inspected at 1280 and 1440 px. Wide tables remain locally scrollable. The glossary expands correctly, and browser error logs were empty.
 - No training experiment was rerun and no benchmark accuracy was independently reproduced as part of this editorial task.

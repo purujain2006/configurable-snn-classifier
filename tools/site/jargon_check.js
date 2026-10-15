@@ -1,31 +1,37 @@
 // Fails if a technical term is used in prose before the site defines it.
 // Reading order is the page order in the nav, then position within the page.
 const fs = require('fs'), path = require('path');
-const DOCS = path.join(__dirname, '..', 'docs');
+const DOCS = path.join(__dirname, '..', '..', 'docs');
 const ORDER = ['index.html', 'neurons.html', 'architecture.html', 'hardware.html',
                'training.html', 'search.html', 'results.html', 'reference.html'];
 
 // term -> the exact markup that constitutes its definition
 const TERMS = [
+  ['neuromorphic',       'index.html',        'neuromorphic computer, meaning one built'],
+  ['FPGA',               'index.html',        'FPGAs, chips whose circuits can be reprogrammed'],
+  [' spike',             'index.html',        'A spike is a single event'],
+  ['membrane potential', 'index.html',        'class="term">membrane potential<'],
+  ['leaky integrate',    'index.html',        '<strong>leaky integrate-and-fire</strong>'],
   ['synapse',            'index.html',        '<dt>synapse</dt>'],
   ['axon',               'index.html',        '<dt>axon</dt>'],
   ['fan-in',             'index.html',        '<dt>fan-in</dt>'],
   ['fan-out',            'index.html',        '<dt>fan-out</dt>'],
-  ['connection limit',   'index.html',        'connection/routing limits'],
-  ['routing',            'index.html',        "counts rows in the platform's routing table"],
-  ['converter',          'index.html',        'class="term">converter<'],
-  ['truncat',            'index.html',        'class="term">Truncation<'],
-  ['membrane potential', 'index.html',        'class="term">membrane potential<'],
-  ['w_alpha',            'index.html',        '<code>w_alpha</code> and fixes it at 1'],
-  ['batch normalization','index.html',        'a layer that rescales each channel using statistics'],
-  ['leaky integrate',    'index.html',        '<strong>leaky integrate-and-fire</strong>'],
-  ['tdbn',               'architecture.html', '<code>tdbn</code> is a'],
-  ['dilation',           'architecture.html', "<code>dilation</code> spaces a kernel's taps"],
-  ['global average pool','architecture.html', 'Global average pooling reduces each channel to its mean'],
-  ['rasteriz',           'training.html',     '<dt>rasterization</dt>'],
-  ['surrogate',          'neurons.html',      'Substituting the derivative of a smooth function'],
-  ['straight-through',   'hardware.html',     'Straight-through estimator: forward uses'],
-  ['flush',              'index.html',        'class="term">flush<'],
+  ['INT16',              'index.html',        '<dt>INT16</dt>'],
+  ['batch normalization','index.html',        'the layer that rescales each channel during training'],
+  ['folding',            'index.html',        'a step called folding'],
+  ['bias neuron',        'index.html',        '<em>bias neuron</em>'],
+  ['validation',         'index.html',        'A validation set, held back from training'],
+  ['convolutional',      'index.html',        'networks that slide small learned filters'],
+  ['epoch',              'neurons.html',      '(passes through the training data)'],
+  ['surrogate',          'neurons.html',      'class="term">surrogate gradient<'],
+  ['straight-through',   'neurons.html',      '<em>straight-through estimator</em>'],
+  ['global average pool','architecture.html', '<dt>flatten, GAP</dt>'],
+  ['dropout',            'architecture.html', 'dropout (silencing random units during training'],
+  ['overfitting',        'architecture.html', 'overfitting: learning details of the training clips'],
+  ['SynOp',              'architecture.html', 'SynOps (synaptic operations)'],
+  ['w_alpha',            'hardware.html',     'The scale <code>w_alpha</code> says'],
+  ['flush',              'training.html',     'called flush steps'],
+  ['hyperparameter',     'search.html',       'class="term">hyperparameter<'],
 ];
 
 // Words that must never appear in prose at all.

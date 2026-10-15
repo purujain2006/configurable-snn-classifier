@@ -4,8 +4,8 @@
 <head>
 <meta charset="utf-8"/>
 <meta content="width=device-width, initial-scale=1.0" name="viewport"/>
-<title> Neuron Model </title>
-<meta content="Building the neuron HiAER-Spike implements: update order, integer leak, quantized threshold, and training through a binary spike." name="description"/>
+<title>The neuron</title>
+<meta content="HiAER-Spike&#x27;s neuron rebuilt in PyTorch: its update order, power-of-two leak, threshold range, and how a spiking network is trained." name="description"/>
 <link href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'&gt;&lt;rect width='32' height='32' fill='%23000'/&gt;&lt;path d='M3 22h5l3-13 4 19 3-11h4l2 5h5' fill='none' stroke='%23e0a94f' stroke-width='2.4' stroke-linejoin='round'/&gt;&lt;/svg&gt;" rel="icon"/>
 <link href="https://fonts.googleapis.com" rel="preconnect"/>
 <link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
@@ -17,32 +17,27 @@
 <div class="hero-inner">
 <p class="kicker">Page 2</p>
 <h1>The neuron</h1>
-<p class="lede">The neuron used for training follows HiAER-Spike’s update order. The simulator shows its membrane potential and output spikes as you change the input pattern, weight, leak, and threshold. The sections below explain the update equation and how the model is trained.</p>
+<p class="lede">HiAER-Spike runs one kind of neuron, with a fixed update order, a leak that must be a power of two, and a threshold limited to (0, 1]. This page rebuilds that neuron in PyTorch and explains how a network made of it can be trained.</p>
 </div>
 </header>
 <main class="with-toc">
 <div class="wrap">
 <section class="reveal" id="update">
-<h2><span class="sec-num">2.1</span>The update rule</h2><p>In the equation below, <code>v</code> is stored membrane potential, <code>x</code> is the incoming weighted input, <code>theta</code> (θ) is the firing threshold, and <code>tau</code> (τ) sets the leak. A spike is a binary output event. The code tests the old potential before adding this timestep's input.</p>
-<p> A LIF neuron stores one value, the membrane potential <code>v</code>. Its behavior is set by three parameters: </p>
+<h2><span class="sec-num">2.1</span>The update rule</h2>
+<p>A leaky integrate-and-fire neuron stores one number, its membrane potential <code>v</code>. Three constants set its behavior.</p>
 <dl class="kv">
-<dt>τ</dt><dd>The leak constant. Each timestep <code>v</code> moves toward rest by <code>v/τ</code>. At τ=2 half the potential remains after one step; at τ=63 about 98.4% remains.</dd>
-<dt>θ</dt><dd>The firing threshold. The neuron emits a spike when <code>v</code> exceeds it.</dd>
-<dt>v_reset</dt><dd>The value <code>v</code> takes after firing, fixed at 0 here. The reset is unconditional, so any overshoot above θ is discarded.</dd>
+<dt>τ</dt><dd>The leak. Each step <code>v</code> loses <code>v/τ</code>, rounded down. At τ = 2 half the potential remains after one step; at τ = 16, about 94% remains.</dd>
+<dt>θ</dt><dd>The threshold. The neuron fires when <code>v</code> is greater than θ.</dd>
+<dt>v_reset</dt><dd>The value <code>v</code> takes after firing, which is 0 here. Anything above θ is thrown away.</dd>
 </dl>
-<p> Input arrives once per timestep as a single number: the sum of connection weights over the upstream neurons that fired. Weights may be negative, which lowers the potential. </p>
-<p>The chip performs the four operations in a fixed order, recorded in the code as:</p>
-<details class="technical-details"><summary>Source excerpt</summary><div class="detail-body"><div class="code-block">
-<div class="code-head"><span class="file">snnsearch/neuron.py</span><span class="loc">HardwareLIFNode docstring</span></div>
-<pre><code class="language-python">#   spike = v &gt; theta ;  v = reset ;  v -= (v - v_reset)/tau ;  v += x</code></pre>
-</div></div></details>
-<ol class="steps">
-<li><span class="s-title">Fire</span> Compare the potential carried in from the previous timestep against θ, using a strict inequality. Emit a spike if it is larger.</li>
-<li><span class="s-title">Reset</span> Set the potential to 0 if the neuron fired.</li>
-<li><span class="s-title">Leak</span> Decay the potential toward rest by <code>v/τ</code>.</li>
-<li><span class="s-title">Integrate</span> Add this timestep's input at full magnitude.</li>
+<p>The input at each step is one number: the sum of the weights of the incoming connections whose source neuron fired. Weights can be negative, which lowers the potential. The chip performs four operations in a fixed order:</p>
+<ol>
+<li><strong>Fire.</strong> Compare the potential carried in from the previous step against θ. Emit a spike if it is strictly greater.</li>
+<li><strong>Reset.</strong> If the neuron fired, set the potential to 0.</li>
+<li><strong>Leak.</strong> Subtract <code>v/τ</code>, rounded down.</li>
+<li><strong>Integrate.</strong> Add this step's input at full size.</li>
 </ol>
-<p> Firing happens before integration, so input arriving at timestep <code>t</code> can influence the output no earlier than <code>t+1</code>. A network of five spiking layers therefore produces its response five timesteps after the input that caused it. Section 5.4 uses this fact directly. </p>
+<p>Because the neuron fires before it integrates, input arriving at step <code>t</code> can cause a spike no earlier than step <code>t+1</code>. A network with five spiking layers answers five steps after the input that caused the answer. <a href="training.html#flush">Section 5.4</a> uses this.</p>
 <div class="demo">
 <div class="demo-head">
 <span class="demo-tag">INTERACTIVE</span>
@@ -91,15 +86,13 @@
       learned threshold inside that range.
     </div>
 </div>
-<details class="technical-details"><summary>Work through three timesteps</summary><div class="detail-body"><p>Start with membrane potential v = 0, leak τ = 4, threshold θ = 1, and input 0.6 on each step. The chip tests the old potential before adding the new input.</p><ol><li>At the first step, 0 is below threshold. Leak leaves it at 0, then input raises it to 0.6.</li><li>At the second step, 0.6 is still below threshold. Leak removes 0.6 / 4 = 0.15, and the new input raises the potential to 1.05.</li><li>At the third step, 1.05 exceeds the threshold, so the neuron emits a spike and resets to 0. The new input then raises it to 0.6.</li></ol><p>The spike appears one step after the potential first passes 1. Changing the update order changes the spike time. In a stack of layers, each layer adds its own delay.</p></div></details></section>
+<details class="technical-details"><summary>Work through three steps by hand</summary><div class="detail-body"><p>Start at <code>v</code> = 0 with τ = 4, θ = 1, and an input of 0.6 on every step.</p><ol><li>Step 1: 0 is below θ, so no spike. The leak leaves 0, and the input raises <code>v</code> to 0.6.</li><li>Step 2: 0.6 is below θ. The leak removes 0.6 / 4 = 0.15, and the input raises <code>v</code> to 1.05.</li><li>Step 3: 1.05 is above θ, so the neuron fires and resets to 0. The input raises <code>v</code> to 0.6 again.</li></ol><p>The spike comes one step after the potential first passed 1. Each layer of a network adds one such step.</p></div></details>
+</section>
 <section class="reveal" id="order">
 <h2><span class="sec-num">2.2</span>Matching the chip's update order</h2>
-<p> The SNN library used here, SpikingJelly, provides a LIF neuron. Its update order differs from the chip's in two ways. It adds input before testing the threshold, so a spike can occur in the same timestep as the input that caused it. It also scales input by the leak, computing <code>v += (x − v)/τ</code>, so a neuron with τ=4 receives a quarter of each input. </p>
-<details class="technical-details"><summary>Matching the hardware update</summary><div class="detail-body">
-<p> Training with the library neuron and converting afterwards produces a network whose spike times and effective input scale both differ from what was trained. The error grows with depth, because each layer contributes its own timing offset. </p>
-<p>Training uses a custom neuron that implements the chip’s update order. This aligns input scaling and spike timing before conversion.</p>
-<p> <code>HardwareLIFNode</code> implements fire, reset, leak, integrate in that order, with undecayed input. <code>build_neuron</code> returns it on every path and raises <code>NotImplementedError</code> for any other neuron type, so no alternative can be selected by accident. </p>
-</div></details>
+<p>This project trains with SpikingJelly, a PyTorch library for spiking networks. Its LIF neuron differs from the chip's in two ways. It adds the input before testing the threshold, so a spike can come in the same step as the input that caused it. It also shrinks the input by the leak, computing <code>v += (x − v)/τ</code>, so at τ = 4 the neuron receives a quarter of each input.</p>
+<p>A network trained with the library neuron and then run on the chip would see different spike timing and a different input scale in every layer, and the error grows with depth. That motivates <code>HardwareLIFNode</code>, a PyTorch neuron that runs the chip's order exactly: fire, reset, leak, integrate, with the input added at full size. It is the only neuron the tool builds, so the training network and the deployed network follow the same rule.</p>
+<p>The demo drives both neurons with the same input. Compare where each one spikes.</p>
 <div class="demo">
 <div class="demo-head">
 <span class="demo-tag">INTERACTIVE</span>
@@ -128,43 +121,39 @@
 </div>
 </section>
 <section class="reveal" id="leak">
-<h2><span class="sec-num">2.3</span>The leak is an integer</h2>
-<p> Section 1.3 noted that the chip holds the leak in an integer register. The converter writes <code>round(τ)</code> into it. </p>
-<details class="technical-details"><summary>Implementation details</summary><div class="detail-body">
-<p>An earlier study sampled τ continuously between 1.5 and 2.5. Those values map to the same integer leak value, 2, after conversion. A relationship measured before rounding does not establish a difference between deployed leak settings.</p>
-<p> τ has to be sampled from integers, and a learned τ has to be rounded inside the forward pass so that the loss responds to the value that will actually deploy. The useful integers are closely spaced at the low end, where consecutive values behave differently, and sparse at the high end, where they do not. </p>
-<p> <code>HW_TAU_CHOICES = [2, 3, 4, 6, 8, 16, 32, 63]</code> defines the sampled set. The <code>hw_tau</code> property clamps to the register range and rounds, passing the gradient through unchanged so the parameter remains trainable. </p>
-</div></details>
+<h2><span class="sec-num">2.3</span>The leak is a shift</h2>
+<p>The chip stores the leak as a shift amount <code>k</code> and subtracts <code>v &gt;&gt; k</code> each step, which equals <code>v / 2<sup>k</sup></code> rounded down. So τ can only be a power of two: 2, 4, 8, 16 and so on. A network trained with τ = 3 has nothing on the chip to run it with.</p>
+<p>Letting training learn τ is still useful, which motivates learning <code>log2(τ)</code> and rounding it during training. The forward pass always uses a power of two, and the gradient still reaches the parameter through the technique in section 2.5. A search samples the starting τ from {2, 4, 8, 16}.</p>
+<p>The rounding down also matters. When the potential is smaller than 2<sup>k</sup> in the chip's integer units, the leak rounds to zero and the potential does not decay at all. Training rounds the leak the same way.</p>
 <div class="demo">
 <div class="demo-head">
 <span class="demo-tag">INTERACTIVE</span>
-<span class="demo-title">Continuous τ against the deployed leak</span>
-<span class="demo-sub">The terracotta curve shows the decay a continuous τ would produce. The dashed amber curve shows the decay <code>round(τ)</code> produces. Moving the slider within a plateau changes nothing on chip.</span>
+<span class="demo-title">A learned τ on the chip</span>
+<span class="demo-sub">Each curve is a potential leaking with no input. The terracotta curve uses the τ that training learned. The dashed amber curve uses the power of two the chip runs, the nearest one in log scale. Within each step of the amber curve, moving the slider changes nothing on the chip.</span>
 </div>
 <div class="demo-body">
 <div class="controls">
 <div class="ctl" style="flex:1;min-width:220px;">
-<label for="il-tau">continuous τ <output id="il-tau-out">2.10</output></label>
-<input id="il-tau" max="450" min="150" type="range" value="210"/>
+<label for="il-tau">learned τ <output id="il-tau-out">3.00</output></label>
+<input id="il-tau" max="2000" min="150" type="range" value="300"/>
 </div>
 </div>
 <canvas height="240" id="il-canvas"></canvas>
 <div class="stats">
-<div class="stat"><div class="k">sampled τ</div><div class="val" id="il-float">2.10</div></div>
-<div class="stat"><div class="k">deployed leak</div><div class="val warn" id="il-int">2</div><div class="sub">round(τ)</div></div>
+<div class="stat"><div class="k">learned τ</div><div class="val" id="il-float">3.00</div></div>
+<div class="stat"><div class="k">τ on chip</div><div class="val warn" id="il-int">4</div><div class="sub">nearest power of two</div></div>
 <div class="stat"><div class="k">retained per step</div><div class="val" id="il-keep">50%</div></div>
 </div>
 </div>
 </div>
+<details class="technical-details"><summary>Why weight decay no longer touches τ</summary><div class="detail-body">
+<p>Weight decay is a training penalty that pulls every parameter toward zero. It used to apply to τ as well. Three otherwise identical runs that started at τ = 8 and trained for 300 epochs (passes through the training data) ended with τ near 5.5, 3 and 0 as the weight decay rose from 0.0001 to 0.01. The search was setting τ through weight decay without meaning to, which motivated applying weight decay only to connection weights.</p>
+</div></details>
 </section>
 <section class="reveal" id="threshold">
-<h2><span class="sec-num">2.4</span>Keeping the threshold representable</h2>
-<p>The chip stores the threshold as <code>int(θ / w_delta)</code>, where <code>w_delta = 1/32767</code>. The project requires a positive threshold no greater than 1.0. Larger values exceed the selected encoding range. Nonpositive thresholds can cause firing at rest and are rejected.</p>
-<details class="technical-details"><summary>Keeping the threshold within range</summary><div class="detail-body">
-<p> The project treats θ as a parameter worth learning per layer. An unconstrained parameter can take any real value during training, including values that cannot be encoded. </p>
-<p>The base threshold uses a constrained parameterization so optimizer updates remain within the supported range. Folding can shift that threshold further. Deployment checks inspect the raw folded value to avoid hiding an illegal result behind a safety clamp.</p>
-<p> The learned value is stored as <code>raw_threshold</code> and read as <code>sigmoid(raw_threshold)</code>, which lies in (0, 1) by construction. <code>fake_quantize_threshold</code> then snaps it to the integer grid. Snapping means rounding a continuous value onto the discrete steps the chip allows, here 1/32767, or about 0.0000305. <code>raw_v_threshold()</code> exposes the unclamped value for the deployment report. </p>
-</div></details>
+<h2><span class="sec-num">2.4</span>Keeping the threshold in range</h2>
+<p>The chip stores θ on the same integer grid as the weights, as a whole number from 1 to 32,767, so θ must lie in (0, 1]. A larger θ cannot be stored, and a θ of zero or below makes the neuron fire on every step.</p>
+<p>A threshold that training learns freely can wander out of that range, which motivates writing θ = sigmoid(<code>raw</code>). A sigmoid always returns a value between 0 and 1, so no update can push θ out. The result is then rounded to the grid. Folding batch normalization can still shift θ later (<a href="hardware.html#folding">section 4.3</a>), so the deployment check reads the folded value directly.</p>
 <div class="demo">
 <div class="demo-head">
 <span class="demo-tag">INTERACTIVE</span>
@@ -188,13 +177,9 @@
 </div>
 </section>
 <section class="reveal" id="surrogate">
-<h2><span class="sec-num">2.5</span>Training through a binary spike</h2>
-<p> Gradient descent adjusts a weight using the derivative of the loss with respect to that weight. The spike function stands in the way: it outputs 0 below the threshold and 1 above it, so its derivative is zero everywhere it is defined and undefined at the threshold itself. </p>
-<details class="technical-details"><summary>Backpropagation through a spike</summary><div class="detail-body">
-<p> With a zero derivative at the spike, backpropagation delivers no gradient to any weight beneath it. Applied literally, the network cannot be trained by gradient descent. </p>
-<p> The forward pass has to keep the true binary spike, because that is what the chip computes. Only the backward pass can be altered. Substituting the derivative of a smooth function that approximates the step gives each neuron a gradient proportional to how close it came to firing. </p>
-<p> The neuron calls <code>surrogate.ATan()</code>, which returns a hard 0 or 1 forward and the derivative <code>α/2 · 1/(1 + (π/2 · αx)²)</code> backward. The same technique appears again in section 4.4 for weight rounding. </p>
-</div></details>
+<h2><span class="sec-num">2.5</span>Training through a spike</h2>
+<p>Gradient descent changes each weight in proportion to how much the loss would change if the weight moved slightly. A spike gets in the way. It is a step: 0 below θ and 1 above, so its slope is zero everywhere except at θ, where it is undefined. Backpropagation multiplies those slopes together, so no gradient would reach any weight below a spiking layer.</p>
+<p>The forward pass has to keep the real step, because that is what the chip computes, which motivates changing only the backward pass. It uses the slope of a smooth curve shaped like the step (here an arctangent). A neuron that came close to firing gets a large gradient, and one far from θ gets almost none. This is called a <span class="term">surrogate gradient</span>. The same idea, passing a gradient through a rounding step as if it were not there, is the <em>straight-through estimator</em> that <a href="hardware.html#ste">section 4.4</a> uses for weights.</p>
 <div class="demo">
 <div class="demo-head">
 <span class="demo-tag">INTERACTIVE</span>
@@ -221,38 +206,88 @@
 </div>
 </section>
 <section class="reveal" id="code">
-<h2><span class="sec-num">2.6</span>The forward pass</h2>
-<p>The implementation below combines the update order, integer leak, representable threshold, and surrogate gradient.</p>
-<details class="technical-details"><summary>Source excerpt</summary><div class="detail-body"><div class="code-block">
-<div class="code-head"><span class="file">snnsearch/neuron.py</span><span class="loc">single_step_forward</span></div>
+<h2><span class="sec-num">2.6</span>The code</h2>
+<p>The forward pass below combines sections 2.1 to 2.5.</p>
+<details class="technical-details"><summary>Source: snnsearch/neuron.py</summary><div class="detail-body"><div class="code-block">
+<div class="code-head"><span class="file">snnsearch/neuron.py</span><span class="loc">HardwareLIFNode.single_step_forward</span></div>
 <pre><code class="language-python">def single_step_forward(self, x: "torch.Tensor"):
     self.v_float_to_tensor(x)
     v_reset = 0.0 if self.v_reset is None else float(self.v_reset)
-    v_th = self.v_threshold                     # already on the chip's grid
-
-    fb = getattr(self, "_fold_bias", None)      # set during quantization-aware training
+    v_th = self.v_threshold
+    # During inline-fold QAT (ConvBNFoldQuant, threshold mode) the folded
+    # bias b' is delivered here each step instead of into the conv.
+    #
+    # It has to be applied the way the chip applies it. Adding b' to the
+    # input and lowering the threshold by b' are NOT the same operation
+    # once tau &gt; 1. A bias arrives every timestep and accumulates against
+    # the leak: the membrane offset after t steps without a spike is
+    #     d_t = b' * tau * (1 - (1 - 1/tau)^t)   -&gt;  b' * tau
+    # while a threshold shift is worth b' once and never compounds. At
+    # tau=63 a bias of 0.01*theta already moves the membrane by 0.63.
+    # export_deployed writes theta - b', so QAT must do the same or the
+    # trained network is not the deployed one. Measured on
+    # results/probe.pth the two forms disagree on 9-35% of
+    # channel-timesteps; see tools/analysis/fold_bias_equivalence.py.
+    fb = getattr(self, "_fold_bias", None)
     if fb is not None:
-        shape = [1, fb.shape[0]] + [1] * (x.dim() - 2)
-        x = x + fb.reshape(*shape)
-
+        shape = [1, fb.shape[0]] + [1] * (x.dim() - 2)   # broadcast over (N,C,...)
+        fb_b = fb.reshape(*shape)
+        if getattr(self, "_fold_bias_form", "threshold") == "threshold":
+            # quantize AFTER the shift, so the value is the one the chip
+            # stores, including saturation if the band was not enforced.
+            v_th = fake_quantize_threshold(v_th - fb_b)
+        else:
+            x = x + fb_b            # legacy form, kept for A/B only
     # 1. fire on the membrane carried in from the previous timestep.
-    #    subtracting one grid step turns the surrogate's "&gt;=" into the chip's "&gt;"
+    #    The chip compares v &gt; theta (strictly greater); one LSB of the
+    #    integer grid is W_DELTA, so subtracting it reproduces `&gt;` from
+    #    the surrogate's `&gt;=` without breaking the gradient.
     spike = self.surrogate_function(self.v - v_th - W_DELTA)
     # 2. hard reset
     spike_d = spike.detach() if self.detach_reset else spike
     self.v = v_reset * spike_d + (1.0 - spike_d) * self.v
-    # 3. integer leak toward v_reset
-    self.v = self.v - (self.v - v_reset) / self.hw_tau
+    # 3. leak toward v_reset, by INTEGER DIVISION on the chip's grid.
+    #
+    #    The membrane is an integer register, so the chip cannot subtract
+    #    a fractional leak. It computes floor(v_int / tau) and subtracts
+    #    that. A float division is close but never equal, and the error
+    #    accumulates over T steps and compounds through depth.
+    #
+    #    Flooring here also CLOSES the grid. Every weight is an exact
+    #    multiple of W_DELTA after fake quantization, spikes are 0 or 1,
+    #    and v starts at rest, so v stays on the grid as long as nothing
+    #    ever subtracts an off-grid amount. The float leak was the one
+    #    operation that did. With it floored, the simulated membrane is
+    #    the deployed membrane, step for step.
+    #
+    #    Note the dead zone this creates: when |v - v_reset| &lt; tau LSBs
+    #    the leak floors to zero and the membrane does not decay at all.
+    #    That is real hardware behaviour, not an artifact, and it makes
+    #    the large-tau end of HW_TAU_CHOICES behave very differently from
+    #    what a continuous model predicts.
+    #
+    #    floor has zero gradient everywhere it is defined, so the
+    #    straight-through estimator passes the float leak's gradient, the
+    #    same way fake_quantize_weight does for the weights.
+    #    Behind an AvgPool2d(p) the membrane moves in steps of
+    #    W_DELTA / p^2, and the deployed network keeps it in those finer
+    #    units (see hs_export.py). leak_grid lets evaluation floor on
+    #    that grid, which is what the chip does. Training leaves it at
+    #    W_DELTA.
+    leak = (self.v - v_reset) / self.hw_tau
+    if getattr(self, "integer_leak", True):
+        grid = getattr(self, "leak_grid", W_DELTA)
+        leak = _ste(torch.floor(leak / grid) * grid, leak)
+    self.v = self.v - leak
     # 4. integrate this timestep's input, undecayed
     self.v = self.v + x
     return spike</code></pre>
 </div></div></details>
 <ul>
-<li><code>self.v</code> holds one potential per neuron in the layer, so the update runs across the whole layer at once.</li>
-<li>Subtracting <code>W_DELTA</code> before the comparison reproduces the chip's strict inequality using a surrogate that tests for greater-or-equal.</li>
-<li><code>spike.detach()</code> in the reset keeps gradients from flowing through the reset path, which stabilizes training.</li>
-<li><code>self.hw_tau</code> returns the stored integer, or the rounded learned value when τ is trainable.</li>
-<li>The <code>_fold_bias</code> block is inactive during ordinary training. Section 4.5 describes what sets it.</li>
+<li><code>self.v</code> holds one potential per neuron in the layer, so one call updates the whole layer.</li>
+<li>Subtracting <code>W_DELTA</code>, one step of the integer grid, turns the library's "greater or equal" test into the chip's "strictly greater".</li>
+<li><code>leak_grid</code> is the integer step of this layer's membrane. Behind an average pool the membrane moves in finer steps (<a href="hardware.html#limits">section 4.1</a>), and the leak rounds down on that finer grid, as the chip does.</li>
+<li>The <code>_fold_bias</code> block applies batch normalization's bias as a threshold shift, when the network deploys its bias that way (<a href="hardware.html#folding">section 4.3</a>).</li>
 </ul>
 </section>
 </div>

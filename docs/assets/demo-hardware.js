@@ -223,7 +223,7 @@
   /* ---------- 4.3 bias into input vs theta - b' ---------- */
   (function foldBiasForm() {
     if (!$("fx-canvas")) return;
-    const TAUS = SNN.HW_TAU_CHOICES;      // [2,3,4,6,8,16,32,63]
+    const TAUS = SNN.HW_TAU_CHOICES;      // [2, 4, 8, 16]
     const STEPS = 19;                     // T=16 plus 3 flush steps, as deployed
     const THETA = 1.0, W = 0.30;
     let train = [];
@@ -271,8 +271,8 @@
       const pad = 12, half = (w - pad * 3) / 2;
       const vmax = Math.max(THETA * 1.6, ...A.vs, ...B.vs) * 1.05;
 
-      [[A, 0, "bias added to input", "what QAT trained", THETA],
-       [B, 1, "threshold lowered to θ − b′", "what the chip runs", THETA - b]
+      [[A, 0, "bias added every step", "bias neurons", THETA],
+       [B, 1, "threshold lowered to θ − b′", "threshold shift", THETA - b]
       ].forEach(([R, side, title, sub, thLine]) => {
         const x0 = pad + side * (half + pad), top = 46, ph = 150;
         ctx.fillStyle = P.text; ctx.font = "600 14px Inter, sans-serif";

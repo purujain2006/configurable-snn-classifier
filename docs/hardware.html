@@ -4,8 +4,8 @@
 <head>
 <meta charset="utf-8"/>
 <meta content="width=device-width, initial-scale=1.0" name="viewport"/>
-<title>Platform Constraints</title>
-<meta content="Checking connection limits, removing batch normalization, and training on the INT16 grid the chip provides." name="description"/>
+<title>Fitting the chip</title>
+<meta content="The connection limits, 16-bit weights, removing batch normalization, and how each finished network is checked on a simulator of HiAER-Spike." name="description"/>
 <link href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'&gt;&lt;rect width='32' height='32' fill='%23000'/&gt;&lt;path d='M3 22h5l3-13 4 19 3-11h4l2 5h5' fill='none' stroke='%23e0a94f' stroke-width='2.4' stroke-linejoin='round'/&gt;&lt;/svg&gt;" rel="icon"/>
 <link href="https://fonts.googleapis.com" rel="preconnect"/>
 <link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
@@ -17,43 +17,29 @@
 <div class="hero-inner">
 <p class="kicker">Page 4</p>
 <h1>Fitting the chip</h1>
-<p class="lede">A configuration must fit the connection limits and use representable weights and neuron parameters. The examples below show the checks, integer mapping, and changes needed when batch normalization is removed.</p>
+<p class="lede">A trained network has to pass three tests before it can run on HiAER-Spike. It must fit the connection limits, its numbers must fit 16-bit integers, and its batch normalization must be removed. This page covers each test, and how the tool then checks the finished network on a simulator of the chip.</p>
 </div>
 </header>
 <main class="with-toc">
 <div class="wrap">
 <section class="reveal" id="limits">
-<h2><span class="sec-num">4.1</span>Connection limits as arithmetic</h2><p>An input axon carries an external input into the device. Fan-in counts connections arriving at one neuron; fan-out counts connections leaving one source. These are routing limits, separate from the number of learned weights. The package currently uses 16,000 input axons, the tested ceiling recorded for the L6m bitstream, rather than the field's representable maximum of 16,383.</p>
-<details class="technical-details"><summary>Implementation details</summary><div class="detail-body">
-<p>The hardware stores connections in tables with fixed capacity. A configuration that exceeds a connection limit must be rejected before deployment.</p>
-<p>The layer plan from section 3.2 provides the dimensions needed to check connection limits before training. This avoids spending training time on infeasible configurations.</p>
-<p> <code>check_feasibility()</code> walks the plan and returns a boolean with a list of violations. The search calls it before allocating any hardware, and reports a score of zero for configurations that fail. </p>
-</div></details>
-<details class="technical-details"><summary>Source excerpt</summary><div class="detail-body"><div class="code-block">
-<div class="code-head"><span class="file">snnsearch/hardware.py</span><span class="loc">the limits</span></div>
-<pre><code class="language-python">AXON_LIMITS = {
-    "total_axons": 16_383,
-    "fan_out": 4_096,   # axonal fan-out: how many neurons one input axon feeds
-    "fan_in": 8_191,    # axonal fan-in: how many axons feed one neuron
-}
-NEURON_LIMITS = {
-    "fan_out": 4_095,   # neuron-to-neuron fan-out
-    "fan_in": 8_159,    # neuron-to-neuron fan-in
-}</code></pre>
-</div></div></details>
-<p>The quantities compared against those limits are:</p>
+<h2><span class="sec-num">4.1</span>Connection limits</h2>
+<p>The chip keeps its connections in tables of fixed size, so a network with too many connections into or out of one neuron cannot be stored. The layer sizes from <a href="architecture.html#planning">section 3.2</a> are enough to check this before training, which saves the GPU time a doomed network would waste. <code>check_feasibility()</code> runs first in every trial and returns the list of limits a network breaks.</p>
+<p>For a convolution layer with a k×k kernel, stride s, C<sub>in</sub> input channels and C<sub>out</sub> output channels:</p>
 <ul>
-<li><strong>Fan-in of a convolution neuron</strong> is k² · C<sub>in</sub>, the size of the window it reads.</li>
-<li><strong>Fan-out of a convolution neuron</strong> is ⌈k/s⌉² · C<sub>out</sub>, the number of windows in the next layer that contain it.</li>
-<li><strong>Fan-in of a linear neuron</strong> is the full width of the previous layer.</li>
-<li><strong>Input axons</strong> are height × width × channels of the input.</li>
+<li><strong>Fan-in</strong> of one neuron is k² · C<sub>in</sub>, the window it reads.</li>
+<li><strong>Fan-out</strong> of one input neuron is ⌈k/s⌉² · C<sub>out</sub>, the number of windows that contain it.</li>
+<li><strong>Input axons</strong> are height × width × channels of the input image.</li>
+<li>A head neuron reads everything the last convolution layer produces.</li>
 </ul>
-<p> The first block draws on the axon budget because it reads the input. Later blocks use the neuron budgets. The last convolution block is a special case: its fan-out is the width of the first linear layer, since no further convolution follows it. </p>
+<h3>Pooling multiplies fan-in</h3>
+<p>An average pool has no neurons on the chip. It is folded into the next layer: each of the four neurons in a 2×2 block connects directly to the next layer, carrying the next layer's weight, and that layer's potential is kept in units four times finer so the arithmetic stays exact. The next layer's fan-in is therefore four times k² · C<sub>in</sub>. The same holds for a head after a pool, and for GAP, which averages over the whole image: every head neuron connects to every neuron of the last convolution layer.</p>
+<p>The first search counted fan-in after pooling instead of before, and so it accepted networks the chip cannot hold. Its best network pools twice, and each of its 11 output neurons needs 32,256 connections, against a limit of 8,159. A stride-2 convolution shrinks the image without this cost, because it has no pool to fold, so the search now favors strides where fan-in is tight.</p>
 <div class="demo">
 <div class="demo-head">
 <span class="demo-tag">INTERACTIVE</span>
 <span class="demo-title">Fan budget calculator</span>
-<span class="demo-sub">One convolution layer, assumed to be the last one before the head. The three limits are computed from its shape, so the head's fan-in follows from the output volume rather than being chosen separately.</span>
+<span class="demo-sub">One convolution layer, assumed to be the last one before the head, with no pool after it. The head's fan-in follows from the layer's output size.</span>
 </div>
 <div class="demo-body">
 <div class="controls">
@@ -68,42 +54,13 @@ NEURON_LIMITS = {
 <div class="demo-note" id="fb-note"></div>
 </div>
 </div>
-<p> The comments in the search space record what these limits did to the design after 65 trials. Channel count was the strongest predictor of infeasibility: 88% of 32-channel configurations passed, against 14% of 128-channel ones, and the wider networks never scored better. The sampled set was reduced to 32 and 64 channels. A wide flatten is the other common failure, since 9,216 features exceed the 8,159 fan-in limit on their own. </p>
 </section>
 <section class="reveal" id="int16">
-<h2><span class="sec-num">4.2</span>The INT16 grid</h2><p>INT16 means a signed 16-bit integer representation. Quantization maps real-valued parameters to the supported discrete values. Here <code>w</code> means a weight, <code>w_alpha</code> sets the real value represented by the largest positive integer, and <code>w_delta</code> is the spacing between adjacent representable weights.</p>
-<p> The chip holds 16-bit signed integers, so the values that physically exist on the device run from −32767 to +32767. A trained weight of 0.7 has to be scaled to one of them before it can be deployed. </p>
-<h3>w_alpha</h3>
-<p> <code>w_alpha</code> sets what real value the largest integer, 32767, stands for. That single number fixes the whole mapping. </p>
-<div class="formula">
-    store:   <span class="o">n</span> = round( <span class="v">w</span> / <span class="c">w_alpha</span> × 32767 )
-        
-    read:   <span class="v">w</span> = <span class="o">n</span> × <span class="c">w_alpha</span> / 32767
-    <span class="note">With w_alpha = 1 the integer 32767 represents the value 1.0. With w_alpha = 5 it represents 5.0.</span>
-</div>
-<p> A larger range sacrifices a bit of resolution: </p>
-<dl class="kv">
-<dt>w_alpha = 1</dt><dd>32767 is 1.0, so the range is [−1, 1] and a weight of 1.3 must be truncated to 1.0.</dd>
-<dt>w_alpha = 5</dt><dd>32767 is 5.0, so the range is [−5, 5] and a weight of 1.3 stores as round(1.3/5 × 32767) = 8519 while being read back as 1.29997.</dd>
-</dl>
-<h3>Where it appears</h3>
-<p> The value originates in the converter. <code>snnsearch/hardware.py</code> mirrors it rather than choosing one of its own, so training and conversion agree on what each stored integer means. </p>
-<details class="technical-details"><summary>Source excerpt</summary><div class="detail-body"><div class="code-block">
-<div class="code-head"><span class="file">snnsearch/hardware.py</span><span class="loc">the INT16 grid</span></div>
-<pre><code class="language-python">W_ALPHA   = 1.0                        # read off the converter, not chosen here
-INT16_MAX = 2 ** (W_BITS - 1) - 1      # 32767
-W_DELTA   = W_ALPHA / INT16_MAX        # 1/32767, the spacing between grid points
-
-def fake_quantize_weight(w):
-    wc = torch.clamp(w / W_ALPHA, min=-1.0, max=1.0)     # truncation
-    ...
-
-def quantized_threshold_int(th):
-    return clamp(round(th / W_DELTA), 1, INT16_MAX)      # thresholds share the scale </code></pre>
-</div></div></details>
-<p> The converter is constructed as <code>Quantize_Network(w_alpha=1, dynamic_alpha=False, w_bits=16)</code>. Most quantization schemes set the scale to fit the data, usually to the largest weight present, which is what the word dynamic refers to. Here it is switched off and the scale is pinned, so weights outside the range are truncated rather than mapped proportionally. </p>
-<p> Thresholds are mapped to the same scale, which is why θ has to stay within (0, 1]. A neuron compares its membrane potential against θ, and that potential is a running sum of weights. Giving weights a scale of their own would put the two sides of that comparison in different units, so every threshold would need rescaling by the same factor to stay meaningful. </p>
-<p>Within the representable range, rounding error is on the order of 10<sup>−5</sup>. Clipping values outside that range can cause larger changes, especially after batch-normalization folding.</p>
+<h2><span class="sec-num">4.2</span>16-bit weights</h2>
+<p>The chip stores weights as 16-bit integers from −32,767 to 32,767, so a trained weight such as 0.7 has to become one of them. The scale <code>w_alpha</code> says what real value the largest integer stands for:</p>
+<div class="formula">stored = round( w / w_alpha × 32767 )      read back = stored × w_alpha / 32767</div>
+<p>This project uses w_alpha = 1, as the HiAER-Spike conversion does. The grid then covers [−1, 1] in steps of about 0.00003, so rounding a weight inside that range barely changes it. A weight outside the range is clipped: 1.3 becomes 1.0. Clipping is where accuracy is lost, and section 4.3 shows where large weights come from.</p>
+<p>Thresholds use the same scale. A neuron compares its potential, which is a sum of weights, against θ, so both sides must be in the same units. That is why θ must lie in (0, 1].</p>
 <div class="demo">
 <div class="demo-head">
 <span class="demo-tag">INTERACTIVE</span>
@@ -129,26 +86,43 @@ def quantized_threshold_int(th):
 </section>
 <section class="reveal" id="folding">
 <h2><span class="sec-num">4.3</span>Removing batch normalization</h2>
-<p>Batch normalization rescales each channel using running statistics and learned parameters. The chip has no normalization layer, so conversion folds this transformation into neighboring parameters. Earlier search comments claimed normalization was essential, but the <a href="data/trial_analysis.txt">local 82-trial analysis</a> did not support that general claim.</p>
-<p> Removal is exact. A convolution followed by batch normalization is one linear map followed by another, and the pair composes into a single convolution: </p>
-<div class="formula">
-    W′<sub>c</sub> = W<sub>c</sub> · <span class="v">γ<sub>c</sub></span> / √(<span class="v">σ²<sub>c</sub></span> + ε)
-        
-    b′<sub>c</sub> = <span class="v">β<sub>c</sub></span> − <span class="v">μ<sub>c</sub></span> · <span class="v">γ<sub>c</sub></span> / √(<span class="v">σ²<sub>c</sub></span> + ε)
-    <span class="note">Per output channel c. In floating point the folded network delivers the same input to every neuron, so it produces the same spikes.</span>
+<p>Batch normalization rescales and shifts each channel during training, which makes deep networks train much more reliably. The chip has no such layer. Because a convolution followed by batch normalization is just two linear steps, the pair can be merged into one convolution with new weights W′ and a new bias b′, per output channel c:</p>
+<div class="formula">W′<sub>c</sub> = W<sub>c</sub> · γ<sub>c</sub> / √(σ²<sub>c</sub> + ε)      b′<sub>c</sub> = β<sub>c</sub> − μ<sub>c</sub> · γ<sub>c</sub> / √(σ²<sub>c</sub> + ε)</div>
+<p>Here μ and σ² are the channel's average and variance seen during training, and γ and β are the scale and shift batch normalization learned. This is called folding. Folding causes two problems on the chip.</p>
+<h3>Weights grow</h3>
+<p>The factor γ/√(σ² + ε) is often greater than 1, so folding can push weights past 1.0, where section 4.2 clips them. A weight of 0.6 in a channel with a factor of 2.1 becomes 1.26 and is stored as 1.0. Clipping after training would change the network without warning, which motivates folding during training (section 4.5), so training sees the clipped weights and adapts to them.</p>
+<div class="demo">
+<div class="demo-head">
+<span class="demo-tag">INTERACTIVE</span>
+<span class="demo-title">A layer of weights meeting the clamp</span>
+<span class="demo-sub">4,000 simulated weights folded through per-channel scales. Rust bars fall outside the representable range. The readout compares against the 2% budget in <code>DEPLOY_LIMITS</code>.</span>
 </div>
-<p>Folding changes the scale of the weights and introduces a bias. Both changes need to be handled during conversion.</p>
-<details class="technical-details"><summary>Folding parameters for the hardware</summary><div class="detail-body">
-<p> The scale factor γ/√(σ²+ε) is frequently greater than 1, and folding multiplies every weight in the channel by it. A trained weight of 0.6 in a channel with a scale of 2.1 becomes 1.26, which section 4.2 truncates to 1.0. </p>
-<p> Folding is the step that moves weights outside the representable range, so a network trained in floating point and folded afterwards can lose accuracy that no training metric predicted. Weight decay becomes relevant to deployment, since it controls how far the folded distribution spreads. </p>
-<p> <code>weight_clip_fraction()</code> measures the proportion of folded weights outside the range, and <code>deployment_report()</code> warns above 2%. The search samples weight decay from ranges whose lower bounds were raised once this became measurable. </p>
-</div></details>
-<p class="footnote">Weight decay can limit the magnitude of folded weights as well as regularize training. Whether clipping remains a problem must be checked on the folded values before clamping.</p>
-<details class="technical-details"><summary>Folding parameters for the hardware</summary><div class="detail-body">
-<p> The fold produces a per-channel bias b′, which is non-zero even when the convolution was built without one. Convolutions on the chip have no bias field to receive it. </p>
-<p>A per-channel threshold can store the bias adjustment produced by folding. This keeps the representation compatible with the chip, but is not generally equivalent to injecting that bias on every timestep. The comparison below explains the temporal difference.</p>
-<p> <code>fold_bn(net, bias_mode="threshold")</code> writes θ′ = θ − b′ into the following neuron and leaves the convolution bias-free. <code>bias_mode="conv"</code> keeps b′ on the convolution instead, which is exact and useful for verification in software. </p>
-</div></details>
+<div class="demo-body">
+<div class="controls">
+<div class="ctl" style="min-width:210px;">
+<label for="h-std">weight spread before folding <output id="h-std-out">0.30</output></label>
+<input id="h-std" max="60" min="10" type="range" value="30"/>
+</div>
+<div class="ctl" style="min-width:210px;">
+<label for="h-sc">spread of channel scales <output id="h-sc-out">1.4×</output></label>
+<input id="h-sc" max="300" min="100" type="range" value="140"/>
+</div>
+<label class="toggle"><input checked="" id="h-fold" type="checkbox"/> apply the fold</label>
+</div>
+<canvas height="230" id="h-canvas"></canvas>
+<div class="stats">
+<div class="stat"><div class="k">weights outside range</div><div class="val" id="h-clip">0.0%</div></div>
+<div class="stat"><div class="k">against 2% budget</div><div class="val" id="h-budget">OK</div></div>
+<div class="stat"><div class="k">largest magnitude</div><div class="val" id="h-max">—</div></div>
+</div>
+</div>
+</div>
+<h3>A bias appears</h3>
+<p>Folding produces a bias b′ for every channel, even if the convolution had none, and the chip's neurons have no bias term. The tool offers two ways to deploy it, and the search tries both.</p>
+<dl class="kv">
+<dt>threshold</dt><dd>Fold b′ into the threshold: the neuron fires when v &gt; θ − b′. This costs nothing on the chip. It is only an approximation of a bias, because a bias adds b′ on every step and builds up against the leak, while a threshold shift counts once. Training uses the same threshold form, so the trained network and the deployed one still match.</dd>
+<dt>bias neurons</dt><dd>Deploy b′ as a real bias. A bias neuron is an always-on neuron (in <code>hs_api</code>, an <code>ANN_neuron</code> with threshold −1) that fires on every step. Its connection weight is the bias, so every neuron it connects to receives b′ on every step. This is exact. It costs one bias neuron per channel and one connection per neuron, and more when a bias is too large for one 16-bit connection or a channel has more than 4,095 neurons. The tool splits those across several bias neurons automatically.</dd>
+</dl>
 <div class="demo">
 <div class="demo-head">
 <span class="demo-tag">INTERACTIVE</span>
@@ -178,66 +152,19 @@ def quantized_threshold_int(th):
       ratio |b′|/θ per convolution as an advance warning.
     </div>
 </div>
-<h3>What the runs showed</h3>
-<p> The two runs in <code>results/</code> that reached the deployment stage both failed, and both failed here rather than at the clamp of section 4.2. </p>
-<div class="tbl-wrap">
-<table class="tbl">
-<thead><tr><th>Run</th><th class="num">weight_clip_frac</th><th class="num">max_abs_weight</th><th class="num">min_threshold</th><th>deployable</th></tr></thead>
-<tbody>
-<tr><td class="layer-name">probe</td><td class="num">0.0</td><td class="num">0.665</td><td class="num">−0.6249</td><td>no</td></tr>
-<tr><td class="layer-name">trial 973e6c46</td><td class="num">0.0</td><td class="num">—</td><td class="num">−0.5877</td><td>no</td></tr>
-</tbody>
-</table>
-</div>
-<p> No weight left the representable range in either run, and the largest folded weight sat at 0.665 with a third of the range unused. The rejection in both cases reads <code>folded threshold -0.6249 &lt;= 0 -- neuron fires unconditionally</code>. The per-layer export shows where it came from, with layer 1 holding a channel pinned at the smallest legal integer: </p>
-<div class="term-block">
-<div class="term-head">results/probe/hardware_export.json</div>
-<pre>layer 0: per-channel[32]  10,300 … 32,767   leak 63
-layer 1: per-channel[32]       <span class="err">1</span> … 32,767   leak 63    <span class="dim">← 1 is the clamp floor</span>
-layer 2: scalar               32,767          leak 63</pre>
-</div>
-<p> Threshold-mode folding needs θ′ = θ − b′ &gt; 0, so it needs θ &gt; b′. Since <code>fake_quantize_threshold</code> caps θ at <code>w_alpha</code> = 1, the implied b′ of at least 1.588 is above every θ the encoding permits. No choice of threshold rescues that fold. </p>
-<details class="technical-details"><summary>Folding parameters for the hardware</summary><div class="detail-body">
-<p>In the floating-point model, the folded bias is <code>β + (conv_b − μ) · scale</code>. Without an explicit constraint, learned β can make this bias incompatible with the threshold encoding. The deployment check then rejects the result.</p>
-<p> The legality band has to be enforced while the network trains, so the network adapts to it rather than meeting it once at the end. The band is two-sided, because the other end fails silently as well: <code>quantized_threshold_int</code> saturates at INT16_MAX, so a θ′ above <code>w_alpha</code> deploys as <code>w_alpha</code> with no error raised. </p>
-<p> <code>constrain_fold_bias</code> clamps b′ into [θ − w_alpha, θ(1 − margin)] inside <code>ConvBNFoldQuant._folded_weight_bias</code>, using the same clamping arrangement as the weight quantizer. The forward pass uses the clamped value, so the loss responds to the constraint, and the gradient still reaches β so the optimizer can move toward a legal value on its own. The margin is <code>TrainSpec.fold_bias_margin</code>, default 0.05, and setting it to 0 restores the previous behavior. </p>
-</div></details>
-<details class="technical-details"><summary>Source excerpt</summary><div class="detail-body"><div class="code-block">
-<div class="code-head"><span class="file">snnsearch/quantgrid.py</span><span class="loc">the constraint</span></div>
-<pre><code class="language-python">def fold_bias_band(v_th: float, margin: float = 0.05):
-    lo = float(v_th) - W_ALPHA                 # keeps theta' &lt;= w_alpha
-    hi = float(v_th) * (1.0 - float(margin))   # keeps theta' &gt;= margin*theta
-    return lo, hi
-
-def constrain_fold_bias(b, v_th, margin: float = 0.05):
-    lo, hi = fold_bias_band(v_th, margin)
-    return _ste(torch.clamp(b, min=lo, max=hi), b)</code></pre>
-</div></div></details>
-<p> With θ = 1 and the default margin, the band is [0, 0.95]. The b′ of 1.588 that produced the rejection above is clamped to 0.95, giving θ′ = 0.05, which stores as the integer 1,638. Every value of b′ now yields a θ′ inside (0, w_alpha] by construction. </p>
-<h3>A bias and a lower threshold are not the same thing</h3>
-<p>A legal stored threshold does not by itself establish equivalent neuron dynamics. The following comparison tests the bias and threshold forms.</p>
-<p>A bias adds current on every timestep. A threshold shift changes the firing boundary. These operations generally produce different state trajectories, including when repeated input accumulates without leak.</p>
-<details class="technical-details"><summary>Folding parameters for the hardware</summary><div class="detail-body">
-<p>During a period without spikes or resets, a constant input bias contributes a membrane offset that approaches b′·τ for the update rule used here. A fixed threshold shift does not reproduce that changing offset.</p>
-<p>Because the bias contribution varies over time and resets after spikes, a fixed threshold adjustment cannot generally reproduce it. Training should therefore use the same threshold form that export writes.</p>
-<p> <code>TrainSpec.fold_bias_qat_form</code> defaults to <code>"threshold"</code>, so <code>HardwareLIFNode</code> compares against θ − b′ during quantization-aware training, which is what <code>export_deployed</code> writes. Setting it to <code>"input"</code> restores the previous behavior for comparison. <code>fold_bias_report</code> now also reports |b′|·τ/θ, since the older |b′|/θ ratio carries no leak term. </p>
-</div></details>
-<div class="formula">
-    d<sub>t</sub> = <span class="v">b′</span> · <span class="v">τ</span> ·
-    ( 1 − (1 − 1/<span class="v">τ</span>)<sup>t</sup> )
-    <span class="note">How far the bias has lifted the membrane after t timesteps without a spike. It starts at b′ and approaches b′·τ. Verified against the simulator in <code>tools/fold_bias_equivalence.py</code>.</span>
-</div>
+<p>In threshold mode, θ − b′ must stay inside (0, 1]. If b′ grows larger than θ, the folded threshold drops to zero or below and the neuron fires on every step. That motivates keeping b′ inside the legal band throughout training, by clamping it in the forward pass, so the optimizer learns a bias the chip can store.</p>
+<p>The demo below drives one neuron both ways with the same input. They agree almost everywhere when τ is small. With a large τ the bias builds up against the leak and the two spike trains separate.</p>
 <div class="demo">
 <div class="demo-head">
 <span class="demo-tag">INTERACTIVE</span>
 <span class="demo-title">The same neuron, two ways of applying b′</span>
-<span class="demo-sub">Both panels receive an identical input train. The left adds b′ to the input, which is what the older QAT form trained. The right lowers the threshold by b′, which is what the chip runs. Raise τ to watch them separate.</span>
+<span class="demo-sub">Both panels receive the same input. The left adds b′ on every step, as bias neurons do. The right lowers the threshold by b′, as threshold mode does. Raise τ to watch them separate.</span>
 </div>
 <div class="demo-body">
 <div class="controls">
 <div class="ctl">
-<label for="fx-tau">leak τ <output id="fx-tau-out">63</output></label>
-<input id="fx-tau" max="7" min="0" step="1" type="range" value="7"/>
+<label for="fx-tau">leak τ <output id="fx-tau-out">16</output></label>
+<input id="fx-tau" max="3" min="0" step="1" type="range" value="3"/>
 </div>
 <div class="ctl">
 <label for="fx-b">folded bias b′ <output id="fx-b-out">0.15</output></label>
@@ -251,143 +178,45 @@ def constrain_fold_bias(b, v_th, margin: float = 0.05):
 </div>
 <canvas height="340" id="fx-canvas"></canvas>
 <div class="stats">
-<div class="stat"><div class="k">spikes, bias into input</div><div class="val" id="fx-na">0</div><div class="sub">what QAT used to train</div></div>
-<div class="stat"><div class="k">spikes, θ − b′</div><div class="val" id="fx-nb">0</div><div class="sub">what the chip runs</div></div>
+<div class="stat"><div class="k">spikes, bias into input</div><div class="val" id="fx-na">0</div><div class="sub">bias neurons</div></div>
+<div class="stat"><div class="k">spikes, θ − b′</div><div class="val" id="fx-nb">0</div><div class="sub">threshold mode</div></div>
 <div class="stat"><div class="k">timesteps agreeing</div><div class="val" id="fx-agree">—</div></div>
 <div class="stat"><div class="k">membrane gap b′·τ</div><div class="val acc" id="fx-gap">9.45</div><div class="sub">against a threshold of 1.0</div></div>
 </div>
 </div>
 <div class="demo-note">
-      At τ=2 the two panels agree almost everywhere, which is why the substitution went
-      unnoticed. The disagreement grows with τ, and the deployed configuration uses 63.
+      At τ = 2 the two agree almost everywhere. The gap grows with τ, which is why training uses whichever form the network will deploy with.
     </div>
-</div>
-<h3>Measured on the recorded run</h3>
-<p> <code>tools/fold_bias_equivalence.py</code> reads a checkpoint without needing PyTorch, recomputes θ − b′ from the stored batch normalization statistics, and checks it against the thresholds the run exported. All 32 channels matched in both convolutions, which confirms the deployed threshold is exactly θ − b′. Running both forms over the same input gave: </p>
-<div class="tbl-wrap">
-<table class="tbl">
-<thead><tr><th>Layer</th><th class="num">mean |b′|/θ</th><th class="num">channels with θ′ ≤ 0</th><th class="num">channels behaving differently</th></tr></thead>
-<tbody>
-<tr><td class="layer-name">conv_fc.0</td><td class="num">0.61</td><td class="num">0 / 32</td><td class="num">28 – 31 / 32</td></tr>
-<tr><td class="layer-name">conv_fc.2</td><td class="num">0.79</td><td class="num">12 / 32</td><td class="num">12 – 28 / 32</td></tr>
-</tbody>
-</table>
-</div>
-<p class="footnote"> That checkpoint scored 0.114 against a chance level of 0.091 after three epochs, so its batch normalization statistics were immature and these biases are larger than a converged run would produce. The input driving each channel was synthetic. The threshold cross-check does not depend on either caveat. </p>
-<div class="callout">
-<span class="callout-title">The alternative, if the converter can be changed</span>
-<p> <code>fold_bias_mode="conv"</code> keeps b′ on the convolution and never touches the threshold, which is exact and needs no constraint. It is already implemented and used for in-software verification. Deploying it requires the converter to support a per-output-channel convolution bias. That is a smaller change than reworking the quantization scale, and it removes the problem rather than bounding it. </p>
-</div>
-<p class="footnote"> Both runs above were short. The probe trained for 3 epochs and the search trials reached about 0.5 validation accuracy against a 0.98 target, so BatchNorm's running statistics were still immature when the fold read them. The clip fraction is worth re-measuring after a converged run before drawing conclusions about section 4.2. </p>
-<div class="demo">
-<div class="demo-head">
-<span class="demo-tag">INTERACTIVE</span>
-<span class="demo-title">A layer of weights meeting the clamp</span>
-<span class="demo-sub">4,000 simulated weights folded through per-channel scales. Rust bars fall outside the representable range. The readout compares against the 2% budget in <code>DEPLOY_LIMITS</code>.</span>
-</div>
-<div class="demo-body">
-<div class="controls">
-<div class="ctl" style="min-width:210px;">
-<label for="h-std">weight spread before folding <output id="h-std-out">0.30</output></label>
-<input id="h-std" max="60" min="10" type="range" value="30"/>
-</div>
-<div class="ctl" style="min-width:210px;">
-<label for="h-sc">spread of channel scales <output id="h-sc-out">1.4×</output></label>
-<input id="h-sc" max="300" min="100" type="range" value="140"/>
-</div>
-<label class="toggle"><input checked="" id="h-fold" type="checkbox"/> apply the fold</label>
-</div>
-<canvas height="230" id="h-canvas"></canvas>
-<div class="stats">
-<div class="stat"><div class="k">weights outside range</div><div class="val" id="h-clip">0.0%</div></div>
-<div class="stat"><div class="k">against 2% budget</div><div class="val" id="h-budget">OK</div></div>
-<div class="stat"><div class="k">largest magnitude</div><div class="val" id="h-max">—</div></div>
-</div>
-</div>
 </div>
 </section>
 <section class="reveal" id="ste">
-<h2><span class="sec-num">4.4</span>Training on the grid</h2>
-<details class="technical-details"><summary>Training through quantization</summary><div class="detail-body">
-<p>Quantization and folding can change the network’s outputs. Applying them during training allows the optimizer to respond to these changes. Since rounding has zero derivative almost everywhere, the backward pass uses an approximate gradient.</p>
-<p>During quantization-aware training, the forward pass uses quantized weights. The optimizer updates separate floating-point parameters through an approximate gradient. It can therefore respond to the effect of quantization while retaining small parameter updates.</p>
-<p> <code>fake_quantize_weight</code> clamps and rounds forward, and <code>_ste</code> sends the gradient to the float parameter unchanged. The same helper handles thresholds and the learned integer leak from section 2.3. </p>
-</div></details>
-<details class="technical-details"><summary>Source excerpt</summary><div class="detail-body"><div class="code-block">
+<h2><span class="sec-num">4.4</span>Training on the integer grid</h2>
+<p>Rounding to the grid has a slope of zero almost everywhere, so ordinary backpropagation would stop at every rounded weight. The tool uses the straight-through estimator: the forward pass uses the rounded, clipped weight, and the backward pass treats the rounding as if it were not there, passing the gradient on unchanged.</p>
+<p>So each weight exists twice. The stored value is an ordinary floating-point number that the optimizer updates. The used value is that number clipped and rounded, and it is what the network computes with. If the stored value is 1.3, the network uses 1.0, and small updates keep accumulating on the stored value until it moves back inside the range. At export, the used value is what gets saved.</p>
+<details class="technical-details"><summary>Source: snnsearch/quantgrid.py</summary><div class="detail-body"><div class="code-block">
 <div class="code-head"><span class="file">snnsearch/quantgrid.py</span><span class="loc">fake_quantize_weight</span></div>
-<pre><code class="language-python">def _ste(quantized, original):
-    """Straight-through estimator: forward uses `quantized`, backward passes
-    the gradient to `original` unchanged."""
-    return original + (quantized - original).detach()
-
-def fake_quantize_weight(w):
-    b = W_BITS - 1                                  # 15
-    levels = 2 ** b - 1                             # 32767
+<pre><code class="language-python">def fake_quantize_weight(w):
+    b = W_BITS - 1                                  # quantizer uses w_bit - 1
+    levels = 2 ** b - 1
     wc = torch.clamp(w / W_ALPHA, min=-1.0, max=1.0)
     q = torch.round(wc.abs() * levels) / levels * torch.sign(wc) * W_ALPHA
     return _ste(q, w)</code></pre>
 </div></div></details>
-<p> The expression <code>original + (quantized − original).detach()</code> equals <code>quantized</code> numerically, while its derivative with respect to <code>original</code> is exactly 1. </p>
-<h3>Raw and quantized weights</h3>
-<p>Quantization-aware training retains a floating-point parameter for optimization and computes a quantized value for the forward pass.</p>
-<dl class="kv">
-<dt>stored value</dt><dd>An ordinary parameter with no limits on it, and the one the optimizer updates. It lives at <code>module.parametrizations.weight.original</code>.</dd>
-<dt>used value</dt><dd>The stored value after clamping and rounding. The network multiplies with this one, and reading <code>module.weight</code> returns it.</dd>
-</dl>
-<p>Clamping affects the value used in the forward pass. If the underlying floating-point parameter is 1.3, it remains 1.3 while the network computes with 1.0. Export saves the quantized value.</p>
-<details class="technical-details"><summary>Training through quantization</summary><div class="detail-body">
-<p>Keeping the underlying floating-point parameter allows small optimizer updates to accumulate even when rounding leaves the forward value unchanged.</p>
-<p>As the floating-point parameter moves from 1.3 toward 0.9, the forward value remains clamped at 1.0 until the parameter reenters the representable range.</p>
-<p> <code>_WeightFakeQuant</code> is registered through <code>torch.nn.utils.parametrize</code>, which keeps the raw parameter and computes the clamped version on each read. <code>bake_weight_fake_quant</code> collapses the two into one at export, so the saved network holds the values the chip receives. </p>
-</div></details>
-<p>The boundary behavior depends on weight scale, weight decay, and the approximate gradient.</p>
-<ul>
-<li>In the recorded runs, unfolded convolution weights typically remained below the clipping boundary. Folding can increase their magnitude.</li>
-<li>Weight decay pulls every weight toward zero in proportion to its size, so the further out a stored value travels the harder it is pulled back.</li>
-<li>Once the forward value is clamped, further increases in the raw parameter do not change that forward value.</li>
-</ul>
-<p> The third point holds for the network's output but not for the gradient. A true derivative would be zero past the boundary, and the straight-through estimator returns 1 there instead, so the optimizer can keep pushing a stored value outward to no effect. Weight decay is what balances that. This behavior is characteristic of straight-through quantization generally rather than specific to this implementation. </p>
-<div class="callout warn">
-<span class="callout-title">A metric this invalidates</span>
-<p> <code>weight_clip_fraction</code> counts weights whose magnitude exceeds 1, and it reads <code>m.weight</code>, which is the used value. The used value is clamped to 1 before it can be read, so the count is structurally zero and the function reports 0.0% whatever the network is doing. It measures whether the clamp worked rather than whether the clamp had anything to do. </p>
-<p><code>max_abs_weight</code> also reads the clamped tensor. A value of exactly 1.0 can indicate boundary contact, while the recorded maximum of 0.665 indicates no clipping in that inspected tensor. To measure the fraction requiring clipping, inspect <code>module.parametrizations.weight.original</code> before clamping.</p>
-</div>
-<details class="technical-details"><summary>Follow a weight through training and export</summary><div class="detail-body"><p>With w_alpha = 1, the converter represents weights between −1 and 1 using integer steps of 1 / 32767. A raw weight of 0.7 becomes integer 22,937 and is read back as approximately 0.700003.</p><p>A raw weight of 1.3 lies outside the range. The forward pass uses 1.0, but the optimizer retains the raw 1.3 parameter. Updates can move that parameter through 1.2, 1.1, and 1.0 before the forward value starts changing again. Smaller updates within the range can also accumulate across quantization steps.</p><p>Rounding has a zero derivative almost everywhere. The straight-through estimator supplies an approximate derivative of 1 so the optimizer can continue updating the raw parameter. This is an approximation used for training, not the mathematical derivative of rounding.</p><p>Folding batch normalization can move a weight across the boundary. A weight of 0.6 multiplied by a channel scale of 2.1 becomes 1.26, which clips to 1.0. Measure clipping on the folded value before the clamp. Inspecting the already clamped value would report no out-of-range weights.</p></div></details></section>
+<p>One consequence for measurement: the share of weights being clipped has to be read from the stored values. Reading the used values always reports zero, because they have already been clipped.</p>
+</section>
 <section class="reveal" id="qat">
-<h2><span class="sec-num">4.5</span>Folding during training rather than after</h2>
-<p> Three schedules are available through <code>TrainSpec.qat_mode</code>. </p>
+<h2><span class="sec-num">4.5</span>When to fold</h2>
+<p>Folding needs batch normalization's running averages, which mean little until the network has seen some data. Folding too late leaves no time to adapt to clipping. The tool offers three schedules.</p>
 <div class="tbl-wrap">
 <table class="tbl">
-<thead><tr><th>Mode</th><th>Schedule</th><th>Purpose</th></tr></thead>
+<thead><tr><th>Mode</th><th>Schedule</th><th>Use</th></tr></thead>
 <tbody>
-<tr><td class="layer-name">ptq</td><td>Train in floating point, then fold and quantize once.</td><td>A baseline that measures how much the conversion costs a network that never saw it.</td></tr>
-<tr><td class="layer-name">tail</td><td>Train in floating point, fold, quantize, then fine-tune for a few epochs.</td><td>Treats quantization as a repair applied at the end.</td></tr>
-<tr><td class="layer-name">inline</td><td>Warm up in floating point for about a quarter of the budget, fold in place, and train the remainder on the folded and quantized network.</td><td>The default. Most of training happens on the network that will deploy.</td></tr>
+<tr><td class="layer-name">ptq</td><td>Train normally, then fold and round once.</td><td>A baseline: how much conversion costs a network that never saw it.</td></tr>
+<tr><td class="layer-name">tail</td><td>Train normally, fold and round, then train a few more epochs.</td><td>Conversion as a repair at the end.</td></tr>
+<tr><td class="layer-name">inline</td><td>Train normally for about a quarter of the epochs, then fold in place and train the rest on the folded, rounded network.</td><td>The default. Most of training happens on the network that will deploy.</td></tr>
 </tbody>
 </table>
 </div>
-<p> The warm-up exists because folding reads batch normalization's running statistics, which need a few epochs of data before they are meaningful. After the fold, each convolution and batch normalization pair is replaced by a single <code>ConvBNFoldQuant</code> module. Its forward pass recomputes the fold from the current running statistics, quantizes the result, and passes the per-channel bias to the neuron through the <code>_fold_bias</code> attribute seen in section 2.6. The statistics themselves keep updating from a separate pass over the raw convolution output, so the fold tracks the data as training continues. </p>
-<h3>Clipping before and after training</h3>
-<p> The clamp of section 4.2 is the same operation in all three schedules, but its effect on the result depends on whether training happened before or after it. </p>
-<div class="two-up">
-<div class="panel bad-b">
-<div class="p-title"><span class="chip red">ptq</span> quantize after training</div>
-<ul>
-<li>The optimizer settles on a weight of 1.26, because that value minimized the loss it was shown.</li>
-<li>Conversion truncates it to 1.0.</li>
-<li>The deployed weight differs by 0.26 from the value used during floating-point validation. Its effect on accuracy must be evaluated after conversion.</li>
-</ul>
-</div>
-<div class="panel good-b">
-<div class="p-title"><span class="chip green">inline</span> quantize during training</div>
-<ul>
-<li>The clamp is already inside the forward pass, so an attempt to use 1.26 computes with 1.0 and the loss reflects 1.0.</li>
-<li>The forward value remains clamped at 1.0. The approximate gradient may still move the underlying parameter outside the range, so this does not guarantee an in-range floating-point weight.</li>
-<li>Export retains the quantized weights used during training. Other aspects of conversion, including neuron state updates and threshold folding, still require verification.</li>
-</ul>
-</div>
-</div>
-<p>With post-training quantization, the converted network may differ from the one selected during training. With inline quantization, the optimizer already sees the constrained forward values. Widening the range changes the available solutions, but does not guarantee an accuracy improvement.</p>
 <div class="demo">
 <div class="demo-head">
 <span class="demo-tag">INTERACTIVE</span>
@@ -406,31 +235,54 @@ def fake_quantize_weight(w):
 </div>
 </div>
 </div>
-<h3>Freezing the result</h3>
-<p> <code>export_deployed()</code> converts each <code>ConvBNFoldQuant</code> into a plain bias-free convolution holding the final quantized weights and writes the folded bias into per-channel thresholds. What remains is the network the converter consumes. Two functions then inspect it: </p>
-<ul>
-<li><code>deployment_report()</code> checks legality. A folded threshold at or below zero blocks deployment and scores the configuration zero. More than 2% of weights outside the range produces a warning rather than a rejection, since quantization-aware training has already been given the chance to work around the clamp.</li>
-<li><code>hardware_export()</code> writes the integer threshold and integer leak for each spiking layer as JSON. The conversion script previously carried a single hard-coded threshold and leak, which prevented per-layer neuron parameters from being used at all.</li>
-</ul>
-<details class="technical-details"><summary>Source excerpt</summary><div class="detail-body"><div class="code-block">
-<div class="code-head"><span class="file">hardware export</span><span class="loc">written by fold mode</span></div>
-<pre><code class="language-python">{ "w_alpha": 1.0, "w_bits": 16, "w_delta": 3.0518e-05, "int16_max": 32767,
-  "flush_steps": 3,
-  "neuron_layers": [
-    {"layer_index": 0, "threshold_int": [31554, 32101, ...], "per_channel_threshold": true,  "leak": 2, "shift": 0},
-    {"layer_index": 1, "threshold_int": [30988, 32767, ...], "per_channel_threshold": true,  "leak": 2, "shift": 0},
-    {"layer_index": 2, "threshold_int": 32767,               "per_channel_threshold": false, "leak": 2, "shift": 0} ] }</code></pre>
-</div></div></details>
+<p>At the end of training, <code>export_deployed()</code> turns each folded layer into a plain convolution holding its final integer weights, and puts each bias where its mode says: into the thresholds, or onto the convolution for bias neurons. Two functions then inspect the result. <code>deployment_report()</code> checks that every threshold is legal and reports how many weights were clipped. <code>hardware_export()</code> writes each layer's integer thresholds, τ and leak shift.</p>
 </section>
 <section class="reveal" id="verify">
-<h2><span class="sec-num">4.6</span>Verifying the fold</h2>
-<p> An incorrect fold lowers accuracy without raising an error, so accuracy alone is a weak test. <code>verify_fold()</code> compares the network before and after folding at three levels, in an order that isolates the cause of a failure. </p>
-<ol class="steps">
-<li><span class="s-title">Prediction agreement</span> The fraction of samples where both networks choose the same class. With the bias kept on the convolution this should be exactly 1.0.</li>
-<li><span class="s-title">Largest difference in class scores</span> The 11 numbers the network produces per clip, compared one by one. Around 10<sup>−5</sup> in 32-bit floating point for a correct fold. A large value alongside high agreement indicates an error that accuracy would not reveal.</li>
-<li><span class="s-title">Accuracy of both networks</span> Reported last, once the first two have established that the transformation itself is sound.</li>
-</ol>
-<p> <code>fold_bn</code> also refuses to run on a network in training mode. Batch normalization would then supply batch statistics rather than running statistics, which is the most common cause of a fold that appears to lose accuracy. </p>
+<h2><span class="sec-num">4.6</span>Checking the finished network on a simulator</h2>
+<p>A mistake in any step above lowers accuracy without raising an error, so the tool checks the finished network instead of trusting the steps.</p>
+<p>The reference is simpleSim, the simulator of the chip that ships with <code>hs_api</code>. It is the target used for now because, according to the hs_api team's own tests, the current FPGA build handles the leak of negative potentials incorrectly. simpleSim stores every connection as a separate Python object. The best network found so far has 239 million connections, which would take about 150 GB of memory and several hours to load before simulating a single clip.</p>
+<p>That cost motivated IntegerSim (<code>snnsearch/hs_export.py</code>). It performs simpleSim's exact arithmetic, step by step, but keeps each convolution as a convolution instead of listing its connections. Every value is an integer, held exactly. It runs all 464 validation and test clips of the best network in about 20 seconds on a laptop GPU.</p>
+<details class="technical-details"><summary>Source: snnsearch/hs_export.py</summary><div class="detail-body"><div class="code-block">
+<div class="code-head"><span class="file">snnsearch/hs_export.py</span><span class="loc">IntegerSim.steps</span></div>
+<pre><code class="language-python">@torch.no_grad()
+def steps(self, frames, flush_steps):
+    T = frames.shape[0]
+    zeros = torch.zeros_like(frames[0])
+    V = None
+    for t in range(T + flush_steps):
+        x = (frames[t] if t &lt; T else zeros).to(self.device, torch.float64).unsqueeze(0)
+        if V is None:
+            V, h = [], x
+            for i in range(len(self.layers)):
+                h = self._drive(i, h)
+                V.append(torch.zeros(h.shape, dtype=torch.float64, device=self.device))
+        # phase one
+        spikes = []
+        for i in range(len(self.layers)):
+            s = (V[i] &gt; self.th[i]).to(torch.float64)
+            V[i] = V[i] * (1.0 - s)
+            V[i] = V[i] - torch.floor(V[i] / self.div[i])
+            spikes.append(s)
+        # phase two
+        V[0] = V[0] + self._drive(0, x)
+        for i in range(1, len(self.layers)):
+            V[i] = V[i] + self._drive(i, spikes[i - 1])
+        for i, b in enumerate(self.b):
+            if b is not None:
+                V[i] = V[i] + b
+        # simpleSim's membrane is a 32-bit integer that wraps (35-bit and
+        # saturating on older commits); float64 does neither, so the two
+        # agree only while nothing gets near the rail
+        peak = max(float(v.abs().max()) for v in V)
+        self.max_abs_membrane = max(getattr(self, "max_abs_membrane", 0.0), peak)
+        if peak &gt;= MEMBRANE_LIMIT:
+            raise OverflowError(
+                f"membrane reached {peak:.0f}, past simpleSim's 32-bit range "
+                f"({MEMBRANE_LIMIT}); IntegerSim no longer matches it")
+        yield V, spikes</code></pre>
+</div></div></details>
+<p>IntegerSim earns its place through a self-test (<code>python tools/match_simplesim.py --selftest</code>). The test builds 18 small networks covering every layer type the tool deploys: convolutions, average pooling, GAP, and bias neurons. It runs each one through both IntegerSim and the real simpleSim, and compares every neuron's potential and spike at every step. All 18 match exactly. The test also catches deliberate one-unit errors in the threshold, the bias and the leak.</p>
+<p>Every trial in a search now runs its validation clips through IntegerSim and records two numbers: the simulator's accuracy, and how many clips the simulator and the PyTorch model classify differently. That second number should be zero. For the best network so far it is zero on all 464 clips.</p>
 </section>
 </div>
 <aside class="toc"></aside>

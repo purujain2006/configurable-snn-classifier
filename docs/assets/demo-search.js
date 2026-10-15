@@ -130,7 +130,7 @@
       }
       params.push(["resize_to", "{32,64}"], ["T", "{8,16}"], ["fc_layers", "0–1"]);
       for (let i = 0; i < nfc; i++) params.push([`fc_width_${i}`, "{128,256,512}"]);
-      params.push(["tau", "{2,3,4,6,8,16,32,63}"], ["trainable_tau", "{F,T}"], ["trainable_threshold", "{F,T}"],
+      params.push(["tau", "{2,4,8,16}"], ["trainable_tau", "{F,T}"], ["trainable_threshold", "{F,T}"],
                   ["dropout_rate", "0.1–0.45"], ["norm", "{bn,tdbn}"]);
       if (state.norm === "tdbn") params.push(["tdbn_alpha", "0.5–2.0"]);
       params.push(["label_smoothing", "0–0.2"], ["grad_clip", "{0,1,5}"], ["optimizer", "{adam,adamw}"]);

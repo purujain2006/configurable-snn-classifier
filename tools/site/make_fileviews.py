@@ -4,14 +4,14 @@ Hand-copying source into HTML drifts the moment the file changes, and escaping
 it by hand invites mistakes. This reads the actual lines, escapes them, and
 writes markup the fileview.js component renders with a gutter and highlights.
 
-Usage:  python tools/make_fileviews.py > /tmp/fileviews.html
+Usage:  python tools/site/make_fileviews.py > /tmp/fileviews.html
 """
 import html
 import os
 import sys
 
 # The package now lives in this repo, so excerpts resolve against the repo root.
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # repo root
 PKG_ROOT = os.environ.get("SNNSEARCH_ROOT", ROOT)
 
 # (id, path, first line, last line, highlighted lines relative to the excerpt, note)
