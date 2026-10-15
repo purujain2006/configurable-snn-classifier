@@ -1,7 +1,11 @@
-"""Optimizer construction, the training loop, and the pipeline flush.
+"""The training loop, and the forward pass every measurement uses.
 
-Moved verbatim from Practice2.py lines 1990-2241 by build_from_practice2.py.
-Edit the behaviour here, not in the original.
+    forward_over_time    T input steps plus one flush step per spiking layer,
+                         as the chip runs a clip
+    build_optimizer      weight decay on conv and linear weights only
+    run_training         float warmup, then training on the INT16 grid, then
+                         the deployed network, its metrics, and the per-trial
+                         simulator check
 """
 
 import math
@@ -392,6 +396,16 @@ def run_training(cfg: dict, data_dir: str = None, device=None, report_fn=None,
     hw["deployed_tau"] = ",".join(str(m.hw_leak()) for m in hw_net.conv_fc
                                   if isinstance(m, HardwareLIFNode))
 
+    # Run the validation clips through simpleSim's arithmetic (IntegerSim), so
+    # each trial reports what the simulator scores and whether it agrees with
+    # PyTorch clip by clip. A network the simulator cannot run is not deployable.
+    from .hs_export import verify_deployment
+    hw.update(verify_deployment(hw_net, val_loader, device, hardware_flush_steps(hw_net)))
+    if hw["sim_reason"]:
+        hw["deployable"] = False
+        hw["deploy_reasons"] = "; ".join(
+            r for r in (hw.get("deploy_reasons"), "simulator: " + hw["sim_reason"]) if r)[:300]
+
     # What conversion cost: same weights, same point in training,
     # measured before and after export. Positive means export lost
     # accuracy, which is the only direction this can honestly go.
@@ -422,6 +436,8 @@ def run_training(cfg: dict, data_dir: str = None, device=None, report_fn=None,
             "config": {n: asdict(s) for n, s in cfg.items()},
             "metrics": hw,
             "folded": True, "bias_mode": train_cfg.fold_bias_mode,
+            # leak floored on each layer's own grid, as the chip does
+            "leak_grid": "chip",
             "qat_mode": mode,
         }, ckpt_path)
     return {"float_val_accuracy": float_best, "hw_net": hw_net, **hw}

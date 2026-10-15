@@ -6,7 +6,7 @@ to drive every stage of the pipeline (build, train, fold, quantize, audit,
 export, report) so a broken stage shows up in seconds rather than after a
 dataset download and a GPU allocation.
 
-    python tools/smoke_test.py
+    python tests/smoke_test.py
 """
 
 import torch

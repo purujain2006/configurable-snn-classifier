@@ -100,6 +100,14 @@ def load_deployed(ckpt_path, device="cpu"):
             "are wired here. The thresholds of a tail/ptq checkpoint come from "
             "fold_bn and would need that path instead.")
     net.eval()
+    if ckpt.get("leak_grid") != "chip":
+        # Trained before the model floored its leak on the chip's grid: every
+        # layer floored on W_DELTA. Restore that so the checkpoint scores what
+        # it scored. make_chip_faithful() switches it to what the chip does.
+        from .neuron import HardwareLIFNode
+        for m in net.conv_fc:
+            if isinstance(m, HardwareLIFNode):
+                m.leak_grid = W_DELTA
     _check_against_export(net, ckpt.get("hardware_export"))
     return net, spec, ckpt
 
@@ -142,9 +150,12 @@ def integer_layers(net, tau_override=None):
         kind        "conv" or "linear"
         w           int64 array, the INT16 weight the chip stores
         stride, padding
-        pool        avg-pool kernel applied to this layer's INPUT spikes (1 = none)
+        pool        avg-pool kernel applied to this layer's INPUT spikes (1 = none);
+                    a global average pool counts as a pool the size of the map
         scale       membrane unit relative to the model's W_DELTA grid
         threshold   int64 per output channel, for the `V > threshold` compare
+        bias        int64 per output channel in membrane units, added every
+                    timestep by bias neurons, or None
         tau, leak   tau the model trained with, and the simpleSim shift
     """
     from .neuron import HardwareLIFNode
@@ -160,6 +171,14 @@ def integer_layers(net, tau_override=None):
             if k != s:
                 raise NotImplementedError("overlapping avg pool does not fold exactly")
             pending_pool *= k
+            i += 1
+            continue
+        if isinstance(m, (layer.AdaptiveAvgPool2d, nn.AdaptiveAvgPool2d)):
+            # GAP: an average over the whole (square) map, folded the same way
+            h, w_ = net.plan.encoder_out_hw
+            if h != w_:
+                raise NotImplementedError("GAP over a non-square map")
+            pending_pool *= h
             i += 1
             continue
         if isinstance(m, (layer.MaxPool2d, nn.MaxPool2d)):
@@ -185,6 +204,13 @@ def integer_layers(net, tau_override=None):
             if th.size == 1:
                 th = np.full(n_out, int(th[0]), dtype=np.int64)
             tau = node.hw_leak() if tau_override is None else int(tau_override)
+            bias = None
+            if getattr(m, "bias", None) is not None:
+                b = m.bias.detach().double().cpu().numpy()
+                b_int = np.rint(b * INT16_MAX).astype(np.int64)
+                if np.abs(b * INT16_MAX - b_int).max() > 1e-2:
+                    raise RuntimeError(f"{type(m).__name__} bias is not on the INT16 grid")
+                bias = scale * b_int
             entry = {
                 "kind": "conv" if w.ndim == 4 else "linear",
                 "w": w_int,
@@ -192,6 +218,7 @@ def integer_layers(net, tau_override=None):
                 "scale": scale,
                 "threshold": scale * th + scale - 1,
                 "threshold_int_model": th,
+                "bias": bias,
                 "tau": tau,
                 "leak": leak_shift_for(tau),
             }
@@ -266,6 +293,13 @@ class IntegerSim:
             t = torch.as_tensor(L["threshold"], dtype=dt, device=device)
             self.th.append(t.reshape(-1, 1, 1) if L["kind"] == "conv" else t)
         self.div = [float(2 ** L["leak"]) for L in layers]
+        self.b = []
+        for L in layers:
+            if L.get("bias") is None:
+                self.b.append(None)
+                continue
+            b = torch.as_tensor(L["bias"], dtype=dt, device=device)
+            self.b.append(b.reshape(-1, 1, 1) if L["kind"] == "conv" else b)
 
     def _drive(self, idx, spikes_in):
         """Synaptic input to layer idx from the previous layer's 0/1 spikes."""
@@ -278,55 +312,70 @@ class IntegerSim:
         return F.linear(x.flatten(1), self.w[idx])
 
     @torch.no_grad()
-    def run(self, frames, flush_steps, record=False, record_output=False):
-        """frames: (T, C, H, W) 0/1. Returns (output spike counts per class, extra).
+    def steps(self, frames, flush_steps):
+        """Run one clip, yielding (membranes, spikes) after every timestep.
 
-        extra is per-layer spike counts per timestep when record=True, the
-        output layer's spikes per timestep (one 0/1 row per step) when
-        record_output=True, otherwise None."""
+        frames: (T, C, H, W) of 0/1. Runs T steps with input and then
+        flush_steps with none, so the last frame reaches the output. Fresh
+        membranes each call, as the chip is cleared between clips.
+
+        Each step is simpleSim's, in its order:
+          phase one   every neuron fires on the membrane carried in (V > threshold),
+                      fired neurons reset to 0, then every neuron leaks
+                      V -= floor(V / 2**leak)
+          phase two   add the input axons, the spikes fired in phase one, and
+                      the bias neurons, which fire on every step (flush included)
+        """
         T = frames.shape[0]
-        V = None
-        counts = None
-        rec = [[] for _ in self.layers] if record else None
-        rows = [] if record_output else None
         zeros = torch.zeros_like(frames[0])
+        V = None
         for t in range(T + flush_steps):
             x = (frames[t] if t < T else zeros).to(self.device, torch.float64).unsqueeze(0)
-            # phase one, every layer at once on the membrane carried in
             if V is None:
-                drive_shapes = []
-                h = x
+                V, h = [], x
                 for i in range(len(self.layers)):
                     h = self._drive(i, h)
-                    drive_shapes.append(h.shape)
-                V = [torch.zeros(s, dtype=torch.float64, device=self.device) for s in drive_shapes]
+                    V.append(torch.zeros(h.shape, dtype=torch.float64, device=self.device))
+            # phase one
             spikes = []
             for i in range(len(self.layers)):
                 s = (V[i] > self.th[i]).to(torch.float64)
                 V[i] = V[i] * (1.0 - s)
                 V[i] = V[i] - torch.floor(V[i] / self.div[i])
                 spikes.append(s)
-            # phase two, axons plus the spikes fired this same step
+            # phase two
             V[0] = V[0] + self._drive(0, x)
             for i in range(1, len(self.layers)):
                 V[i] = V[i] + self._drive(i, spikes[i - 1])
-            # simpleSim stores membranes as 32-bit signed integers that wrap
-            # (35-bit and saturating on older commits); float64 does neither. Equal only while nothing reaches
-            # the rail, so check rather than assume.
+            for i, b in enumerate(self.b):
+                if b is not None:
+                    V[i] = V[i] + b
+            # simpleSim's membrane is a 32-bit integer that wraps (35-bit and
+            # saturating on older commits); float64 does neither, so the two
+            # agree only while nothing gets near the rail
             peak = max(float(v.abs().max()) for v in V)
             self.max_abs_membrane = max(getattr(self, "max_abs_membrane", 0.0), peak)
             if peak >= MEMBRANE_LIMIT:
                 raise OverflowError(
                     f"membrane reached {peak:.0f}, past simpleSim's 32-bit range "
                     f"({MEMBRANE_LIMIT}); IntegerSim no longer matches it")
+            yield V, spikes
+
+    def run(self, frames, flush_steps, record=False, record_output=False):
+        """One clip. Returns (output spike count per class, extra), where extra is
+        the spike count of every layer per step (record=True), the output
+        layer's 0/1 spikes per step (record_output=True), or None."""
+        counts, per_layer, rows = None, [[] for _ in self.layers], []
+        for _V, spikes in self.steps(frames, flush_steps):
             out = spikes[-1].reshape(-1)
             counts = out if counts is None else counts + out
             if record:
                 for i, s in enumerate(spikes):
-                    rec[i].append(int(s.sum().item()))
+                    per_layer[i].append(int(s.sum().item()))
             if record_output:
                 rows.append([int(v) for v in out.tolist()])
-        return counts.cpu(), (rows if record_output else rec)
+        extra = rows if record_output else per_layer if record else None
+        return counts.cpu(), extra
 
 
 # ---------------------------------------------------------------------------
@@ -346,6 +395,41 @@ def hs_lif_neuron(threshold, leak):
     """
     from hs_api.neuron_models import LIF_neuron
     return LIF_neuron(int(threshold), -17, int(leak))
+
+
+def hs_bias_neuron():
+    """An always-on neuron, the bias neuron of Christopher's converter_v2.
+
+    Memoryless (ANN), threshold -1: its membrane is 0 at every step, 0 > -1,
+    so it fires every step from the first. Noise off as in hs_lif_neuron.
+    """
+    from hs_api.neuron_models import ANN_neuron
+    return ANN_neuron(-1, -17, 0)
+
+
+# the chip's limits on one synapse weight and one neuron's fan-out
+_MAX_WEIGHT = INT16_MAX
+_MAX_NEURON_FANOUT = 4095
+
+
+def split_bias(value, n_targets):
+    """How bias neurons deliver one channel's bias.
+
+    One synapse holds at most INT16_MAX, so a larger bias (common behind a pool,
+    where the membrane unit is finer) is split into parts that sum exactly. One
+    neuron feeds at most 4095 others, so a large channel is split across groups.
+    Returns [(weight, target_slice), ...], one entry per bias neuron.
+    """
+    value = int(value)
+    n_parts = max(1, -(-abs(value) // _MAX_WEIGHT))
+    base, extra = divmod(abs(value), n_parts)
+    sign = 1 if value >= 0 else -1
+    parts = [sign * (base + (1 if k < extra else 0)) for k in range(n_parts)]
+    out = []
+    for w in parts:
+        for start in range(0, n_targets, _MAX_NEURON_FANOUT):
+            out.append((w, slice(start, min(start + _MAX_NEURON_FANOUT, n_targets))))
+    return out
 
 
 def unroll_to_hs_api(layers, in_shape, neuron_model_factory=None):
@@ -391,6 +475,23 @@ def unroll_to_hs_api(layers, in_shape, neuron_model_factory=None):
             if th not in models:
                 models[th] = neuron_model_factory(th, L["leak"])
             connections[k] = ([], models[th])
+
+    # bias neurons, one or more per channel that has a nonzero bias
+    bias_model = None
+    for li, L in enumerate(layers):
+        if L.get("bias") is None:
+            continue
+        shp = shapes[li]
+        per_ch = int(np.prod(shp[1:])) if len(shp) > 1 else 1
+        for ch, value in enumerate(L["bias"]):
+            if int(value) == 0:
+                continue
+            targets = keys[li][ch * per_ch:(ch + 1) * per_ch]
+            for j, (w, sl) in enumerate(split_bias(value, len(targets))):
+                if bias_model is None:
+                    bias_model = hs_bias_neuron()
+                connections[f"BiasN.L{li}.c{ch}.{j}"] = (
+                    [(t, w) for t in targets[sl]], bias_model)
 
     def add(pre_key, post_key, weight, is_axon):
         if weight == 0:
@@ -451,3 +552,57 @@ def unroll_to_hs_api(layers, in_shape, neuron_model_factory=None):
                         add(pre, keys[li][o], w[o, j], is_axon)
         prev_shape = shapes[li]
     return axons, connections, keys
+
+
+# ---------------------------------------------------------------------------
+# checking a trained network on the simulator
+# ---------------------------------------------------------------------------
+
+def verify_deployment(hw_net, loader, device, flush_steps, max_clips=None):
+    """Run every clip through both the PyTorch model and IntegerSim.
+
+    Called on every trial, so `deployable` is measured instead of assumed. On a
+    GPU it costs seconds against a training run of minutes. Returns
+        sim_val_accuracy     IntegerSim's accuracy on the loader
+        sim_disagreements    clips where IntegerSim and PyTorch predict differently
+        sim_reason           why the network could not be simulated, else ""
+    A network that cannot be exported (a non-power-of-two tau, a max pool, a
+    weight off the grid) reports sim_val_accuracy None and the reason.
+    """
+    _require_torch()
+    from .train import forward_over_time
+    try:
+        layers = integer_layers(hw_net)
+        C, H, W = hw_net.plan.blocks[0].in_channels, *hw_net.plan.blocks[0].in_hw
+        sim = IntegerSim(layers, (C, H, W), device=device)
+    except Exception as exc:
+        return {"sim_val_accuracy": None, "sim_disagreements": None,
+                "sim_reason": f"{type(exc).__name__}: {exc}"[:300]}
+    was_training = hw_net.training
+    hw_net.eval()
+    correct = disagree = seen = 0
+    try:
+        with torch.no_grad():
+            for x, y, *_ in loader:
+                x = x.to(device)
+                if not torch.all((x == 0) | (x == 1)):
+                    # an axon carries a spike or nothing; analog input (the
+                    # "direct" coding) has no representation on chip
+                    return {"sim_val_accuracy": None, "sim_disagreements": None,
+                            "sim_reason": "input is not 0/1 spikes, axons cannot carry it"}
+                p_torch = forward_over_time(hw_net, x, flush_steps=flush_steps).argmax(1).cpu()
+                for n in range(x.shape[0]):
+                    counts, _ = sim.run(x[n], flush_steps)
+                    p_sim = int(counts.argmax())
+                    correct += p_sim == int(y[n])
+                    disagree += p_sim != int(p_torch[n])
+                    seen += 1
+                if max_clips and seen >= max_clips:
+                    break
+    except OverflowError as exc:
+        return {"sim_val_accuracy": None, "sim_disagreements": None,
+                "sim_reason": str(exc)[:300]}
+    finally:
+        hw_net.train(was_training)
+    return {"sim_val_accuracy": correct / max(1, seen), "sim_disagreements": disagree,
+            "sim_reason": ""}

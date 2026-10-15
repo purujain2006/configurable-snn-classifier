@@ -53,6 +53,9 @@ LEADERBOARD_COLS = [
     # the value sampled at the start; with trainable tau the deployed one can
     # differ (rank1: sampled 8, deployed 3,3,3).
     "deployed_tau",
+    # validation through IntegerSim (simpleSim's arithmetic); disagreements
+    # counts clips where it and PyTorch predict differently, and should be 0
+    "sim_val_accuracy", "sim_disagreements", "bias_mode",
 ]
 
 
@@ -228,6 +231,9 @@ def make_streaming_callback(writer, target=0.975):
                 "weight_clip_frac": r.get("weight_clip_frac"),
                 "best_val_accuracy": r.get("best_val_accuracy"),
                 "smoothed_val_accuracy": r.get("smoothed_val_accuracy"),
+                "deployed_tau": r.get("deployed_tau"),
+                "sim_val_accuracy": r.get("sim_val_accuracy"),
+                "sim_disagreements": r.get("sim_disagreements"),
                 "epochs_run": epochs_run, "epochs_requested": requested,
                 "stopped_early": stopped_early,
                 "violations": r.get("violations"), "config": flat})
@@ -253,6 +259,11 @@ def make_streaming_callback(writer, target=0.975):
                 "firing_rate": r.get("firing_rate"),
                 "feasible": r.get("feasible"), "epochs_run": epochs_run,
                 "stopped_early": stopped_early,
+                "best_val_accuracy": r.get("best_val_accuracy"),
+                "smoothed_val_accuracy": r.get("smoothed_val_accuracy"),
+                "deployed_tau": r.get("deployed_tau"),
+                "sim_val_accuracy": r.get("sim_val_accuracy"),
+                "sim_disagreements": r.get("sim_disagreements"),
                 **cost_of(flat), **per_layer_summary(flat), **flat,
             }, header_order=LEADERBOARD_COLS)
 

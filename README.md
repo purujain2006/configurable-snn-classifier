@@ -26,20 +26,27 @@ functions inside it reference names that were never imported. Two checks cover
 what an import cannot:
 
 ```bash
-python tools/check_static.py      # undefined names + call signatures, no torch
-python tools/smoke_test.py        # the whole pipeline on synthetic data, ~1 min
+python tools/checks/check_static.py   # undefined names + call signatures, no torch
+python tests/smoke_test.py            # the whole pipeline on synthetic data, ~1 min
 ```
 
-Run both before a real training run.
-
-The input-pipeline migration also has focused regression checks:
+Run both before a real training run. Before a search, also confirm on the
+cluster that trained networks match the simulator:
 
 ```bash
-python tools/test_input_pipeline.py  # sampled inputs, replay flags, warmup ordering
-python tools/test_frame_cache.py     # incomplete caches and sequential rebuilds
-python tools/test_search_space.py    # ordered sampling, GAP, generated-file consistency
-python tools/test_synops.py          # weight-layer arithmetic and dense ceilings
-python tools/diff_spec.py results/dvs128/best.json
+python tools/checks/train_and_verify.py /path/to/DVS128Gesture
+python tools/match_simplesim.py --selftest      # needs hs_api; checks IntegerSim against simpleSim
+```
+
+The tests, each runnable on its own:
+
+```bash
+python tests/test_chip_rules.py      # tau, weight decay, fan-in behind pools, bias neurons
+python tests/test_input_pipeline.py  # sampled inputs, replay flags, warmup ordering
+python tests/test_frame_cache.py     # incomplete caches and sequential rebuilds
+python tests/test_search_space.py    # ordered sampling, GAP fan-in
+python tests/test_synops.py          # weight-layer arithmetic and dense ceilings
+node tests/test_snn_port.js          # the site's JavaScript math against Python
 ```
 
 Search warms every configured DVS frame cache before Ray starts. Custom dataset
@@ -119,7 +126,7 @@ networks:
 > **https://purujain2006.github.io/configurable-snn-classifier/**
 
 Eight pages in reading order. The interactive demonstrations use arithmetic
-ported from the package and verified against it by `tools/test_snn_port.js`.
+ported from the package and verified against it by `tests/test_snn_port.js`.
 
 | Page | Covers |
 |---|---|
@@ -141,35 +148,21 @@ fonts and syntax highlighting.
 main.py                  launcher
 configs/                 YAML run configurations
 examples/                a user-supplied dataset, worked
-snnsearch/
-  config planning hardware cost     no torch -- summary runs anywhere
-  quantgrid neuron model folding    the network and its deployed form
-  quantize train synops             training and what it measures
-  data/ encoders                    what makes it work on any dataset
-  spaces search results report      the search and what it writes
-  cli pipeline runconfig            wiring
+snnsearch/               the package; snnsearch/README.md maps every file
 docs/                    the explainer site (GitHub Pages serves this folder)
+tests/                   every test, each runnable on its own
 tools/
-  check_env.py           what a fresh machine still needs
-  check_static.py        undefined names and call signatures, without torch
-  smoke_test.py          the whole pipeline on synthetic data, one minute, CPU
+  match_simplesim.py     per-clip match against the simulator; --selftest against hs_api
+  replay_top.py          retrain the best N trials of a search
   build_cache.py         build the frame cache without a GPU
-  trial_analysis.py      recompute the recorded statistics from raw trial files
-  fold_bias_equivalence.py   measure the train/deploy gap on a checkpoint
+  hpo_analysis.py        which knobs moved accuracy, with multiple-comparison control
+  leaderboard_from_trials.py   rebuild a complete leaderboard from trials.jsonl
   read_ckpt.py           read a .pth into numpy with no torch installed
-  test_snn_port.js       verify the site's JS math against Python ground truth
-  validate_pages.js      structural checks on the site
-  prose_audit.js         writing checks
-  jargon_check.js        every term defined before first use
-  make_fileviews.py      regenerate the site's source excerpts from real files
-Practice2.py             the original single file the package was split from
-build_from_practice2.py  the splitter, kept so the extraction is reproducible
+  checks/                check_env, check_static, train_and_verify
+  analysis/              one-off studies (fold_bias_equivalence, trial_analysis)
+  site/                  website tooling: page validation, prose and jargon checks
+  archive/               Practice2.py, the single file the package was split from
 ```
-
-`Practice2.py` is retained as the historical source. `build_from_practice2.py`
-regenerates the extracted modules from it by line range, which is how the split
-was done without retyping 2,500 lines. `summary` output from the package is
-byte-identical to the original for the same configuration.
 
 ## Dependencies
 
@@ -181,5 +174,5 @@ torch first, or spikingjelly may pull a different build.
 pip install torch --index-url https://download.pytorch.org/whl/cu121
 pip install spikingjelly
 pip install "ray[tune]" optuna
-python tools/check_env.py /path/to/dataset
+python tools/checks/check_env.py /path/to/dataset
 ```

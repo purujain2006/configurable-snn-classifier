@@ -52,6 +52,7 @@ _SEARCH_OWNED_TRAIN_FIELDS = frozenset({
     "qat_warmup_frac", "qat_epochs", "qat_lr_scale",
     "fold_bias_mode", "fold_bias_margin",
 })
+# a trial's flat config names the bias mode "bias_mode"; it fills fold_bias_mode
 
 
 def coerce_to_field(obj, key, raw):
@@ -97,6 +98,23 @@ def specs_from_flat(flat, batch_size=None):
     flat.setdefault("epochs", 40)
     flat.setdefault("data_dir", ".")
     return config_to_specs(flat)
+
+
+def apply_unsampled_train_fields(spec, cfg, quiet=False):
+    """Apply the config file's `train:` block to a replayed trial's spec,
+    except the fields the search samples (those belong to the trial).
+
+    Shared by `single` (through resolve_specs) and `summary`, so the preview
+    and the run describe the same network.
+    """
+    for key, val in (cfg.get("train") or {}).items():
+        if key in _SEARCH_OWNED_TRAIN_FIELDS:
+            if not quiet:
+                print(f"train     : ignoring {key}={val!r} from the config "
+                      "file; the trial sampled it")
+            continue
+        apply_overrides(spec["train"], {key: val}, "train")
+    return spec
 
 
 def resolve_specs(cfg, flat_config=None, quiet=False):
@@ -159,13 +177,7 @@ def resolve_specs(cfg, flat_config=None, quiet=False):
         #
         # Only fields the sampler did not choose, so a config file can never
         # overwrite a trial's own decision and quietly change what it means.
-        for key, val in (cfg.get("train") or {}).items():
-            if key in _SEARCH_OWNED_TRAIN_FIELDS:
-                if not quiet:
-                    print(f"train     : ignoring {key}={val!r} from the config "
-                          "file; the trial sampled it")
-                continue
-            apply_overrides(spec["train"], {key: val}, "train")
+        apply_unsampled_train_fields(spec, cfg, quiet)
         if not quiet:
             print(f"architecture: replayed from a trial config "
                   f"({len(flat_config)} fields)")

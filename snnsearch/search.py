@@ -258,7 +258,7 @@ def _make_trainable(cfg, out_dir):
     def trainable(trial_cfg):
         import torch
         from ray import tune
-        from .hardware import check_feasibility
+        from .hardware import check_spec_feasibility
         from .pipeline import resolve_specs, make_loaders
         from .train import run_training
 
@@ -290,9 +290,7 @@ def _make_trainable(cfg, out_dir):
         # input spec that will actually train. Checking the axon budget at one
         # resolution and training at another passes configurations that do not
         # fit the chip.
-        feasible, violations = check_feasibility(
-            spec["input"], spec["encoder"], spec["downsample"],
-            spec["head"], spec["output"])
+        feasible, violations = check_spec_feasibility(spec)
         if not feasible:
             # Ray requires the key ASHA prunes on to be present on EVERY report,
             # so the reject path must carry float_val_accuracy too.
@@ -407,6 +405,9 @@ def _make_trainable(cfg, out_dir):
             "min_threshold": res.get("min_threshold"),
             # the `tau` column is the sampled START; trainable tau moves
             "deployed_tau": res.get("deployed_tau"),
+            # the same validation clips through simpleSim's arithmetic
+            "sim_val_accuracy": res.get("sim_val_accuracy"),
+            "sim_disagreements": res.get("sim_disagreements"),
             "deployable": deployable,
             "deploy_reasons": res.get("deploy_reasons"),
             "phase": "deploy",

@@ -166,7 +166,8 @@ def _summary(cfg, args):
     from .config import InputSpec, OutputSpec, EncoderSpec, DownsampleSpec, \
         HeadSpec, NeuronSpec, TrainSpec
     from .cost import format_summary
-    from .pipeline import apply_overrides, specs_from_flat, load_flat_config
+    from .pipeline import (apply_overrides, specs_from_flat, load_flat_config,
+                           apply_unsampled_train_fields)
 
     enc = cfg["encoding"]
     # Shape comes from the dataset when it is known without loading it, so
@@ -183,6 +184,7 @@ def _summary(cfg, args):
         spec = specs_from_flat({**flat, "T": enc.get("T", 16),
                                 "resize_to": enc.get("resize_to") or 0},
                                batch_size=cfg["search"].get("batch_size", 16))
+        apply_unsampled_train_fields(spec, cfg, quiet=True)
     else:
         arch = cfg.get("architecture") or {}
         enc_over = dict(arch.get("encoder") or {})

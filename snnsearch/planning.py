@@ -1,9 +1,11 @@
-"""Layer-shape planning: one source of truth for every derived size.
+"""Every derived size, computed once: the single source of truth for shapes.
+
+plan_network walks the conv stack and the head and records each layer's input
+and output size, padding, pooling and fan-in features. model.py, hardware.py
+and cost.py all read this plan instead of recomputing geometry, which is what
+keeps the model, the feasibility check and the cost table in agreement.
 
 Pure arithmetic, no torch.
-
-Moved verbatim from Practice2.py lines 367-509 by build_from_practice2.py.
-Edit the behaviour here, not in the original.
 """
 
 from dataclasses import dataclass, field

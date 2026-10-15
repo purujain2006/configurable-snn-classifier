@@ -7,7 +7,7 @@ machine where every torch-dependent path is broken. That happened: splitting
 Practice2.py into modules left 28 names undefined and four calls with the wrong
 signature, and none of it was visible until a training run reached the line.
 
-Static checks (tools/check_static.py) catch a missing name. They cannot catch a
+Static checks (tools/checks/check_static.py) catch a missing name. They cannot catch a
 tensor of the wrong shape, a device mismatch, or a fold that silently produces
 a different network. Only running it does that. So this drives every stage:
 
@@ -17,8 +17,8 @@ on 48 synthetic samples with T=2 and one epoch. It asserts on structure rather
 than accuracy, because a model that saw 48 samples has not learned anything and
 a threshold on accuracy would only produce a flaky test.
 
-    python tools/smoke_test.py
-    python tools/smoke_test.py --keep     # leave the output directory behind
+    python tests/smoke_test.py
+    python tests/smoke_test.py --keep     # leave the output directory behind
 """
 import os
 import shutil

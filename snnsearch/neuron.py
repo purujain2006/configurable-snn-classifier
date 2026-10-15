@@ -1,7 +1,12 @@
-"""The neuron HiAER-Spike implements, and the layers around it.
+"""The neuron the chip runs, and the folded conv that feeds it during training.
 
-Moved verbatim from Practice2.py lines 861-1294 by build_from_practice2.py.
-Edit the behaviour here, not in the original.
+    HardwareLIFNode   fires before it integrates, leaks by an integer shift,
+                      and stores tau and threshold on the chip's grid
+    ConvBNFoldQuant   a conv with its BatchNorm folded in and its weights
+                      quantized on every forward pass (quantization-aware
+                      training), with the folded bias sent to the threshold or
+                      kept as a bias for bias neurons
+    build_neuron      the one place a neuron is constructed
 """
 
 import math
@@ -11,7 +16,8 @@ from .config import NeuronSpec
 from .hardware import (W_ALPHA, W_DELTA, HW_TAU_CHOICES, HW_TAU_MIN, HW_TAU_MAX,
                        HW_LOG2_TAU_MIN, HW_LOG2_TAU_MAX)
 from .quantgrid import (_ste, fake_quantize_weight, fake_quantize_threshold,
-                        quantized_threshold_int, fold_bias_band, constrain_fold_bias)
+                        fake_quantize_bias, quantized_threshold_int, fold_bias_band,
+                        constrain_fold_bias)
 from ._torch import (_HAS_TORCH, _HAS_HS_API, _require_torch, _no_grad,
                      torch, nn, F, layer, functional, surrogate, neuron,
                      Custom_LIFNode, Custom_IFNode)
@@ -193,7 +199,7 @@ if _HAS_TORCH:
             # export_deployed writes theta - b', so QAT must do the same or the
             # trained network is not the deployed one. Measured on
             # results/probe.pth the two forms disagree on 9-35% of
-            # channel-timesteps; see tools/fold_bias_equivalence.py.
+            # channel-timesteps; see tools/analysis/fold_bias_equivalence.py.
             fb = getattr(self, "_fold_bias", None)
             if fb is not None:
                 shape = [1, fb.shape[0]] + [1] * (x.dim() - 2)   # broadcast over (N,C,...)
@@ -263,6 +269,12 @@ if _HAS_TORCH:
         chip stores, while gradients flow to the underlying float parameter."""
         def forward(self, w):
             return fake_quantize_weight(w)
+
+
+    class _BiasFakeQuant(nn.Module):
+        """Same, for a bias delivered by bias neurons."""
+        def forward(self, b):
+            return fake_quantize_bias(b)
 
 
     class ConvBNFoldQuant(nn.Module):
@@ -349,6 +361,9 @@ if _HAS_TORCH:
             # conv mode needs no constraint: b' stays on the conv, untouched.
             if self.bias_mode == "threshold" and self.fold_bias_margin > 0:
                 b = constrain_fold_bias(b, self._sink_threshold(), self.fold_bias_margin)
+            # bias neurons deliver b' as an INT16 synapse weight every step
+            if self.bias_mode in ("neuron", "conv") and self.quantize:
+                b = fake_quantize_bias(b)
             return w, b
 
         @torch.no_grad()
@@ -388,7 +403,7 @@ if _HAS_TORCH:
             # keep BN statistics current from the true conv output
             self._update_bn_stats(x)
             w, b = self._folded_weight_bias()
-            use_bias = b if self.bias_mode == "conv" else None
+            use_bias = b if self.bias_mode in ("neuron", "conv") else None
             if self.step_mode == "m" and x.dim() == 5:
                 T, N = x.shape[0], x.shape[1]
                 y = F.conv2d(x.flatten(0, 1), w, use_bias,
@@ -416,7 +431,7 @@ if _HAS_TORCH:
             """Freeze into a plain Conv2d holding the final folded+quantized
             weight -- what fold_bn would have produced, but already grid-trained."""
             w, b = self._folded_weight_bias()
-            has_bias = self.bias_mode == "conv"
+            has_bias = self.bias_mode in ("neuron", "conv")
             conv = layer.Conv2d(self.in_channels, self.out_channels, self.kernel_size,
                                 stride=self.stride, padding=self.padding,
                                 dilation=self.dilation, groups=self.groups, bias=has_bias)
@@ -476,7 +491,7 @@ if _HAS_TORCH:
             # BaseNode.__init__ assigns a float here before raw_threshold exists
             self._v_threshold_const = value
 else:
-    HardwareLIFNode = _WeightFakeQuant = _LegacyLearnableThresholdLIF = None
+    HardwareLIFNode = _WeightFakeQuant = _BiasFakeQuant = _LegacyLearnableThresholdLIF = None
 
 LearnableThresholdLIF = _LegacyLearnableThresholdLIF   # back-compat alias
 

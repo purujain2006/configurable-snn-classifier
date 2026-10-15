@@ -1,5 +1,5 @@
 /* Validates docs/assets/snn.js against ground-truth JSON produced by the
-   torch-free sections of Practice2.py. Run: node tools/test_snn_port.js <gt.json> */
+   torch-free sections of Practice2.py. Run: node tests/test_snn_port.js <gt.json> */
 const fs = require("fs");
 const path = require("path");
 const SNN = require(path.join(__dirname, "..", "docs", "assets", "snn.js"));

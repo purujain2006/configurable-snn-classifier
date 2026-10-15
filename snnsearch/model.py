@@ -1,7 +1,9 @@
-"""The network, built straight from the plan so it cannot drift from it.
+"""The network, built from the plan so its shapes cannot drift from it.
 
-Moved verbatim from Practice2.py lines 1297-1477 by build_from_practice2.py.
-Edit the behaviour here, not in the original.
+DVSGesturePuru is a stack of (conv, norm, HardwareLIFNode, pool) blocks and a
+head of (linear, HardwareLIFNode) layers. to_qat_folded() switches it to
+training on the deployed INT16 grid, and export_deployed() freezes it into the
+BN-free network that hs_export.py converts for the chip.
 """
 
 from .config import InputSpec, EncoderSpec, OutputSpec, DownsampleSpec, HeadSpec, NeuronSpec
@@ -18,9 +20,12 @@ from ._torch import (_HAS_TORCH, _HAS_HS_API, _require_torch, _no_grad,
 
 class DVSGesturePuru(nn.Module):
     def __init__(self, input_cfg: InputSpec, encoder_cfg: EncoderSpec, output_cfg: OutputSpec,
-                 downsample_cfg: DownsampleSpec, head_cfg: HeadSpec, neuron_cfg: NeuronSpec):
+                 downsample_cfg: DownsampleSpec, head_cfg: HeadSpec, neuron_cfg: NeuronSpec,
+                 bias_mode: str = "threshold"):
         _require_torch()
         super().__init__()
+        # bias neurons give every layer a real bias, the head's linears included
+        bias_neurons = bias_mode in ("neuron", "conv")
 
         plan = plan_network(input_cfg, encoder_cfg, output_cfg, downsample_cfg, head_cfg)
 
@@ -44,7 +49,19 @@ class DVSGesturePuru(nn.Module):
         # clean one-variable comparison.
         self.step_mode = "m" if norm_kind == "tdbn" else "s"
 
+        # The membrane's integer unit for each spiking layer. A 2x2 average pool
+        # of spikes is a multiple of 1/4, so the layer after it moves in steps
+        # of W_DELTA/4 and the chip keeps it in units 4x finer. Its leak must be
+        # floored on that grid, or training rounds the leak where the chip
+        # does not (hs_export.py explains the fold).
+        def finer_by(pool_kernels):
+            out = 1
+            for k in pool_kernels:
+                out *= k * k
+            return out
+
         modules = []
+        pools_before = []          # avg pools between the previous neuron and this layer
         for b in plan.blocks:
             modules.append(layer.Conv2d(
                 b.in_channels, b.out_channels,
@@ -56,8 +73,11 @@ class DVSGesturePuru(nn.Module):
                                              v_threshold=resolved(b.v_threshold, neuron_cfg.v_threshold)))
             elif norm_kind == "bn":
                 modules.append(layer.BatchNorm2d(b.out_channels))
-            modules.append(mk_neuron(resolved(b.tau, neuron_cfg.tau),
-                                     resolved(b.v_threshold, neuron_cfg.v_threshold)))
+            node = mk_neuron(resolved(b.tau, neuron_cfg.tau),
+                             resolved(b.v_threshold, neuron_cfg.v_threshold))
+            node.leak_grid = W_DELTA / finer_by(pools_before)
+            modules.append(node)
+            pools_before = []
             # After the neuron, so it drops SPIKES rather than currents. A
             # dropped unit then contributes nothing downstream for the whole
             # clip, which is the pathway removal dropout is supposed to be.
@@ -66,6 +86,8 @@ class DVSGesturePuru(nn.Module):
             if b.pool:
                 pool_cls = layer.MaxPool2d if downsample_cfg.pool_type == "max" else layer.AvgPool2d
                 modules.append(pool_cls(kernel_size=b.pool_kernel, stride=b.pool_stride))
+                if downsample_cfg.pool_type != "max":
+                    pools_before.append(b.pool_kernel)
 
         # Q4: GAP replaces the flatten. It collapses HxW to 1x1 BEFORE the FC
         # head, so the classifier's fan-in is just `channels` -- no giant first
@@ -75,14 +97,18 @@ class DVSGesturePuru(nn.Module):
         # way AvgPool folds into the next conv. (Per Christopher's CIFAR-10 GAP.)
         if plan.reduction == "gap":
             modules += [layer.AdaptiveAvgPool2d(1), layer.Flatten()]
+            pools_before.append(plan.encoder_out_hw[0])     # square maps only
         else:
             modules += [layer.Flatten()]
 
         for lin in plan.linears:
             if head_cfg.dropout_rate > 0:
                 modules.append(layer.Dropout(head_cfg.dropout_rate))
-            modules.append(layer.Linear(lin.in_features, lin.out_features, bias=False))
-            modules.append(mk_neuron(neuron_cfg.tau, neuron_cfg.v_threshold))
+            modules.append(layer.Linear(lin.in_features, lin.out_features, bias=bias_neurons))
+            node = mk_neuron(neuron_cfg.tau, neuron_cfg.v_threshold)
+            node.leak_grid = W_DELTA / finer_by(pools_before)
+            modules.append(node)
+            pools_before = []
 
         self.conv_fc = nn.Sequential(*modules)
         if self.step_mode == "m":
@@ -205,4 +231,5 @@ def build_model(cfg: dict) -> "DVSGesturePuru":
     return DVSGesturePuru(
         input_cfg=cfg["input"], encoder_cfg=cfg["encoder"], output_cfg=cfg["output"],
         downsample_cfg=cfg["downsample"], head_cfg=cfg["head"], neuron_cfg=cfg["neuron"],
+        bias_mode=cfg["train"].fold_bias_mode if "train" in cfg else "threshold",
     )

@@ -4,8 +4,8 @@ Run it first on a fresh lab account. It imports nothing that is not already
 required, reports per-mode readiness, and never raises: a missing package is a
 finding, not a crash.
 
-    python tools/check_env.py                      # environment only
-    python tools/check_env.py /path/to/DVS128      # also check the dataset
+    python tools/checks/check_env.py                      # environment only
+    python tools/checks/check_env.py /path/to/DVS128      # also check the dataset
 """
 import importlib
 import os

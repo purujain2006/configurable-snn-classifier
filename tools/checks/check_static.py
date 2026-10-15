@@ -13,14 +13,14 @@ Two checks, both static, both run without torch:
   call signatures     -- every call to a function defined in this package,
                          against that function's parameter list
 
-    python tools/check_static.py
+    python tools/checks/check_static.py
 """
 import ast
 import os
 import subprocess
 import sys
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # repo root
 PKG = os.path.join(ROOT, "snnsearch")
 
 # pyflakes reports these as findings, but they are choices rather than errors:
@@ -42,7 +42,15 @@ def undefined_names():
     # tools/ is included because it is code the user runs. Leaving it out let a
     # bad edit ship: two functions inserted mid-function silently absorbed the
     # rest of main(), and check_env.py died on a name that had been local to it.
-    targets = [PKG, os.path.join(ROOT, "main.py"), os.path.join(ROOT, "tools")]
+    # tools/archive is the retired Practice2 migration, and hs_api, fxpmath and
+    # connectome_utils are other people's source clones; none of those is ours
+    # to lint.
+    skip = {"archive", "hs_api", "fxpmath", "connectome_utils", "__pycache__"}
+    tools_dir = os.path.join(ROOT, "tools")
+    targets = [PKG, os.path.join(ROOT, "main.py"), os.path.join(ROOT, "tests")]
+    targets += [os.path.join(tools_dir, n) for n in sorted(os.listdir(tools_dir))
+                if n not in skip and (n.endswith(".py") or
+                                      os.path.isdir(os.path.join(tools_dir, n)))]
     try:
         out = subprocess.run([sys.executable, "-m", "pyflakes"] + targets,
                              capture_output=True, text=True, timeout=120)

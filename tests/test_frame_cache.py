@@ -1,6 +1,6 @@
 """Test cache completeness and sequential warmup without the real dataset.
 
-    python tools/test_frame_cache.py
+    python tests/test_frame_cache.py
 
 Only temporary directories are changed; the dataset constructor is mocked.
 """

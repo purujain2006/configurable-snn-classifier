@@ -6,3 +6,9 @@ results/
 node_modules/
 package-lock.json
 package.json
+
+# source clones of the hs_api team's repos, kept beside the tools for reading;
+# install them with poetry instead of importing these
+tools/hs_api/
+tools/fxpmath/
+tools/connectome_utils/

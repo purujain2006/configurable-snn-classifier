@@ -1,7 +1,9 @@
-"""Removing batch normalization by folding it into weights and thresholds.
+"""Removing BatchNorm by folding it into the weights before deployment.
 
-Moved verbatim from Practice2.py lines 1503-1707 by build_from_practice2.py.
-Edit the behaviour here, not in the original.
+The chip has no normalization layer, so each (conv, BN) pair becomes one conv.
+The folded bias b' goes wherever TrainSpec.fold_bias_mode says: into the
+neuron's threshold, or onto bias neurons. Used by the tail and PTQ
+quantization modes; inline QAT folds inside ConvBNFoldQuant (neuron.py).
 """
 
 from .hardware import W_ALPHA, W_DELTA, INT16_MAX
@@ -48,8 +50,10 @@ def fold_bn(net: "DVSGesturePuru", bias_mode: str = "conv") -> "DVSGesturePuru":
     import copy
     if net.training:
         raise RuntimeError("fold_bn requires net.eval() -- fold from running stats, not batch stats.")
+    if bias_mode == "neuron":       # bias neurons: the conv keeps its bias
+        bias_mode = "conv"
     if bias_mode not in ("conv", "threshold"):
-        raise ValueError("bias_mode must be 'conv' or 'threshold'")
+        raise ValueError("bias_mode must be 'neuron', 'conv' or 'threshold'")
 
     folded = copy.deepcopy(net)
     seq = folded.conv_fc

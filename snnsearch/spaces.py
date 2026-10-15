@@ -1,15 +1,18 @@
-"""The searchable space, as a picklable module-level object.
+"""The search space: what the search samples, in what order.
 
-Ray checkpoints the searcher by pickling it, so this cannot be a closure.
+Optuna samples define-by-run, so a trial only has the knobs it actually used.
+The order matters: geometry first, then the feasibility check, then everything
+else. A shape that does not fit the chip stops there, so no training knob is
+blamed for it.
 
-Moved verbatim from Practice2.py lines 2360-2578 by build_from_practice2.py.
-Edit the behaviour here, not in the original.
+config_to_specs turns a sampled flat dict into the specs in config.py. The
+space is a module-level class because Ray pickles it.
 """
 
 from .config import (InputSpec, ConvLayerSpec, EncoderSpec, OutputSpec,
                      DownsampleSpec, HeadSpec, NeuronSpec, TrainSpec,
                      parse_fc_widths)
-from .hardware import HW_TAU_CHOICES, check_feasibility
+from .hardware import HW_TAU_CHOICES, check_spec_feasibility
 
 
 # NARROWED after the 65-trial analysis (see DVS_Search_Statistical_Analysis).
@@ -79,7 +82,8 @@ def config_to_specs(config: dict) -> dict:
                            qat_warmup_frac=config.get("qat_warmup_frac", 0.25),
                            qat_epochs=config.get("qat_epochs", 4),
                            qat_lr_scale=config.get("qat_lr_scale", 0.5),
-                           fold_bias_mode=config.get("fold_bias_mode", "threshold"),
+                           fold_bias_mode=config.get("bias_mode",
+                                                     config.get("fold_bias_mode", "threshold")),
                            fold_bias_margin=config.get("fold_bias_margin", 0.05)),
     }
 
@@ -104,8 +108,7 @@ def geometry_fits(flat) -> bool:
     """
     try:
         spec = config_to_specs({"tau": 2, **flat})
-        ok, _ = check_feasibility(spec["input"], spec["encoder"],
-                                  spec["downsample"], spec["head"], spec["output"])
+        ok, _ = check_spec_feasibility(spec)
         return bool(ok)
     except Exception:
         return False
@@ -235,6 +238,11 @@ class DefineByRunSpace:
         # network.
         geom["final_reduction"] = trial.suggest_categorical(
             "final_reduction", ["flatten", "gap"])
+        # Where each layer's bias goes (TrainSpec.fold_bias_mode). "threshold"
+        # folds it into the per-channel threshold for free; "neuron" deploys a
+        # real bias through always-on bias neurons, which costs fan-in, so it is
+        # part of the geometry and checked with it.
+        geom["bias_mode"] = trial.suggest_categorical("bias_mode", ["threshold", "neuron"])
 
         consts = {"N": batch_size, "epochs": epochs, "data_dir": data_dir_abs,
                   "pool_type": "avg"}

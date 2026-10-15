@@ -1,7 +1,9 @@
-"""Quantization-aware training, the deployment audit, and the export.
+"""From a trained model to the deployed one, and the audit of what deploys.
 
-Moved verbatim from Practice2.py lines 1725-1921 by build_from_practice2.py.
-Edit the behaviour here, not in the original.
+    enable_weight_fake_quant   train on INT16 weights (and biases)
+    deployment_report          thresholds, clipping, and why a fold is illegal
+    hardware_export            per-layer threshold, tau and leak shift
+    deploy_and_measure         the tail/PTQ path: fold, quantize, fine-tune
 """
 
 import json
@@ -34,12 +36,16 @@ def _quantizable_modules(net):
 
 
 def enable_weight_fake_quant(net):
-    """Make every conv/linear weight read back as its INT16 value (STE backward)."""
+    """Make every conv/linear weight, and bias if it has one, read back as its
+    INT16 value (STE backward). A bias here is delivered by bias neurons."""
     _require_torch()
     from torch.nn.utils import parametrize
+    from .neuron import _BiasFakeQuant
     for m in _quantizable_modules(net):
         if not parametrize.is_parametrized(m, "weight"):
             parametrize.register_parametrization(m, "weight", _WeightFakeQuant())
+        if getattr(m, "bias", None) is not None and not parametrize.is_parametrized(m, "bias"):
+            parametrize.register_parametrization(m, "bias", _BiasFakeQuant())
     return net
 
 
@@ -48,8 +54,9 @@ def bake_weight_fake_quant(net):
     _require_torch()
     from torch.nn.utils import parametrize
     for m in _quantizable_modules(net):
-        if parametrize.is_parametrized(m, "weight"):
-            parametrize.remove_parametrizations(m, "weight", leave_parametrized=True)
+        for name in ("weight", "bias"):
+            if parametrize.is_parametrized(m, name):
+                parametrize.remove_parametrizations(m, name, leave_parametrized=True)
     return net
 
 

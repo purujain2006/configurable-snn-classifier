@@ -1,17 +1,15 @@
-"""What a configuration occupies: neurons, connections, parameters.
+"""How big a configuration is: neurons, connections and parameters per layer.
 
-Counted from the plan, so it agrees with the feasibility check by
-construction. SynOps live in synops.py, which needs a trained network.
-
-Moved verbatim from Practice2.py lines 603-742 by build_from_practice2.py.
-Edit the behaviour here, not in the original.
+Counted from the plan (planning.py), so it agrees with the feasibility check by
+construction. The energy proxy, SynOps, needs a trained network and lives in
+synops.py. format_summary() is the readable table `main.py summary` prints.
 """
 
 from .config import (InputSpec, EncoderSpec, OutputSpec, DownsampleSpec,
                      HeadSpec, NeuronSpec, TrainSpec, effective_hw,
                      parse_fc_widths, resolve_conv_layers)
 from .planning import plan_network, plan_encoder, conv_out_size, InfeasibleConfig
-from .hardware import (check_feasibility, AXON_LIMITS, NEURON_LIMITS, HW_TAU_CHOICES,
+from .hardware import (check_spec_feasibility, AXON_LIMITS, NEURON_LIMITS, HW_TAU_CHOICES,
                        W_BITS, W_ALPHA, INT16_MAX, W_DELTA)
 
 
@@ -92,9 +90,7 @@ def format_summary(cfg: dict) -> str:
     """Human-readable architecture + feasibility + cost table. This is the thing
     to paste into a write-up."""
     counts = count_neurons_and_synapses(cfg)
-    feasible, violations = check_feasibility(
-        cfg["input"], cfg["encoder"], cfg["downsample"], cfg["head"], cfg["output"]
-    )
+    feasible, violations = check_spec_feasibility(cfg)
     in_h, in_w = effective_hw(cfg["input"])
 
     lines = []

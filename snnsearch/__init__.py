@@ -8,6 +8,12 @@ The package is layered so that the cheap parts stay cheap:
     data/, encoders                       what makes it work on any dataset
     spaces, search, results, report       the search and what it writes
 
+    hs_export                             the deployed network as integers, and
+                                          IntegerSim, simpleSim's arithmetic
+
+snnsearch/README.md maps every file in the order a configuration passes
+through them.
+
 Entry point is `python main.py`, or `python -m snnsearch.cli`.
 """
 

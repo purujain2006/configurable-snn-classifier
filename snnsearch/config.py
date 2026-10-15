@@ -1,9 +1,14 @@
-"""Configuration dataclasses and the key=value command line surface.
+"""What a configuration is: one dataclass per part of the network and the run.
 
-Imports no deep-learning library, so `summary` runs on a bare Python.
+    InputSpec       input shape, timesteps T, and the resize
+    EncoderSpec     the conv stack, uniform or per layer (layers_json)
+    DownsampleSpec  stride versus pooling, and the pool type
+    HeadSpec        flatten or GAP, hidden FC widths, head dropout
+    NeuronSpec      tau, threshold, and which of them train
+    TrainSpec       optimizer, schedule, quantization-aware training, bias mode
 
-Moved verbatim from Practice2.py lines 97-356 by build_from_practice2.py.
-Edit the behaviour here, not in the original.
+Every other module takes these, never loose keyword arguments. Imports no
+deep-learning library, so `main.py summary` runs on a bare Python.
 """
 
 import argparse
@@ -197,9 +202,14 @@ class TrainSpec:
     # epoch budget. None reproduces the old behaviour.
     qat_schedule_epochs: Optional[int] = None
     qat_scheduler: Optional[str] = None   # None = same as the float phase
-    # "threshold" is the only mode the converter can currently deploy: it maps
-    # conv/linear WEIGHTS only, with no bias, so a folded bias must live in the
-    # per-channel threshold. "conv" is exact but needs on-chip conv bias.
+    # Where each layer's bias goes on chip. The chip has no bias term, so:
+    #   "threshold"  folded into the per-channel threshold (theta' = theta - b').
+    #                Free, but only equivalent to a bias at one membrane value.
+    #   "neuron"     a real bias, delivered by bias neurons: always-on neurons
+    #                (hs_api ANN_neuron with theta = -1) whose synapse weight is
+    #                the bias, as in Christopher's converter_v2. Exact, and costs
+    #                one neuron per channel plus one fan-in slot per neuron.
+    #   "conv"       older name for "neuron".
     fold_bias_mode: str = "threshold"
     # threshold mode only. The fold sets theta' = theta - b', and the chip can
     # only store theta' in (0, w_alpha]. Nothing in the float model stops b'
@@ -223,7 +233,7 @@ class TrainSpec:
     # threshold shift is worth b' once. On results/probe.pth (tau=63) the two
     # forms disagree on 9-35% of channel-timesteps, so training in "input" form
     # and deploying in threshold form validates a network that never runs.
-    # tools/fold_bias_equivalence.py measures the gap on any checkpoint.
+    # tools/analysis/fold_bias_equivalence.py measures the gap on any checkpoint.
     fold_bias_qat_form: str = "threshold"
 
 

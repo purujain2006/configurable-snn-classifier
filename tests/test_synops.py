@@ -14,7 +14,7 @@ computable, and the ceiling is checkable for any case at all.
 Runs with torch when torch is present, and falls back to checking the pure
 arithmetic when it is not, so it is useful on a laptop and on the cluster.
 
-    python tools/test_synops.py
+    python tests/test_synops.py
 """
 import os
 import sys

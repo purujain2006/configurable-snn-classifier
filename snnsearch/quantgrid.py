@@ -1,10 +1,9 @@
-"""Differentiable stand-ins for the converter's integer arithmetic.
+"""The chip's integer arithmetic, made differentiable for training.
 
-Every function here mirrors something hs_api does at conversion time, so
-training sees the numbers the chip will use.
-
-Moved verbatim from Practice2.py lines 783-854 by build_from_practice2.py.
-Edit the behaviour here, not in the original.
+Weights, biases and thresholds are rounded to the INT16 grid (W_DELTA =
+1/32767) and clipped to [-1, 1] in the forward pass, with a straight-through
+gradient in the backward pass. Training therefore sees the numbers the chip
+will store.
 """
 
 from .hardware import (W_BITS, W_ALPHA, INT16_MAX, W_DELTA,
@@ -32,6 +31,18 @@ if _HAS_TORCH:
         wc = torch.clamp(w / W_ALPHA, min=-1.0, max=1.0)
         q = torch.round(wc.abs() * levels) / levels * torch.sign(wc) * W_ALPHA
         return _ste(q, w)
+
+    def fake_quantize_bias(b):
+        """A bias deployed through bias neurons, on the grid the chip adds it on.
+
+        A bias neuron fires every timestep and adds its synapse weight to each
+        neuron it feeds, so the bias is an ordinary INT16 weight: rounded to
+        W_DELTA and clipped to [-W_ALPHA, W_ALPHA]. Behind an average pool the
+        layer's membrane is kept in finer units and the bias is split across
+        several bias neurons (hs_export.py), so this range always deploys.
+        """
+        bc = torch.clamp(b, min=-W_ALPHA, max=W_ALPHA)
+        return _ste(torch.round(bc / W_DELTA) * W_DELTA, b)
 
     def fold_bias_band(v_th: float, margin: float = 0.05):
         """The interval b' must lie in for theta' = theta - b' to be storable.
@@ -96,7 +107,7 @@ if _HAS_TORCH:
             total += w.numel()
         return out_of_range / max(1, total)
 else:
-    fake_quantize_weight = fake_quantize_threshold = None
+    fake_quantize_weight = fake_quantize_threshold = fake_quantize_bias = None
     quantized_threshold_int = weight_clip_fraction = None
     fold_bias_band = constrain_fold_bias = None
 

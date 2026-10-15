@@ -1,6 +1,6 @@
 """Regression checks for sampled inputs, replay overrides and search ordering.
 
-    python tools/test_input_pipeline.py
+    python tests/test_input_pipeline.py
 
 No DVS data, GPU, Ray or Optuna needed. Tensor checks require the training stack;
 the config and orchestration checks also run without it.

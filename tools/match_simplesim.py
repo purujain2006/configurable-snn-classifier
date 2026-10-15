@@ -51,8 +51,14 @@ sys.path.insert(0, ROOT)
 # 1. selftest
 # ---------------------------------------------------------------------------
 
-def _random_layers(rng, leak, small=False):
-    """Small network with rank1's exact layer sequence and scales.
+def _random_layers(rng, leak, small=False, variant="rank1"):
+    """Small network with one of the layer sequences the search can produce.
+
+    variant "rank1"  conv, LIF, 2x2 avg pool, conv, LIF, 2x2 avg pool, linear, LIF
+            "bias"   the same, with a real bias on every layer (bias neurons).
+                     Behind a pool the bias exceeds one INT16 synapse, so it is
+                     split across several bias neurons.
+            "gap"    conv, LIF, global average pool, linear with bias, LIF
 
     small=False uses INT16-sized weights, like a real export. small=True uses
     weights of a few units, so membranes land EXACTLY on thresholds and on
@@ -71,7 +77,21 @@ def _random_layers(rng, leak, small=False):
         t = rng.integers(3, 9, size=n) if small else rng.integers(30000, 90000, size=n)
         return scale * t.astype(np.int64) + scale - 1
 
-    return [
+    def bias(n, scale):
+        # in membrane units, so up to scale * INT16_MAX behind a pool
+        lim = 6 if small else scale * 30000
+        return rng.integers(-lim, lim + 1, size=n).astype(np.int64)
+
+    if variant == "gap":
+        return [
+            {"kind": "conv", "w": w(4, 2, 3, 3), "pool": 1, "scale": 1, "stride": (1, 1),
+             "padding": (1, 1), "threshold": th(4, 1), "bias": bias(4, 1),
+             "tau": 2 ** leak, "leak": leak},
+            # GAP over the 8x8 map: a pool of 8, membrane 64x finer
+            {"kind": "linear", "w": w(5, 4), "pool": 8, "scale": 64,
+             "threshold": th(5, 64), "bias": bias(5, 64), "tau": 2 ** leak, "leak": leak},
+        ]
+    layers = [
         {"kind": "conv", "w": w(4, 2, 3, 3), "pool": 1, "scale": 1, "stride": (1, 1),
          "padding": (1, 1), "threshold": th(4, 1), "tau": 2 ** leak, "leak": leak},
         {"kind": "conv", "w": w(3, 4, 5, 5), "pool": 2, "scale": 4, "stride": (1, 1),
@@ -79,6 +99,10 @@ def _random_layers(rng, leak, small=False):
         {"kind": "linear", "w": w(5, 3 * 2 * 2), "pool": 2, "scale": 4,
          "threshold": th(5, 4), "tau": 2 ** leak, "leak": leak},
     ]
+    if variant == "bias":
+        for L in layers:
+            L["bias"] = bias(L["w"].shape[0], L["scale"])
+    return layers
 
 
 def selftest(args):
@@ -89,9 +113,11 @@ def selftest(args):
 
     in_shape, T, flush = (2, 8, 8), 10, 3
     all_ok = True
-    for small, leak in [(sm, lk) for sm in (False, True) for lk in (1, 2, 3)]:
-        rng = np.random.default_rng(10 * leak + small)
-        layers = _random_layers(rng, leak, small)
+    variants = ("rank1", "bias", "gap")
+    for variant, small, leak in [(v, sm, lk) for v in variants
+                                 for sm in (False, True) for lk in (1, 2, 3)]:
+        rng = np.random.default_rng(10 * leak + small + 100 * variants.index(variant))
+        layers = _random_layers(rng, leak, small, variant)
         # hs_lif_neuron sets the noise shift to -17, which is zero noise on
         # every commit; see its docstring
         axons, conns, keys = unroll_to_hs_api(
@@ -104,26 +130,10 @@ def selftest(args):
         sim = IntegerSim(layers, in_shape, device="cpu")
 
         # IntegerSim, instrumented to keep every membrane and every spike
+        # IntegerSim's membranes and spikes at every step
         ref_V, ref_S = [], []
-        V = None
-        for t in range(T + flush):
-            x = (frames[t] if t < T else torch.zeros_like(frames[0])).unsqueeze(0)
-            if V is None:
-                h, shapes = x, []
-                for i in range(len(layers)):
-                    h = sim._drive(i, h)
-                    shapes.append(h.shape)
-                V = [torch.zeros(s, dtype=torch.float64) for s in shapes]
-            spikes = []
-            for i in range(len(layers)):
-                s = (V[i] > sim.th[i]).double()
-                V[i] = V[i] * (1 - s)
-                V[i] = V[i] - torch.floor(V[i] / sim.div[i])
-                spikes.append(s)
-            V[0] = V[0] + sim._drive(0, x)
-            for i in range(1, len(layers)):
-                V[i] = V[i] + sim._drive(i, spikes[i - 1])
-            ref_V.append(torch.cat([v.reshape(-1) for v in V]).numpy().copy())
+        for V, spikes in sim.steps(frames, flush):
+            ref_V.append(torch.cat([v.reshape(-1) for v in V]).cpu().numpy().copy())
             ref_S.append(set(k for i, s in enumerate(spikes)
                              for j, k in enumerate(keys[i]) if s.reshape(-1)[j] > 0))
 
@@ -148,7 +158,9 @@ def selftest(args):
         all_ok &= ok
         _, per_layer = sim.run(frames, flush, record=True)
         neg = int(sum((v < 0).sum() for v in ref_V))
-        print(f"{'small' if small else 'INT16'} weights, leak shift {leak} (tau {2 ** leak}): "
+        n_bias = sum(1 for k in conns if k.startswith("BiasN"))
+        print(f"{variant:5s} {'small' if small else 'INT16'} weights, leak shift {leak} "
+              f"(tau {2 ** leak}), {n_bias:2d} bias neurons: "
               f"spikes per layer {[sum(r) for r in per_layer]}, "
               f"{neg} negative membranes, "
               f"{'IDENTICAL' if ok else f'{bad_steps} of {T + flush} steps differ'}")

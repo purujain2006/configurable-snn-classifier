@@ -1,7 +1,11 @@
-"""Incremental result writing, so an interrupted search keeps its work.
+"""Where a run writes its results, and the trial table at the end of a search.
 
-Moved verbatim from Practice2.py lines 2633-2776 by build_from_practice2.py.
-Edit the behaviour here, not in the original.
+    ResultsWriter          append-only files under the run directory, flushed on
+                           every write, so an interrupted search keeps its work
+                           (streaming.py drives it as trials report)
+    export_trial_records   one flat table of every trial: config, metrics, and
+                           architecture counts and feasibility recomputed even
+                           for trials that never trained
 """
 
 import csv
@@ -13,7 +17,7 @@ import time
 from datetime import datetime
 
 from .planning import InfeasibleConfig
-from .hardware import check_feasibility
+from .hardware import check_spec_feasibility
 from .cost import count_neurons_and_synapses
 from .spaces import config_to_specs
 
@@ -137,8 +141,7 @@ def export_trial_records(results, out_dir: str) -> str:
         arch = {}
         try:
             specs = config_to_specs(cfg_flat)
-            feasible, violations = check_feasibility(
-                specs["input"], specs["encoder"], specs["downsample"], specs["head"], specs["output"])
+            feasible, violations = check_spec_feasibility(specs)
             arch["feasible"] = feasible
             arch["violations"] = "; ".join(violations)[:300]
             if feasible:

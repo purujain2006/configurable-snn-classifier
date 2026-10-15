@@ -13,7 +13,8 @@ theta, real tau, real T and flush count. No torch required.
 import sys, os, json
 import numpy as np
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path[:0] = [_ROOT, os.path.join(_ROOT, "tools")]     # repo root, and tools/ for read_ckpt
 from read_ckpt import load, walk
 
 BN_EPS = 1e-5
