@@ -7,7 +7,7 @@ run:
 
 dataset:
   name: dvs128
-  root: /local_disk/$USER/DVS128Gesture
+  root: /Volumes/export/isn/$USER/DVSGesture128   # shared storage; /local_disk copies can vanish
 
 encoding:
   coding: passthrough    # already events; resize and binarize only
