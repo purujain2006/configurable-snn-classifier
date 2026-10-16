@@ -742,7 +742,7 @@ def verify_deployment(hw_net, loader, device, flush_steps, max_clips=None):
     weight off the grid) reports sim_val_accuracy None and the reason.
     """
     _require_torch()
-    from .train import forward_over_time
+    from .train import forward_over_time, exact_arithmetic
     try:
         layers = integer_layers(hw_net)
         C, H, W = hw_net.plan.blocks[0].in_channels, *hw_net.plan.blocks[0].in_hw
@@ -754,7 +754,7 @@ def verify_deployment(hw_net, loader, device, flush_steps, max_clips=None):
     hw_net.eval()
     correct = disagree = seen = 0
     try:
-        with torch.no_grad():
+        with torch.no_grad(), exact_arithmetic():
             for x, y, *_ in loader:
                 x = x.to(device)
                 top = 2 ** int(getattr(hw_net, "input_bits", 1) or 1) - 1

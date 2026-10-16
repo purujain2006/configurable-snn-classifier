@@ -10,6 +10,7 @@
 """
 
 import math
+from contextlib import contextmanager
 from copy import deepcopy
 from dataclasses import asdict
 
@@ -112,6 +113,31 @@ def hardware_flush_steps(net) -> int:
     from .neuron import OrPool
     return sum(1 for m in net.conv_fc if isinstance(m, HardwareLIFNode)
                or (OrPool is not None and isinstance(m, OrPool)))
+
+
+@contextmanager
+def exact_arithmetic():
+    """TF32 off inside, so GPU convolutions are true float32.
+
+    On Ampere and newer NVIDIA GPUs PyTorch runs cuDNN convolutions in TF32
+    by default, which keeps about 3 significant digits of each weight. A
+    deployed weight is an integer times W_DELTA, so TF32 moves a membrane by
+    several weight steps and flips spikes the chip would not: the first
+    trained network checked on a cluster GPU disagreed with IntegerSim on 1
+    of 216 validation clips, and float32 on a CPU agreed on every spike.
+    Training tolerates the noise. Measuring the deployed network does not, so
+    every measurement of it runs inside this.
+    """
+    if not _HAS_TORCH:
+        yield
+        return
+    old = (torch.backends.cudnn.allow_tf32, torch.backends.cuda.matmul.allow_tf32)
+    torch.backends.cudnn.allow_tf32 = False
+    torch.backends.cuda.matmul.allow_tf32 = False
+    try:
+        yield
+    finally:
+        torch.backends.cudnn.allow_tf32, torch.backends.cuda.matmul.allow_tf32 = old
 
 
 def forward_over_time(net, x, flush_steps: int = None, per_step: bool = False):
@@ -411,7 +437,8 @@ def run_training(cfg: dict, data_dir: str = None, device=None, report_fn=None,
         # ---- freeze into the deployable BN-free model & measure IT -------
         net.eval()
         hw_net = deepcopy(net).export_deployed().to(device)
-        hw_acc = evaluate(hw_net, val_loader, device)
+        with exact_arithmetic():
+            hw_acc = evaluate(hw_net, val_loader, device)
         rep = deployment_report(hw_net)
         hw = {
             "hw_val_accuracy": hw_acc,
@@ -428,7 +455,8 @@ def run_training(cfg: dict, data_dir: str = None, device=None, report_fn=None,
         # ---- tail / ptq: old behaviour -----------------------------------
         if best_state is not None:
             net.load_state_dict(best_state)
-        hw_net, hw = deploy_and_measure(net, cfg, train_loader, val_loader, device)
+        with exact_arithmetic():
+            hw_net, hw = deploy_and_measure(net, cfg, train_loader, val_loader, device)
 
     hw["float_val_accuracy"] = float_best
     # what each spiking layer deploys with, per layer, e.g. "8,8,4"; a layer

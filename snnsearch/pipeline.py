@@ -250,7 +250,7 @@ def evaluate_on_test(res, loaders):
     accuracy. Validation accuracy on a split carved from train is not the same
     quantity and cannot be set beside it.
     """
-    from .train import evaluate
+    from .train import evaluate, exact_arithmetic
 
     hw_net = res.get("hw_net")
     if hw_net is None or len(loaders) < 3 or loaders[2] is None:
@@ -259,7 +259,8 @@ def evaluate_on_test(res, loaders):
     was_training = hw_net.training
     hw_net.eval()
     try:
-        return {"hw_test_accuracy": evaluate(hw_net, loaders[2], device)}
+        with exact_arithmetic():
+            return {"hw_test_accuracy": evaluate(hw_net, loaders[2], device)}
     except Exception as exc:
         return {"hw_test_accuracy": None, "test_reason": f"{type(exc).__name__}: {exc}"}
     finally:
@@ -275,13 +276,15 @@ def measure_run_synops(res, loaders, spec, max_batches=None):
     measure.
     """
     from .synops import measure_synops
+    from .train import exact_arithmetic
 
     hw_net = res.get("hw_net")
     if hw_net is None:
         return {}
     device = next(hw_net.parameters()).device
-    summary = measure_synops(hw_net, loaders[1], device, spec=spec,
-                             max_batches=max_batches)
+    with exact_arithmetic():
+        summary = measure_synops(hw_net, loaders[1], device, spec=spec,
+                                 max_batches=max_batches)
     out = {"synops_per_sample": summary.get("synops_per_sample"),
            "spikes_per_sample": summary.get("spikes_per_sample")}
     # The dense comparison is the argument for spiking at all, so keep it when
