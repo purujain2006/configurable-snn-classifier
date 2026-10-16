@@ -97,7 +97,7 @@
 <li><strong>Dropout inside the convolution layers.</strong> Used in 44 of the 318 networks that fit, and only 12 of those finished.</li>
 <li><strong>A penalty on firing rate.</strong> Used in 24, of which 1 finished. The penalty also applied to the output layer, whose spikes are the prediction, which worked against the classification loss. It now skips the output layer.</li>
 </ul>
-<p>The next search forces convolution dropout and the firing-rate penalty on in every trial so they get a fair test.</p>
+<p>The next search starts with a balanced block that runs each of these on and off in equal numbers (<a href="search.html#dbr">section 6.5</a>), so each gets a fair test.</p>
 </section>
 <section class="reveal" id="licenses">
 <h2><span class="sec-num">7.6</span>How far to trust these numbers</h2>

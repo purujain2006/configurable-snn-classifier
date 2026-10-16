@@ -117,5 +117,23 @@ class SearchSpaceTests(unittest.TestCase):
         self.assertIn("final_reduction", LEADERBOARD_COLS)
 
 
+class BalancedBlockTests(unittest.TestCase):
+    def test_every_level_equally_often_and_every_shape_fits(self):
+        """The balanced block gives each option the same number of trials,
+        and every one of them gets past the chip check, so none is lost."""
+        from collections import Counter
+        from snnsearch.spaces import balanced_points, geometry_fits
+        points = balanced_points(2, seed=1, t_choices=[8, 16], epochs=80)
+        self.assertEqual(len(points), 96)
+        def pooling(p):
+            pools = any(p.get(f"ds_{i}") == "pool" for i in range(p["depth"]))
+            return p.get("pool_type", "avg") if pools else "none"
+        self.assertEqual(Counter(pooling(p) for p in points), {"none": 32, "avg": 32, "max": 32})
+        for key in ("bias_mode", "final_reduction", "use_conv_dropout", "use_rate_penalty"):
+            self.assertEqual(sorted(Counter(p[key] for p in points).values()), [48, 48], key)
+        consts = {"N": 16, "epochs": 80, "data_dir": "."}
+        self.assertTrue(all(geometry_fits({**consts, **p}) for p in points))
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

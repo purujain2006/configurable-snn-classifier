@@ -54,7 +54,7 @@
 </section>
 <section class="reveal" id="asha">
 <h2><span class="sec-num">6.4</span>Early stopping</h2>
-<p>ASHA lets every trial train for a grace period, then compares it with the others at checkpoints spaced by a reduction factor. With a grace period of 10 epochs and a factor of 3, as in the DVS128 configuration, the checkpoints fall at 10 and 30 epochs of a 60-epoch budget, and roughly the best third of trials continue past each one. Trials start and finish at different times, so each is compared with whichever trials have reached the same checkpoint.</p>
+<p>ASHA lets every trial train for a grace period, then compares it with the others at checkpoints spaced by a reduction factor. With a grace period of 20 epochs and a factor of 3, as in the current DVS128 configuration, the checkpoints fall at 20 and 60 epochs of an 80-epoch budget, and roughly the best third of trials continue past each one. The configuration also uses two brackets: half the trials are not judged until epoch 60, which protects networks that start slowly. Trials start and finish at different times, so each is compared with whichever trials have reached the same checkpoint.</p>
 <p>Some learning-rate schedules improve most toward the end of training, so a grace period that is too short stops promising trials early. The demo shows the effect: set the grace period to 1 and the late-improving curves are cut.</p>
 <div class="demo">
 <div class="demo-head">
@@ -117,7 +117,8 @@
 <tr><td class="layer-name">depth</td><td>2 to 4 convolution layers</td><td></td></tr>
 <tr><td class="layer-name">channels</td><td>8 to 128, sampled on a log scale</td><td>yes</td></tr>
 <tr><td class="layer-name">kernel</td><td>3, 5, 7 or 9</td><td>yes</td></tr>
-<tr><td class="layer-name">shrinking</td><td>stride-2 convolution, 2×2 average pool, or none</td><td>yes</td></tr>
+<tr><td class="layer-name">shrinking</td><td>stride-2 convolution, 2×2 pool, or none</td><td>yes</td></tr>
+<tr><td class="layer-name">pool type</td><td>average (folded) or max (OR neurons); only when a layer pools</td><td></td></tr>
 <tr><td class="layer-name">input size</td><td>24×24 to 88×88, in steps of 8</td><td></td></tr>
 <tr><td class="layer-name">frames per clip</td><td>8 or 16</td><td></td></tr>
 <tr><td class="layer-name">head</td><td>flatten or GAP, then 0 or 1 hidden layer of 128, 256 or 512</td><td></td></tr>
@@ -130,7 +131,9 @@
 </tbody>
 </table>
 </div>
-<p>The shape settings come first and are checked against the chip before anything else is sampled. A run's configuration file can force a setting on for every trial. The DVS128 configuration forces convolution dropout and the firing-rate penalty on, because Optuna had sampled them too rarely to say whether they help.</p>
+<p>The shape settings come first and are checked against the chip before anything else is sampled.</p>
+<h3>A balanced start</h3>
+<p>Optuna favors whatever has scored well so far, so an option that starts badly can end up barely tried. In the last search, 32 of 400 trials used GAP and 26 used the firing-rate penalty, too few to judge either. The search therefore begins with a balanced block: every combination of pooling (none, average, max), bias (threshold, bias neurons), head (flatten, GAP), convolution dropout (on, off) and the firing-rate penalty (on, off), twice over, 96 trials, with everything else sampled at random. Each option gets the same number of trials, and <code>tools/analysis/factor_effects.py</code> compares them level by level. Optuna steers only after the block.</p>
 </section>
 <section class="reveal" id="results">
 <h2><span class="sec-num">6.7</span>What the search writes down</h2>

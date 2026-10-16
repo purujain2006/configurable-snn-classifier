@@ -149,7 +149,24 @@ def run_search(cfg, out_dir):
         writer.log(f"[stream] forced on for every trial: {list(s['require'])}")
     _assert_picklable(space)
 
-    algo = OptunaSearch(space=space, metric="val_accuracy", mode="max")
+    # A balanced block first (spaces.balanced_points), then Optuna's model-based
+    # sampler. TPE samples at random until it has n_startup_trials results, so
+    # the balanced trials count as its random start and steering begins after.
+    from optuna.samplers import TPESampler
+    from .spaces import balanced_points
+    points = balanced_points(s.get("balanced_repeats", 0), seed=cfg["run"].get("seed", 1),
+                             t_choices=t_choices, batch_size=s.get("batch_size", 16),
+                             epochs=s["epochs"])
+    startup = len(points) + int(s.get("startup_trials", 10))
+    algo = OptunaSearch(space=space, metric="val_accuracy", mode="max",
+                        points_to_evaluate=points or None,
+                        sampler=TPESampler(n_startup_trials=startup,
+                                           seed=cfg["run"].get("seed", 1)))
+    if points:
+        writer.log(f"[stream] balanced block: {len(points)} trials covering every "
+                   f"combination of pooling, bias, head, conv dropout and rate penalty, "
+                   f"each with a random shape that fits the chip; Optuna steers after "
+                   f"{startup} trials")
 
     scheduler = None
     if s.get("scheduler", "asha") == "asha":

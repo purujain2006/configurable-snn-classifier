@@ -58,6 +58,8 @@ LEADERBOARD_COLS = [
     "sim_val_accuracy", "sim_disagreements", "bias_mode",
     # avg (folded into the next layer) or max (one OR neuron per window)
     "pool_type",
+    # whether the trial used each regularizer at all (the amounts are above)
+    "use_conv_dropout", "use_rate_penalty",
 ]
 
 

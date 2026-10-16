@@ -111,7 +111,7 @@
 <tr><td class="layer-name">leak</td><td class="num">τ = 2, 4, 8, 16, …</td><td>The chip leaks by a bit shift, subtracting V&nbsp;&gt;&gt;&nbsp;k each step, so τ = 2<sup>k</sup>. Any τ that is not a power of two does not exist on the chip.</td></tr>
 <tr><td class="layer-name">bias</td><td class="num">none built in</td><td>Neurons have no bias term. A bias can be added with a <em>bias neuron</em>: a neuron that fires on every step and connects to every neuron that needs the bias, at the cost of one connection each.</td></tr>
 <tr><td class="layer-name">normalization</td><td class="num">none</td><td>No batch normalization, the layer that rescales each channel during training so deep networks train reliably. Its effect is merged into the weights before deployment, a step called folding (<a href="hardware.html#folding">page 4</a>).</td></tr>
-<tr><td class="layer-name">average pooling</td><td class="num">folded</td><td>No pooling neurons. An average pool is folded into the next layer's connections, so every neuron in front of the pool connects straight to that layer. A 2×2 pool multiplies the next layer's fan-in by 4.</td></tr>
+<tr><td class="layer-name">pooling</td><td class="num">folded, or OR neurons</td><td>No pooling operation. An average pool is folded into the next layer's connections, so every neuron in front of it connects straight to that layer, and a 2×2 pool multiplies that layer's fan-in by 4. A max pool of spikes asks whether any input fired, which one neuron with threshold 0 answers exactly, at the cost of one extra step.</td></tr>
 <tr><td class="layer-name">update order</td><td class="num">fire first</td><td>Fire, reset, leak, then integrate (section 1.2). Each layer delays its output by one step.</td></tr>
 </tbody>
 </table>

@@ -322,6 +322,95 @@ class DefineByRunSpace:
         return consts
 
 
+# The on/off and either/or choices the balanced block covers in full. Each
+# maps a level to the sampled parameters that produce it.
+BALANCED_FACTORS = {
+    "pooling": {
+        # no pooling anywhere: the first two layers shrink by stride, the rest
+        # keep their size (keys for layers a shallower network lacks are unused)
+        "none": {"ds_0": "stride", "ds_1": "stride", "ds_2": "none", "ds_3": "none"},
+        "avg": {"ds_0": "pool", "pool_type": "avg"},
+        "max": {"ds_0": "pool", "pool_type": "max"},
+    },
+    "bias_mode": {"threshold": {"bias_mode": "threshold"}, "neuron": {"bias_mode": "neuron"}},
+    "final_reduction": {"flatten": {"final_reduction": "flatten"}, "gap": {"final_reduction": "gap"}},
+    "conv_dropout": {"off": {"use_conv_dropout": False}, "on": {"use_conv_dropout": True}},
+    "rate_penalty": {"off": {"use_rate_penalty": False}, "on": {"use_rate_penalty": True}},
+}
+
+
+def _random_geometry(rng, levels, t_choices):
+    """One random network shape with the given balanced-block levels, using
+    the same ranges DefineByRunSpace samples from."""
+    import math
+    depth = rng.randint(2, 4)
+    g = {"depth": depth}
+    for i in range(depth):
+        g[f"k_{i}"] = rng.choice([3, 5, 7, 9])
+        g[f"ch_{i}"] = int(round(math.exp(rng.uniform(math.log(8), math.log(128)))))
+        if levels["pooling"] == "none":
+            ds = rng.choice(["stride", "none"]) if i else "stride"
+        else:
+            ds = "pool" if i == 0 else rng.choice(["stride", "pool", "none"])
+        g[f"ds_{i}"] = ds
+        if ds == "stride":
+            g[f"stride_{i}"] = 2
+        elif ds == "pool":
+            g[f"pool_{i}"] = 1
+    g["resize_to"] = rng.randrange(24, 89, 8)
+    g["T"] = rng.choice(list(t_choices))
+    g["fc_layers"] = rng.randint(0, 1)
+    if g["fc_layers"]:
+        g["fc_width_0"] = rng.choice(FC_WIDTH_CHOICES)
+    g["final_reduction"] = levels["final_reduction"]
+    g["bias_mode"] = levels["bias_mode"]
+    if levels["pooling"] != "none":
+        g["pool_type"] = levels["pooling"]
+    return g
+
+
+def balanced_points(repeats: int = 1, seed: int = 0, t_choices=(16,),
+                    batch_size: int = 16, epochs: int = 40) -> list:
+    """Every combination of BALANCED_FACTORS, `repeats` times, in shuffled order.
+
+    Optuna samples whatever has scored well so far, so an option that starts
+    badly can end up barely tried: in Search 02, GAP got 32 of 400 trials and
+    the firing-rate penalty 26, too few to judge either. Running every
+    combination first gives each level of each choice the same number of
+    trials, so the levels can be compared on equal footing. The search seeds
+    these as its first trials; Optuna steers only after them.
+
+    Each point carries a whole network shape, drawn at random from the search
+    ranges and redrawn until it fits the chip. Leaving the shape to the
+    sampler lost about half the block to the chip check, and with it the
+    balance. Training settings are left to the sampler, which samples them at
+    random during the block.
+
+    Shuffled so that each early-stopping checkpoint compares a mix of levels.
+    """
+    import itertools
+    import random
+    rng = random.Random(seed)
+    names = list(BALANCED_FACTORS)
+    consts = {"N": batch_size, "epochs": epochs, "data_dir": "."}
+    points = []
+    for _ in range(int(repeats)):
+        for combo in itertools.product(*(BALANCED_FACTORS[n] for n in names)):
+            levels = dict(zip(names, combo))
+            for _attempt in range(10_000):
+                geom = _random_geometry(rng, levels, t_choices)
+                if geometry_fits({**consts, **geom}):
+                    break
+            else:
+                raise RuntimeError(f"no shape fits the chip for {levels}")
+            point = dict(geom)
+            point["use_conv_dropout"] = levels["conv_dropout"] == "on"
+            point["use_rate_penalty"] = levels["rate_penalty"] == "on"
+            points.append(point)
+    rng.shuffle(points)
+    return points
+
+
 def make_define_by_run(batch_size: int, epochs: int, data_dir_abs: str, t_choices: list,
                        per_layer: bool = True, require=()) -> "DefineByRunSpace":
     """Factory kept for API compatibility -- returns a picklable space object."""

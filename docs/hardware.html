@@ -34,7 +34,9 @@
 </ul>
 <h3>Pooling multiplies fan-in</h3>
 <p>An average pool has no neurons on the chip. It is folded into the next layer: each of the four neurons in a 2×2 block connects directly to the next layer, carrying the next layer's weight, and that layer's potential is kept in units four times finer so the arithmetic stays exact. The next layer's fan-in is therefore four times k² · C<sub>in</sub>. The same holds for a head after a pool, and for GAP, which averages over the whole image: every head neuron connects to every neuron of the last convolution layer.</p>
-<p>The first search counted fan-in after pooling instead of before, and so it accepted networks the chip cannot hold. Its best network pools twice, and each of its 11 output neurons needs 32,256 connections, against a limit of 8,159. A stride-2 convolution shrinks the image without this cost, because it has no pool to fold, so the search now favors strides where fan-in is tight.</p>
+<p>The first search counted fan-in after pooling instead of before, and so it accepted networks the chip cannot hold. Its best network pools twice, and each of its 11 output neurons needs 32,256 connections, against a limit of 8,159. Two other ways to shrink the image avoid this cost. A stride-2 convolution has no pool to fold.</p>
+<h3>Max pooling as OR neurons</h3>
+<p>A max pool of spikes asks whether any input in the window fired. One chip neuron answers that exactly: give it weight 1 from each input and a threshold of 0, so it fires whenever its total is at least 1. Each window gets one such OR neuron, and the next layer reads the pooled values, so its fan-in stays at the pooled size. The OR neuron fires one step after its input, like every chip neuron, and training includes that step. With max pooling, the best network's design needs 8,064 connections per output neuron and fits.</p>
 <div class="demo">
 <div class="demo-head">
 <span class="demo-tag">INTERACTIVE</span>
@@ -261,7 +263,10 @@ def steps(self, frames, flush_steps):
         for i in range(len(self.layers)):
             s = (V[i] &gt; self.th[i]).to(torch.float64)
             V[i] = V[i] * (1.0 - s)
-            V[i] = V[i] - torch.floor(V[i] / self.div[i])
+            if self.memoryless[i]:
+                V[i] = torch.zeros_like(V[i])
+            else:
+                V[i] = V[i] - torch.floor(V[i] / self.div[i])
             spikes.append(s)
         # phase two
         V[0] = V[0] + self._drive(0, x)

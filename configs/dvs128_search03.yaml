@@ -7,6 +7,8 @@
 #   * validation holds out four whole subjects, like the test set does
 #   * every trial is checked clip by clip on IntegerSim (sim_val_accuracy,
 #     sim_disagreements)
+#   * pool_type is searched: average (folded) or max (OR neurons)
+#   * a balanced block runs every combination of the on/off choices first
 # Its own results directory, because the leaderboard columns changed and
 # appending to an old leaderboard.csv misaligns them.
 
@@ -24,60 +26,35 @@ dataset:
 encoding:
   coding: passthrough    # already events; resize and binarize only
   T: 16
-  resize_to: 64          # native 128x128 needs 32,768 axons against a limit of 16,383
+  resize_to: 64          # native 128x128 needs 32,768 axons against a limit of 16,000
 
 search:
   trials: 400
-  # SEARCH horizon, not the final one. ASHA prunes on early performance, so a
-  # long budget here spends most of its compute on runs that get killed anyway,
-  # and any rung placed before grokking would begin is a coin flip on exactly
-  # the runs a grokking hunt wants to keep. Those are different questions, so
-  # they get different runs: this one picks architectures at a horizon where
-  # early performance is a fair signal, and the survivors are then retrained
-  # long with no pruning at all (main.py single --from-best --epochs 300).
-  epochs: 60
-  batch_size: 16
-  # One frame cache per value, built sequentially before Ray starts. Each takes
-  # tens of CPU minutes the first time and is then reused by every run.
-  T_choices: [8, 16]
-  # Rungs land at grace_period * reduction_factor^k, so 10, 30, 60 here. Of 400
-  # trials roughly 133 clear the first cut, 44 the second, and those run to the
-  # full 60. Must stay > 1 regardless: cosine and one-cycle both improve late.
-  grace_period: 10
+  # The first 96 trials are a balanced block: every combination of pooling
+  # (none, average, max as OR neurons), bias (threshold, bias neurons), head
+  # (flatten, GAP), conv dropout (off, on) and firing-rate penalty (off, on),
+  # twice, with everything else sampled at random. Each option then gets the
+  # same number of trials and can be compared fairly. Optuna steers only after
+  # them, for the remaining 304 (+10 more random trials first).
+  balanced_repeats: 2
+  startup_trials: 10
+  # Longer and more forgiving than Search 02 (60 epochs, first cut at 10), so
+  # slow starters such as GAP heads and regularized networks get a fair run.
+  # Two ASHA brackets: half the trials are first judged at epoch 20 (then 60),
+  # the other half not until epoch 60.
+  epochs: 80
+  grace_period: 20
   reduction_factor: 3
+  brackets: 2
+  batch_size: 16
+  # One frame cache per value, built before Ray starts.
+  T_choices: [8, 16]
   target: 0.975          # published SNN accuracy on this task is 97-99%
-  # per_layer samples kernel, channels and downsampling INDEPENDENTLY per conv
-  # layer. "uniform" shares one of each across the whole stack, which cannot
-  # express two different widths, so the paper's best DVS model -- C(6) into
-  # C(16) -- was unreachable no matter how wide the channel range got.
-  #
-  # Uniform is a subset of this: a per-layer trial can sample the same values
-  # for every layer. So nothing is lost, but the space is much larger and wants
-  # a trial budget to match.
+  # each conv layer samples its own kernel, channels and downsampling
   space: per_layer
-  # Knobs every trial must use, rather than sampling on/off. Naming one removes
-  # its `use_*` switch, so the search stops asking whether it helps and starts
-  # asking how much of it to use.
-  #
-  # Both ranges reach far enough down to be nearly inactive (conv_dropout 0.05,
-  # rate_penalty 1e-4), so forcing them on does not force them to matter. It
-  # removes the baseline, though: with no trials running without them, this run
-  # cannot answer whether they help. Run tools/hpo_analysis.py on the previous
-  # search for that, where each was a coin flip across ~318 trained trials.
-  # conv_dropout IS the spatiotemporal dropout: spikingjelly's Dropout on the
-  # spikes leaving each conv block, mask held for the whole clip.
-  #
-  # rate_penalty previously penalized every spiking layer INCLUDING the output,
-  # whose spikes are the prediction, so it was telling the network not to
-  # answer. 92% of those trials died at the first rung at 0.332 accuracy
-  # against 0.626 without it. The output layer is now excluded. Verify that fix
-  # with one short run before trusting a whole search to it:
-  #
-  #   python main.py single -c configs/dvs128.yaml --from-best <best.json> \
-  #       --epochs 60 --train rate_penalty=0.01 --results-dir results/rp_check
-  #
-  # Epoch 9 should land near 0.6, not near 0.33.
-  require: [conv_dropout, rate_penalty]
+  # Nothing is forced on. Conv dropout and the firing-rate penalty are sampled
+  # on and off like everything else. The penalty skips the output layer, whose
+  # spikes are the prediction; dropout never touches the output layer's spikes.
   # MEASURED, not estimated. A 400-trial run at 0.03125 put 27 trials on one
   # L40S and filled 44.4 of 44.42 GiB; 266 of 400 died of CUDA OOM. Per trial
   # the range was 0.7 to 3.6 GiB, averaging 1.65 -- far above the parameter
