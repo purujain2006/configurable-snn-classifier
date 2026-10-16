@@ -203,6 +203,7 @@
       if (value > limit) violations.push(`${label} ${value} > ${limit}`);
     };
     const firstFcWidth = plan.linears.length ? plan.linears[0].out_features : 0;
+    const folds = downsample.pool_type !== "max";   // max pools run as OR neurons
     let prevPool = 1;
     for (const b of plan.blocks) {
       const k = b.kernel_size, s = b.stride;
@@ -221,7 +222,7 @@
       }
       if (b.index === plan.blocks.length - 1)
         check(firstFcWidth, NEURON_LIMITS.fan_out, `${tag}: neuron_fan_out(->fc)`);
-      prevPool = b.pool ? b.pool_kernel : 1;
+      prevPool = (b.pool && folds) ? b.pool_kernel : 1;
     }
 
     for (const lin of plan.linears) {
@@ -229,7 +230,9 @@
       let fanIn = lin.in_features;
       if (lin.index === 0 && plan.blocks.length) {
         const last = plan.blocks[plan.blocks.length - 1];
-        fanIn = last.out_channels * last.conv_out_hw[0] * last.conv_out_hw[1];
+        fanIn = (last.pool && !folds)
+          ? last.out_channels * last.out_hw[0] * last.out_hw[1]
+          : last.out_channels * last.conv_out_hw[0] * last.conv_out_hw[1];
       }
       check(fanIn, NEURON_LIMITS.fan_in, `${tag}: neuron_fan_in`);
       if (!lin.is_classifier)

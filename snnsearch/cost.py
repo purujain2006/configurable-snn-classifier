@@ -43,10 +43,13 @@ def count_neurons_and_synapses(cfg: dict) -> dict:
             })
         if b.pool:
             ph, pw = b.out_hw
+            or_pool = cfg["downsample"].pool_type == "max"
             rows.append({
                 "layer": f"pool{b.index}",
-                "detail": f"avg k={b.pool_kernel} s={b.pool_stride} -> {b.out_channels}x{ph}x{pw}",
-                "neurons": 0,
+                # a max pool is a layer of OR neurons on chip; an avg pool has none
+                "detail": (f"{'max (OR neurons)' if or_pool else 'avg'} k={b.pool_kernel} "
+                           f"s={b.pool_stride} -> {b.out_channels}x{ph}x{pw}"),
+                "neurons": b.out_channels * ph * pw if or_pool else 0,
                 "connections": b.out_channels * ph * pw * b.pool_kernel * b.pool_kernel,
                 "params": 0,
             })
@@ -140,6 +143,8 @@ def format_summary(cfg: dict) -> str:
     lines.append(f"trainable parameters    : {t['params']:,}")
     lines.append(f"neuron updates / sample : {counts['neuron_updates_per_sample']:,}  ({t['neurons']:,} x T={counts['timesteps']})")
     n_spiking = len(counts["plan"].blocks) + len(counts["plan"].linears)
+    if cfg["downsample"].pool_type == "max":       # each OR-pool layer adds a step
+        n_spiking += sum(1 for b in counts["plan"].blocks if b.pool)
     lines.append(f"pipeline flush steps    : {n_spiking}  (1 per spiking layer; the converter's "
                  f"post-input zero steps)")
     lines.append("")

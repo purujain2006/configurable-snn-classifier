@@ -147,7 +147,9 @@ def integer_layers(net, tau_override=None):
     """Read the deployed net into a list of integer layers.
 
     Each entry:
-        kind        "conv" or "linear"
+        kind        "conv", "linear", or "orpool" (a layer of OR neurons: one
+                    memoryless neuron per pooling window, weight 1 from each
+                    input, threshold 0, so it fires when any input fired)
         w           int64 array, the INT16 weight the chip stores
         stride, padding
         pool        avg-pool kernel applied to this layer's INPUT spikes (1 = none);
@@ -158,7 +160,7 @@ def integer_layers(net, tau_override=None):
                     timestep by bias neurons, or None
         tau, leak   tau the model trained with, and the simpleSim shift
     """
-    from .neuron import HardwareLIFNode
+    from .neuron import HardwareLIFNode, OrPool
 
     mods = list(net.conv_fc)
     out, pending_pool, scale = [], 1, 1
@@ -181,10 +183,19 @@ def integer_layers(net, tau_override=None):
             pending_pool *= h
             i += 1
             continue
+        if OrPool is not None and isinstance(m, OrPool):
+            if pending_pool != 1:
+                raise NotImplementedError("an average pool directly before an OR pool")
+            if m.kernel_size != m.stride:
+                raise NotImplementedError("overlapping OR pool")
+            out.append({"kind": "orpool", "pool": m.kernel_size, "scale": 1,
+                        "threshold": np.zeros(1, dtype=np.int64), "bias": None,
+                        "tau": None, "leak": 0, "memoryless": True})
+            i += 1
+            continue
         if isinstance(m, (layer.MaxPool2d, nn.MaxPool2d)):
             raise NotImplementedError(
-                "max pool of spikes is an OR and needs its own neuron layer, "
-                "which adds a timestep. Not wired.")
+                "a plain MaxPool2d has no chip timing; build max pooling as OrPool")
         if isinstance(m, (layer.Conv2d, nn.Conv2d, layer.Linear, nn.Linear)):
             node = next(x for x in mods[i + 1:] if isinstance(x, HardwareLIFNode))
             w = m.weight.detach().double().cpu().numpy()
@@ -245,7 +256,7 @@ def make_chip_faithful(net, tau=None):
     """
     from .neuron import HardwareLIFNode
     nodes = [m for m in net.conv_fc if isinstance(m, HardwareLIFNode)]
-    scales = [L["scale"] for L in integer_layers(net)]
+    scales = [L["scale"] for L in integer_layers(net) if L["kind"] != "orpool"]
     for node, s in zip(nodes, scales):
         if tau is not None:
             if node.learn_tau and hasattr(node, "raw_log2_tau"):
@@ -278,7 +289,7 @@ class IntegerSim:
 
     def __init__(self, layers, in_shape, device="cpu"):
         for L in layers:
-            if L["leak"] is None:
+            if L["kind"] != "orpool" and L["leak"] is None:
                 raise ValueError(
                     f"tau={L['tau']} is not a power of two, so simpleSim cannot "
                     f"represent it (its leak is v // 2**leak). Pass a power-of-two "
@@ -287,12 +298,15 @@ class IntegerSim:
         self.in_shape = tuple(in_shape)
         self.device = device
         dt = torch.float64
-        self.w = [torch.as_tensor(L["w"], dtype=dt, device=device) for L in layers]
+        self.w = [torch.as_tensor(L["w"], dtype=dt, device=device) if "w" in L else None
+                  for L in layers]
         self.th = []
         for L in layers:
             t = torch.as_tensor(L["threshold"], dtype=dt, device=device)
-            self.th.append(t.reshape(-1, 1, 1) if L["kind"] == "conv" else t)
+            self.th.append(t.reshape(-1, 1, 1) if L["kind"] in ("conv", "orpool") else t)
         self.div = [float(2 ** L["leak"]) for L in layers]
+        # memoryless (ANN) neurons reset to 0 every step, fired or not
+        self.memoryless = [bool(L.get("memoryless")) for L in layers]
         self.b = []
         for L in layers:
             if L.get("bias") is None:
@@ -304,6 +318,9 @@ class IntegerSim:
     def _drive(self, idx, spikes_in):
         """Synaptic input to layer idx from the previous layer's 0/1 spikes."""
         L, x = self.layers[idx], spikes_in
+        if L["kind"] == "orpool":
+            # each OR neuron counts the spikes in its window (weight 1 each)
+            return F.avg_pool2d(x, L["pool"]) * (L["pool"] ** 2)
         if L["pool"] > 1:
             # sum, not mean: the 1/pool^2 lives in `scale`, which keeps it integer
             x = F.avg_pool2d(x, L["pool"]) * (L["pool"] ** 2)
@@ -341,7 +358,10 @@ class IntegerSim:
             for i in range(len(self.layers)):
                 s = (V[i] > self.th[i]).to(torch.float64)
                 V[i] = V[i] * (1.0 - s)
-                V[i] = V[i] - torch.floor(V[i] / self.div[i])
+                if self.memoryless[i]:
+                    V[i] = torch.zeros_like(V[i])
+                else:
+                    V[i] = V[i] - torch.floor(V[i] / self.div[i])
                 spikes.append(s)
             # phase two
             V[0] = V[0] + self._drive(0, x)
@@ -407,6 +427,13 @@ def hs_bias_neuron():
     return ANN_neuron(-1, -17, 0)
 
 
+def hs_or_neuron():
+    """One OR-pool neuron: memoryless (ANN), threshold 0, so it fires on the
+    step after any input in its window fired. Noise off as in hs_lif_neuron."""
+    from hs_api.neuron_models import ANN_neuron
+    return ANN_neuron(0, -17, 0)
+
+
 # the chip's limits on one synapse weight and one neuron's fan-out
 _MAX_WEIGHT = INT16_MAX
 _MAX_NEURON_FANOUT = 4095
@@ -451,7 +478,10 @@ def unroll_to_hs_api(layers, in_shape, neuron_model_factory=None):
     shapes = []
     shp = (C, H, W)
     for L in layers:
-        if L["kind"] == "conv":
+        if L["kind"] == "orpool":
+            c, h, w = shp
+            shp = (c, h // L["pool"], w // L["pool"])
+        elif L["kind"] == "conv":
             c, h, w = shp
             if L["pool"] > 1:
                 h, w = h // L["pool"], w // L["pool"]
@@ -468,6 +498,11 @@ def unroll_to_hs_api(layers, in_shape, neuron_model_factory=None):
     for li, L in enumerate(layers):
         shp = shapes[li]
         per_ch = int(np.prod(shp[1:])) if len(shp) > 1 else 1
+        if L["kind"] == "orpool":
+            or_model = hs_or_neuron()
+            for k in keys[li]:
+                connections[k] = ([], or_model)
+            continue
         models = {}
         for j, k in enumerate(keys[li]):
             ch = j // per_ch
@@ -505,8 +540,18 @@ def unroll_to_hs_api(layers, in_shape, neuron_model_factory=None):
     for li, L in enumerate(layers):
         is_axon = li == 0
         pre_keys = [f"A{i}" for i in range(n_in)] if is_axon else keys[li - 1]
-        w = L["w"]
-        if L["kind"] == "conv":
+        w = L.get("w")
+        if L["kind"] == "orpool":
+            # every input in a window connects to that window's OR neuron, weight 1
+            c_in, h_in, w_in = prev_shape
+            p = L["pool"]
+            hp, wp = h_in // p, w_in // p
+            for ci in range(c_in):
+                for y in range(hp * p):
+                    for x in range(wp * p):
+                        pre = pre_keys[(ci * h_in + y) * w_in + x]
+                        add(pre, keys[li][(ci * hp + y // p) * wp + x // p], 1, is_axon)
+        elif L["kind"] == "conv":
             c_in, h_in, w_in = prev_shape
             p = L["pool"]
             hp, wp = h_in // p, w_in // p

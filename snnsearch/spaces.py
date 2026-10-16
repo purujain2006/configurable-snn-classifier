@@ -243,9 +243,14 @@ class DefineByRunSpace:
         # real bias through always-on bias neurons, which costs fan-in, so it is
         # part of the geometry and checked with it.
         geom["bias_mode"] = trial.suggest_categorical("bias_mode", ["threshold", "neuron"])
+        # How pooling runs on chip, only when some layer pools. "avg" folds into
+        # the next layer (exact, but 4x its fan-in per 2x2 pool); "max" is one
+        # OR neuron per window (exact for spikes, no fan-in cost, one extra
+        # timestep). Part of the geometry because it changes fan-in.
+        if any(geom.get(f"ds_{i}") == "pool" for i in range(depth)) or                 geom.get("downsample_mode") == "pool":
+            geom["pool_type"] = trial.suggest_categorical("pool_type", ["avg", "max"])
 
-        consts = {"N": batch_size, "epochs": epochs, "data_dir": data_dir_abs,
-                  "pool_type": "avg"}
+        consts = {"N": batch_size, "epochs": epochs, "data_dir": data_dir_abs}
 
         if not geometry_fits({**consts, **geom}):
             # Stop here. Nothing below this line gets sampled, so no training

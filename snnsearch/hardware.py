@@ -53,6 +53,10 @@ def check_feasibility(input_cfg: InputSpec, encoder_cfg: EncoderSpec,
 
     bias_neurons adds the bias neurons' share: behind a pool the bias is split
     across up to `scale` neurons (hs_export.split_bias), one fan-in slot each.
+
+    MAX pooling is different. It runs as one OR neuron per window (OrPool in
+    neuron.py), so the next layer reads the pooled map and its fan-in is not
+    multiplied. Each OR neuron reads k*k inputs, far below any limit.
     """
     if head_cfg is None:
         head_cfg = HeadSpec()
@@ -70,6 +74,7 @@ def check_feasibility(input_cfg: InputSpec, encoder_cfg: EncoderSpec,
             violations.append(f"{label} {value} > {limit}")
 
     first_fc_width = plan.linears[0].out_features if plan.linears else 0
+    folds = downsample_cfg.pool_type != "max"      # avg pools fold; max pools are OR neurons
     prev_pool = 1                      # pool kernel between the previous neurons and this layer
     for b in plan.blocks:
         k, s = b.kernel_size, b.stride
@@ -93,15 +98,20 @@ def check_feasibility(input_cfg: InputSpec, encoder_cfg: EncoderSpec,
         if is_last:
             # the last block's neurons feed the head
             check(first_fc_width, NEURON_LIMITS["fan_out"], f"{tag}: neuron_fan_out(->fc)")
-        prev_pool = b.pool_kernel if b.pool else 1
+        prev_pool = b.pool_kernel if (b.pool and folds) else 1
 
     for lin in plan.linears:
         tag = "classifier" if lin.is_classifier else f"fc{lin.index}"
         if lin.index == 0 and plan.blocks:
             last = plan.blocks[-1]
             # flatten and GAP both connect to every neuron of the last conv
-            fan_in = last.out_channels * last.conv_out_hw[0] * last.conv_out_hw[1]
-            pool = (last.conv_out_hw[0] // last.out_hw[0]) if last.pool else 1
+            if last.pool and not folds:
+                # OR neurons already pooled the map; the head reads the pooled size
+                fan_in = last.out_channels * last.out_hw[0] * last.out_hw[1]
+                pool = 1
+            else:
+                fan_in = last.out_channels * last.conv_out_hw[0] * last.conv_out_hw[1]
+                pool = (last.conv_out_hw[0] // last.out_hw[0]) if last.pool else 1
             if plan.reduction == "gap":
                 pool *= last.out_hw[0]
             scale = pool * pool

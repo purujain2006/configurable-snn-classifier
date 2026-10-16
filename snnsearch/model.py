@@ -13,7 +13,7 @@ from .quantgrid import (_ste, fake_quantize_weight, fake_quantize_threshold,
                         quantized_threshold_int, fold_bias_band, constrain_fold_bias,
                         weight_clip_fraction)
 from .neuron import (build_neuron, HardwareLIFNode, TdBatchNorm2d,
-                     ConvBNFoldQuant)
+                     ConvBNFoldQuant, OrPool)
 from ._torch import (_HAS_TORCH, _HAS_HS_API, _require_torch, _no_grad,
                      torch, nn, F, layer, functional, Custom_LIFNode, Custom_IFNode)
 
@@ -84,9 +84,14 @@ class DVSGesturePuru(nn.Module):
             if getattr(encoder_cfg, "dropout_rate", 0.0) > 0:
                 modules.append(layer.Dropout(encoder_cfg.dropout_rate))
             if b.pool:
-                pool_cls = layer.MaxPool2d if downsample_cfg.pool_type == "max" else layer.AvgPool2d
-                modules.append(pool_cls(kernel_size=b.pool_kernel, stride=b.pool_stride))
-                if downsample_cfg.pool_type != "max":
+                if downsample_cfg.pool_type == "max":
+                    # one OR neuron per window on chip: exact for spikes, keeps
+                    # the next layer's fan-in at the pooled size, adds a step
+                    modules.append(OrPool(kernel_size=b.pool_kernel, stride=b.pool_stride))
+                else:
+                    # folded into the next layer's connections: exact, but
+                    # multiplies that layer's fan-in by pool_kernel**2
+                    modules.append(layer.AvgPool2d(kernel_size=b.pool_kernel, stride=b.pool_stride))
                     pools_before.append(b.pool_kernel)
 
         # Q4: GAP replaces the flatten. It collapses HxW to 1x1 BEFORE the FC

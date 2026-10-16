@@ -212,10 +212,14 @@ if _HAS_TORCH:
                     x = x + fb_b            # legacy form, kept for A/B only
 
             # 1. fire on the membrane carried in from the previous timestep.
-            #    The chip compares v > theta (strictly greater); one LSB of the
-            #    integer grid is W_DELTA, so subtracting it reproduces `>` from
-            #    the surrogate's `>=` without breaking the gradient.
-            spike = self.surrogate_function(self.v - v_th - W_DELTA)
+            #    The chip compares v > theta (strictly greater). The membrane
+            #    lives on a grid of `grid` (W_DELTA, or finer behind a pool), so
+            #    v > theta means v >= theta + W_DELTA, and the surrogate tests
+            #    `>= 0`. Testing at the midpoint, half a grid step below, gives
+            #    the same answer for every value on the grid, and a float that
+            #    lands a hair off its grid point can no longer flip it.
+            grid = getattr(self, "leak_grid", W_DELTA)
+            spike = self.surrogate_function(self.v - v_th - W_DELTA + 0.5 * grid)
             # 2. hard reset
             spike_d = spike.detach() if self.detach_reset else spike
             self.v = v_reset * spike_d + (1.0 - spike_d) * self.v
@@ -249,8 +253,11 @@ if _HAS_TORCH:
             #    W_DELTA.
             leak = (self.v - v_reset) / self.hw_tau
             if getattr(self, "integer_leak", True):
-                grid = getattr(self, "leak_grid", W_DELTA)
-                leak = _ste(torch.floor(leak / grid) * grid, leak)
+                # floor(V / tau) in grid units V. Adding half a unit first gives
+                # the same floor for every integer V, and keeps a membrane that
+                # divides exactly by tau from rounding down one step in float.
+                units = (self.v - v_reset) / grid
+                leak = _ste(torch.floor((units + 0.5) / self.hw_tau) * grid, leak)
             self.v = self.v - leak
             # 4. integrate this timestep's input, undecayed
             self.v = self.v + x
@@ -442,6 +449,49 @@ if _HAS_TORCH:
             return conv, b
 
 
+    from spikingjelly.activation_based import base as _sj_base
+
+    class OrPool(_sj_base.MemoryModule):
+        """Max pooling of spikes, as the chip runs it: one OR neuron per window.
+
+        The chip has no pooling operation. Folding an AVERAGE pool into the next
+        layer is exact but multiplies that layer's fan-in by k*k (hardware.py).
+        A MAX pool of 0/1 spikes is an OR, and one memoryless neuron computes
+        it exactly: weight 1 from each input in the window, threshold 0, so it
+        fires when any input fired. That keeps the next layer's fan-in at the
+        pooled size.
+
+        The OR neuron fires before it integrates like every chip neuron, so its
+        output arrives one timestep after its input. This module reproduces
+        that delay, which is why it counts as a spiking layer for the flush.
+        """
+
+        def __init__(self, kernel_size: int = 2, stride: int = 2, step_mode: str = "s"):
+            super().__init__()
+            self.kernel_size = int(kernel_size)
+            self.stride = int(stride)
+            self.step_mode = step_mode
+            self.register_memory("prev", None)
+
+        def single_step_forward(self, x):
+            pooled = F.max_pool2d(x, self.kernel_size, self.stride)
+            out = self.prev if self.prev is not None else torch.zeros_like(pooled)
+            self.prev = pooled
+            return out
+
+        def multi_step_forward(self, x_seq):
+            # x_seq is (T, N, C, H, W): pool every step, then shift one step later
+            T, N = x_seq.shape[:2]
+            pooled = F.max_pool2d(x_seq.flatten(0, 1), self.kernel_size, self.stride)
+            pooled = pooled.reshape(T, N, *pooled.shape[1:])
+            first = self.prev if self.prev is not None else torch.zeros_like(pooled[0])
+            self.prev = pooled[-1]
+            return torch.cat([first.unsqueeze(0), pooled[:-1]], dim=0)
+
+        def extra_repr(self):
+            return f"kernel_size={self.kernel_size}, stride={self.stride}, one OR neuron per window"
+
+
     class _LegacyLearnableThresholdLIF(neuron.ParametricLIFNode):
         """
         The previous trainable-threshold neuron, kept only so old checkpoints
@@ -492,6 +542,7 @@ if _HAS_TORCH:
             self._v_threshold_const = value
 else:
     HardwareLIFNode = _WeightFakeQuant = _BiasFakeQuant = _LegacyLearnableThresholdLIF = None
+    OrPool = None
 
 LearnableThresholdLIF = _LegacyLearnableThresholdLIF   # back-compat alias
 

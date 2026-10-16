@@ -56,6 +56,8 @@ LEADERBOARD_COLS = [
     # validation through IntegerSim (simpleSim's arithmetic); disagreements
     # counts clips where it and PyTorch predict differently, and should be 0
     "sim_val_accuracy", "sim_disagreements", "bias_mode",
+    # avg (folded into the next layer) or max (one OR neuron per window)
+    "pool_type",
 ]
 
 

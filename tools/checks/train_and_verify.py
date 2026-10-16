@@ -4,9 +4,10 @@
 
 Run this before a search. It answers one question: does a network trained by
 this code predict, clip for clip, what simpleSim's arithmetic (IntegerSim)
-predicts? It trains one small network for every combination of head
-(flatten, GAP) and bias mode (threshold, bias neurons), a few epochs each,
-and prints the per-trial simulator check the search records.
+predicts? It trains small networks covering both heads (flatten, GAP), both
+bias modes (threshold, bias neurons) and both pool types (average, max as
+OR neurons), a few epochs each, and prints the per-trial simulator check the
+search records.
 
 Every line should end in "disagreements 0". Anything else means training and
 deployment have drifted apart, and a search run now would select on a number
@@ -51,22 +52,23 @@ def main():
     loaders = build_dataloaders(bundle, batch_size=BASE["N"], encoder=enc, seed=1,
                                 val_split="subject", num_workers=4)
 
+    combos = [(head, bias, pool) for head in ("flatten", "gap")
+              for bias in ("threshold", "neuron") for pool in ("avg", "max")]
     failures = 0
-    for head in ("flatten", "gap"):
-        for bias_mode in ("threshold", "neuron"):
-            cfg = config_to_specs({**BASE, "epochs": args.epochs,
-                                   "final_reduction": head, "bias_mode": bias_mode})
-            ok, why = check_spec_feasibility(cfg)
-            t0 = time.time()
-            res = run_training(cfg, loaders=loaders)
-            fine = res["sim_disagreements"] == 0 and not res["sim_reason"]
-            failures += not fine
-            print(f"head {head:7s} bias {bias_mode:9s} fits chip {ok!s:5s}  "
-                  f"pytorch {res['hw_val_accuracy']:.4f}  simulator {res['sim_val_accuracy']}  "
-                  f"tau {res['deployed_tau']}  ({time.time() - t0:.0f}s)  "
-                  f"disagreements {res['sim_disagreements']}"
-                  + (f"  REASON {res['sim_reason']}" if res["sim_reason"] else ""),
-                  flush=True)
+    for head, bias_mode, pool_type in combos:
+        cfg = config_to_specs({**BASE, "epochs": args.epochs, "final_reduction": head,
+                               "bias_mode": bias_mode, "pool_type": pool_type})
+        ok, why = check_spec_feasibility(cfg)
+        t0 = time.time()
+        res = run_training(cfg, loaders=loaders)
+        fine = res["sim_disagreements"] == 0 and not res["sim_reason"]
+        failures += not fine
+        print(f"head {head:7s} bias {bias_mode:9s} pool {pool_type} fits chip {ok!s:5s}  "
+              f"pytorch {res['hw_val_accuracy']:.4f}  simulator {res['sim_val_accuracy']}  "
+              f"tau {res['deployed_tau']}  ({time.time() - t0:.0f}s)  "
+              f"disagreements {res['sim_disagreements']}"
+              + (f"  REASON {res['sim_reason']}" if res["sim_reason"] else ""),
+              flush=True)
     print("\nALL MATCH" if not failures else f"\n{failures} CONFIGURATION(S) DO NOT MATCH")
     return 1 if failures else 0
 

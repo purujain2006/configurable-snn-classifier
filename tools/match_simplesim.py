@@ -59,6 +59,8 @@ def _random_layers(rng, leak, small=False, variant="rank1"):
                      Behind a pool the bias exceeds one INT16 synapse, so it is
                      split across several bias neurons.
             "gap"    conv, LIF, global average pool, linear with bias, LIF
+            "maxpool" conv, LIF, OR pool, conv, LIF, OR pool, linear, LIF: max
+                     pooling as one OR neuron per window
 
     small=False uses INT16-sized weights, like a real export. small=True uses
     weights of a few units, so membranes land EXACTLY on thresholds and on
@@ -82,6 +84,19 @@ def _random_layers(rng, leak, small=False, variant="rank1"):
         lim = 6 if small else scale * 30000
         return rng.integers(-lim, lim + 1, size=n).astype(np.int64)
 
+    orpool = {"kind": "orpool", "pool": 2, "scale": 1, "threshold": np.zeros(1, dtype=np.int64),
+              "bias": None, "tau": None, "leak": 0, "memoryless": True}
+    if variant == "maxpool":
+        return [
+            {"kind": "conv", "w": w(4, 2, 3, 3), "pool": 1, "scale": 1, "stride": (1, 1),
+             "padding": (1, 1), "threshold": th(4, 1), "tau": 2 ** leak, "leak": leak},
+            dict(orpool),
+            {"kind": "conv", "w": w(3, 4, 5, 5), "pool": 1, "scale": 1, "stride": (1, 1),
+             "padding": (2, 2), "threshold": th(3, 1), "tau": 2 ** leak, "leak": leak},
+            dict(orpool),
+            {"kind": "linear", "w": w(5, 3 * 2 * 2), "pool": 1, "scale": 1,
+             "threshold": th(5, 1), "tau": 2 ** leak, "leak": leak},
+        ]
     if variant == "gap":
         return [
             {"kind": "conv", "w": w(4, 2, 3, 3), "pool": 1, "scale": 1, "stride": (1, 1),
@@ -113,7 +128,7 @@ def selftest(args):
 
     in_shape, T, flush = (2, 8, 8), 10, 3
     all_ok = True
-    variants = ("rank1", "bias", "gap")
+    variants = ("rank1", "bias", "gap", "maxpool")
     for variant, small, leak in [(v, sm, lk) for v in variants
                                  for sm in (False, True) for lk in (1, 2, 3)]:
         rng = np.random.default_rng(10 * leak + small + 100 * variants.index(variant))

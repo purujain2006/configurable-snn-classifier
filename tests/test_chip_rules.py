@@ -60,6 +60,16 @@ class FanIn(unittest.TestCase):
         self.assertFalse(ok)
         self.assertIn("block1: neuron_fan_in 8200 > 8159", why)
 
+    def test_max_pool_runs_as_or_neurons_without_fan_in_cost(self):
+        # rank1's shape with max pooling: one OR neuron per window, so the
+        # classifier reads the pooled 56 x 12 x 12 = 8,064 values and fits
+        rank1 = encoder((81, 3, 1, True), (56, 5, 1, True))
+        ok, why = check_feasibility(InputSpec(C=2, H=128, W=128, T=16, resize_to=48), rank1,
+                                    DownsampleSpec(mode="stride", pool_type="max"),
+                                    HeadSpec(final_reduction="flatten", fc_widths=""),
+                                    OutputSpec(num_classes=11))
+        self.assertEqual((ok, why), (True, []))
+
     def test_bias_neurons_take_fan_in(self):
         # 81 channels: 25 * 81 * 4 = 8100 fits, plus up to 4 bias neurons still fits
         enc = encoder((81, 3, 1, True), (8, 5, 2, False))

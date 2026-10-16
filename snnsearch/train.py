@@ -107,7 +107,10 @@ def hardware_flush_steps(net) -> int:
     never reaches the classifier and the deployed accuracy is lower than
     anything measured in training -- for no reason visible in the config.
     """
-    return sum(1 for m in net.conv_fc if isinstance(m, HardwareLIFNode))
+    # an OR-pool layer is a layer of chip neurons too, so it adds a step
+    from .neuron import OrPool
+    return sum(1 for m in net.conv_fc if isinstance(m, HardwareLIFNode)
+               or (OrPool is not None and isinstance(m, OrPool)))
 
 
 def forward_over_time(net, x, flush_steps: int = None):
