@@ -154,7 +154,8 @@ def forward_over_time(net, x, flush_steps: int = None, per_step: bool = False):
     Single-step nets are driven by an explicit loop; multi-step nets (tdbn) get
     the whole (T, N, ...) tensor at once because tdBN's statistics span T.
     """
-    x = x.transpose(0, 1)  # (T, N, C, H, W)
+    dtype = next(net.parameters()).dtype         # float64 for hs_export.exact_copy
+    x = x.to(dtype).transpose(0, 1)  # (T, N, C, H, W)
     T = x.shape[0]
     if flush_steps is None:
         flush_steps = hardware_flush_steps(net)
@@ -437,8 +438,10 @@ def run_training(cfg: dict, data_dir: str = None, device=None, report_fn=None,
         # ---- freeze into the deployable BN-free model & measure IT -------
         net.eval()
         hw_net = deepcopy(net).export_deployed().to(device)
+        from .hs_export import exact_copy
+        hw_exact = exact_copy(hw_net)
         with exact_arithmetic():
-            hw_acc = evaluate(hw_net, val_loader, device)
+            hw_acc = evaluate(hw_exact, val_loader, device)
         rep = deployment_report(hw_net)
         hw = {
             "hw_val_accuracy": hw_acc,
@@ -472,8 +475,10 @@ def run_training(cfg: dict, data_dir: str = None, device=None, report_fn=None,
     # Run the validation clips through simpleSim's arithmetic (IntegerSim), so
     # each trial reports what the simulator scores and whether it agrees with
     # PyTorch clip by clip. A network the simulator cannot run is not deployable.
-    from .hs_export import verify_deployment
-    hw.update(verify_deployment(hw_net, val_loader, device, hardware_flush_steps(hw_net)))
+    from .hs_export import verify_deployment, exact_copy
+    if mode != "inline":
+        hw_exact = exact_copy(hw_net)
+    hw.update(verify_deployment(hw_exact, val_loader, device, hardware_flush_steps(hw_net)))
     if hw["sim_reason"]:
         hw["deployable"] = False
         hw["deploy_reasons"] = "; ".join(

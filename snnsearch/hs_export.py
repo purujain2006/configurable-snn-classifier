@@ -358,18 +358,22 @@ class IntegerSim:
         """Synaptic input to layer idx from the previous layer's spikes (signed
         spikes are -1/0/+1). An OR-pool layer returns (positive, negative)
         window counts, one per neuron group."""
+        # Every drive is an integer. Rounding makes it exactly one whatever
+        # algorithm the convolution used: on a GPU, cuDNN may pick an FFT
+        # convolution whose float64 error is tiny but not zero, and a membrane
+        # exactly on its threshold then lands on the wrong side.
         L = self.layers[idx]
         if L["kind"] == "orpool":
             k = L["pool"]
-            pos = F.avg_pool2d(F.relu(x), k) * (k * k)
-            neg = F.avg_pool2d(F.relu(-x), k) * (k * k)
+            pos = torch.round(F.avg_pool2d(F.relu(x), k) * (k * k))
+            neg = torch.round(F.avg_pool2d(F.relu(-x), k) * (k * k))
             return pos, neg
         if L["pool"] > 1:
             # sum, not mean: the 1/pool^2 lives in `scale`, which keeps it integer
-            x = F.avg_pool2d(x, L["pool"]) * (L["pool"] ** 2)
+            x = torch.round(F.avg_pool2d(x, L["pool"]) * (L["pool"] ** 2))
         if L["kind"] == "conv":
-            return F.conv2d(x, self.w[idx], stride=L["stride"], padding=L["padding"])
-        return F.linear(x.flatten(1), self.w[idx])
+            return torch.round(F.conv2d(x, self.w[idx], stride=L["stride"], padding=L["padding"]))
+        return torch.round(F.linear(x.flatten(1), self.w[idx]))
 
     @torch.no_grad()
     def steps(self, frames, flush_steps):
@@ -730,6 +734,47 @@ def input_axons(frame, bits=1):
 # checking a trained network on the simulator
 # ---------------------------------------------------------------------------
 
+def exact_copy(hw_net):
+    """The deployed network in float64, every number exactly on its grid.
+
+    The float32 model fires a spike when v - theta >= W_DELTA, tested half a
+    grid step early so rounding cannot flip it. Behind a GAP layer the grid
+    is W_DELTA / (map area), 1/121 of a weight step for an 11x11 map, and
+    float32 cannot hold a weight of k/32767 that closely: summed over a few
+    thousand inputs the error passes half a grid step and a spike flips. On
+    a cluster GPU, with its faster convolution algorithms, that showed up as
+    4 of 216 validation clips predicted differently from IntegerSim.
+
+    float64 with weights, biases and thresholds re-rounded to k/32767 keeps
+    the error some ten thousand times below that, so measurements of the
+    deployed network use this copy. Training does not need it.
+    """
+    _require_torch()
+    from torch.nn.utils import parametrize
+    from copy import deepcopy
+    from .neuron import HardwareLIFNode
+    net = deepcopy(hw_net)
+    for m in net.modules():
+        for name in ("weight", "bias"):
+            if parametrize.is_parametrized(m, name):
+                parametrize.remove_parametrizations(m, name, leave_parametrized=True)
+    net = net.double()
+    with torch.no_grad():
+        for m in net.modules():
+            if isinstance(m, (nn.Conv2d, nn.Linear)):
+                m.weight.copy_(torch.round(m.weight * INT16_MAX) / INT16_MAX)
+                if m.bias is not None:
+                    m.bias.copy_(torch.round(m.bias * INT16_MAX) / INT16_MAX)
+            if isinstance(m, HardwareLIFNode):
+                # plain attributes, which .double() does not reach; the
+                # v_threshold properties round them onto the grid in float64
+                for attr in ("_v_threshold_const", "_v_threshold_neg_const"):
+                    v = getattr(m, attr, None)
+                    if torch.is_tensor(v):
+                        setattr(m, attr, v.double())
+    return net
+
+
 def verify_deployment(hw_net, loader, device, flush_steps, max_clips=None):
     """Run every clip through both the PyTorch model and IntegerSim.
 
@@ -750,6 +795,8 @@ def verify_deployment(hw_net, loader, device, flush_steps, max_clips=None):
     except Exception as exc:
         return {"sim_val_accuracy": None, "sim_disagreements": None,
                 "sim_reason": f"{type(exc).__name__}: {exc}"[:300]}
+    if next(hw_net.parameters()).dtype != torch.float64:
+        hw_net = exact_copy(hw_net)
     was_training = hw_net.training
     hw_net.eval()
     correct = disagree = seen = 0

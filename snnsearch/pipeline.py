@@ -259,8 +259,9 @@ def evaluate_on_test(res, loaders):
     was_training = hw_net.training
     hw_net.eval()
     try:
+        from .hs_export import exact_copy
         with exact_arithmetic():
-            return {"hw_test_accuracy": evaluate(hw_net, loaders[2], device)}
+            return {"hw_test_accuracy": evaluate(exact_copy(hw_net), loaders[2], device)}
     except Exception as exc:
         return {"hw_test_accuracy": None, "test_reason": f"{type(exc).__name__}: {exc}"}
     finally:

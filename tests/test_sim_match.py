@@ -7,7 +7,8 @@ Training uses the PyTorch model; deployment is judged on IntegerSim, which
 closes the loop: small networks combining every feature the search can pick
 (average or OR pooling, flatten or GAP, threshold or bias-neuron biases,
 signed spikes, per-channel tau, multi-bit input) must produce identical spikes
-in every layer at every timestep, in float32 as training runs.
+in every layer at every timestep, in float32 as training runs, and in the
+float64 copy (hs_export.exact_copy) that deployed accuracy is measured on.
 
 Thresholds are set low after export so every layer fires; a match on silent
 layers would prove nothing.
@@ -27,7 +28,7 @@ from snnsearch.config import (InputSpec, EncoderSpec, OutputSpec, DownsampleSpec
                               HeadSpec, NeuronSpec, TrainSpec)
 from snnsearch.model import build_model
 from snnsearch.neuron import HardwareLIFNode, OrPool
-from snnsearch.hs_export import integer_layers, IntegerSim
+from snnsearch.hs_export import integer_layers, IntegerSim, exact_copy
 from snnsearch.train import hardware_flush_steps
 
 torch.backends.cudnn.allow_tf32 = False
@@ -74,6 +75,7 @@ def compare(net, bits, clips=3, T=6):
     flush = hardware_flush_steps(net)
     sim = IntegerSim(integer_layers(net), (2, 16, 16))
     mods = [m for m in net.conv_fc if isinstance(m, (HardwareLIFNode, OrPool))]
+    dt = next(net.parameters()).dtype
     mismatches, fired = 0, [0] * len(mods)
     for _ in range(clips):
         top = 2 ** bits - 1
@@ -83,7 +85,7 @@ def compare(net, bits, clips=3, T=6):
                  for k, m in enumerate(mods)]
         with torch.no_grad():
             for t in range(T + flush):
-                net(x[t].unsqueeze(0) if t < T else torch.zeros(1, 2, 16, 16))
+                net((x[t].unsqueeze(0) if t < T else torch.zeros(1, 2, 16, 16)).to(dt))
         for h in hooks:
             h.remove()
         functional.reset_net(net)
@@ -110,6 +112,10 @@ class SimMatch(unittest.TestCase):
                 mismatches, fired = compare(net, bits)
                 self.assertTrue(all(f > 0 for f in fired), f"a layer never fired: {fired}")
                 self.assertEqual(mismatches, 0)
+                # the float64 copy every measurement of a deployed network uses
+                torch.manual_seed(100 + i)
+                mismatches, _ = compare(exact_copy(net), bits)
+                self.assertEqual(mismatches, 0, "exact_copy")
 
 
 if __name__ == "__main__":
