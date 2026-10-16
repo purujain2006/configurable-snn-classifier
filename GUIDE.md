@@ -37,6 +37,7 @@ Commands are written for tcsh on the cluster. Each one is a single line.
 | preflight, whenever the config or the code changes | `python main.py preflight -c CONFIG` | about 15 minutes |
 | search | `python main.py search -c CONFIG` | a day or more |
 | look at results while it runs | `python tools/analysis/top_trials.py RESULTS` | seconds |
+| retrain the best trials of a stopped search | `python main.py finalists -c CONFIG --top 3` | hours |
 | which options help | `python main.py study -c CONFIG --from-best RESULTS/best_finalist.json` | hours |
 | train the winner long, get a test score | `python main.py single -c CONFIG --from-best RESULTS/best_finalist.json --epochs 300` | hours |
 
@@ -207,7 +208,15 @@ What happens:
    seeds each; the best average wins.
 
 To stop it: `pkill -f "main.py search"`, then `ray stop`. A stopped search
-cannot be resumed; start a new one (with fewer trials if time is short).
+cannot be resumed, and it skips step 4. To run step 4 on what it finished:
+
+```
+python main.py finalists -c configs/dvs128_search05.yaml --top 3
+```
+
+It reads `trials.jsonl`, retrains the best finished trials with new seeds
+(`--seeds`, default `search.finalist_seeds`), and writes `finalists.csv` and
+`best_finalist.json` as the search would have.
 
 Every trial is scored on the validation set only. The test set is never used
 during a search, so the test score in section 9 stays honest.

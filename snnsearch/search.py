@@ -388,25 +388,67 @@ def summarize_finalists(top, rows):
 
 
 def _rescore_finalists(cfg, out_dir, results, writer, resources, run_seed):
-    """Train the top trials again with fresh seeds and pick by the mean.
-
-    search.finalists (default 3) trials, search.finalist_seeds (default 3)
-    seeds each, search.finalist_epochs (default: the search's) epochs, no
-    early stopping. The seeds differ from the one every search trial used, so
-    no finalist reuses the run it was selected on.
-    """
-    import csv
-
+    """The search's own finalist stage: search.finalists (default 3) trials,
+    search.finalist_seeds (default 3) seeds each."""
     s = cfg["search"]
     k, n_seeds = int(s.get("finalists") or 0), int(s.get("finalist_seeds") or 0)
     if k <= 0 or n_seeds <= 0:
         return None
-    top = _finalist_configs(results, k)
+    return rescore_finalists(cfg, out_dir, _finalist_configs(results, k), writer,
+                             resources, run_seed, n_seeds, s.get("finalist_epochs"))
+
+
+def finalists_from_records(out_dir, k):
+    """The top k finished, deployable trials in trials.jsonl, for a search
+    that was stopped or crashed before its own finalist stage."""
+    path = os.path.join(out_dir, "trials.jsonl")
+    if not os.path.isfile(path):
+        raise SystemExit(f"no trials.jsonl in {out_dir}: is that the search's results folder?")
+    with open(path, encoding="utf-8") as fh:
+        rows = [json.loads(line) for line in fh if line.strip()]
+    done = [(float(r.get("val_accuracy") or 0.0), r["trial_id"], dict(r.get("config") or {}))
+            for r in rows if r.get("status") == "complete" and r.get("feasible")
+            and r.get("deployable") and r.get("hw_val_accuracy") is not None]
+    done.sort(key=lambda t: t[0], reverse=True)
+    return done[:k]
+
+
+def run_finalists(cfg, top=None, seeds=None, epochs=None):
+    """`main.py finalists`: retrain the best trials of a finished, stopped or
+    crashed search with new seeds and pick the best mean, exactly as a search
+    does at its end. Writes finalists.csv and best_finalist.json."""
+    import ray
+    from .pipeline import results_dir
+    out_dir = results_dir(cfg)
+    s = cfg["search"]
+    k = int(top or s.get("finalists") or 3)
+    n_seeds = int(seeds or s.get("finalist_seeds") or 3)
+    picks = finalists_from_records(out_dir, k)
+    if not picks:
+        raise SystemExit(f"no finished, deployable trial in {out_dir}/trials.jsonl")
+    try:
+        rescore_finalists(cfg, out_dir, picks, _PrintWriter(), None,
+                          cfg["run"].get("seed", 1), n_seeds,
+                          epochs or s.get("finalist_epochs"))
+    finally:
+        if ray.is_initialized():
+            ray.shutdown()
+    return 0
+
+
+def rescore_finalists(cfg, out_dir, top, writer, resources, run_seed, n_seeds, epochs=None):
+    """Train the `top` trials again with fresh seeds and pick by the mean.
+
+    No early stopping. The seeds differ from the one every search trial used,
+    so no finalist reuses the run it was selected on.
+    """
+    import csv
+
     if not top:
         writer.log("[stream] finalists: no deployable trial finished; nothing to re-score")
         return None
     seeds = [int(run_seed) + 1000 * (j + 1) for j in range(n_seeds)]
-    jobs = finalist_jobs(top, seeds, s.get("finalist_epochs"))
+    jobs = finalist_jobs(top, seeds, epochs)
     writer.log(f"[stream] finalists: re-training the top {len(top)} trials with seeds "
                f"{seeds}, {len(jobs)} runs")
 

@@ -7,6 +7,8 @@ Seven modes, in the order a project uses them:
   preflight  every stage of a search, small, on this machine; required before
              `search` (GUIDE.md, step 4)
   search     the automated search.
+  finalists  retrain a search's best trials with new seeds, e.g. after
+             stopping it early
   study      flip one option at a time on a chosen network, trained in full
   single     train one configuration end to end, then fold and export.
   report     rebuild report.html from a finished run directory.
@@ -125,6 +127,15 @@ def build_parser():
                    help="skip the two training stages (about 2 minutes instead of 15); "
                         "a search still needs the full preflight")
 
+    n = sub.add_parser("finalists", help="retrain a search's best trials with new seeds "
+                                         "(what a search does at its end); for a search "
+                                         "that was stopped or crashed first")
+    _add_common(n)
+    n.add_argument("--top", type=int, help="how many trials (default search.finalists)")
+    n.add_argument("--seeds", type=int, help="seeds each (default search.finalist_seeds)")
+    n.add_argument("--epochs", type=int, help="default: each trial's own")
+    n.add_argument("--gpu-fraction", type=float, dest="gpu_fraction")
+
     t = sub.add_parser("study", help="flip one option at a time on a chosen network "
                                      "and train every variant in full")
     _add_common(t)
@@ -179,6 +190,10 @@ def main(argv=None):
     if args.mode == "preflight":
         from .preflight import run_preflight
         return run_preflight(cfg, quick=args.quick)
+
+    if args.mode == "finalists":
+        from .search import run_finalists
+        return run_finalists(cfg, top=args.top, seeds=args.seeds, epochs=args.epochs)
 
     if args.mode == "study":
         from .pipeline import load_flat_config

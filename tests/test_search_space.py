@@ -9,6 +9,7 @@ of trials with shapes that fit the chip, and nothing is tied to one dataset.
 from collections import Counter
 import itertools
 from pathlib import Path
+import os
 import pickle
 import sys
 import unittest
@@ -321,6 +322,33 @@ class BalancedBlockTests(unittest.TestCase):
 
 
 class FinalistTests(unittest.TestCase):
+    def test_finalists_from_a_stopped_search_s_records(self):
+        """A search stopped before its end still has trials.jsonl; the best
+        finished, deployable trials come from there."""
+        import json as _json
+        import tempfile
+        from snnsearch.search import finalists_from_records
+        rows = [
+            {"trial_id": "a", "status": "complete", "feasible": True, "deployable": True,
+             "hw_val_accuracy": 0.70, "val_accuracy": 0.70, "config": {"depth": 2}},
+            {"trial_id": "b", "status": "complete", "feasible": True, "deployable": True,
+             "hw_val_accuracy": 0.78, "val_accuracy": 0.78, "config": {"depth": 3}},
+            {"trial_id": "c", "status": "complete", "feasible": True, "deployable": False,
+             "hw_val_accuracy": 0.90, "val_accuracy": 0.0, "config": {}},       # not deployable
+            {"trial_id": "d", "status": "complete", "feasible": True, "deployable": None,
+             "hw_val_accuracy": None, "val_accuracy": 0.95, "config": {}},      # cut early
+            {"trial_id": "e", "status": "complete", "feasible": False, "config": {}},
+            {"trial_id": "f", "status": "error", "config": {}},
+        ]
+        d = tempfile.mkdtemp()
+        with open(os.path.join(d, "trials.jsonl"), "w") as fh:
+            for r in rows:
+                fh.write(_json.dumps(r) + "\n")
+        top = finalists_from_records(d, 3)
+        self.assertEqual([t[1] for t in top], ["b", "a"])
+        self.assertEqual(top[0], (0.78, "b", {"depth": 3}))
+
+
     def test_jobs_and_selection_by_mean(self):
         from snnsearch.search import finalist_jobs, summarize_finalists
         top = [(0.90, "a", {"depth": 2, "seed": 1, "_private": 1}),

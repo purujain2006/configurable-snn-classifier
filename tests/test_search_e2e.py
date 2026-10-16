@@ -97,6 +97,18 @@ class EndToEnd(unittest.TestCase):
         from snnsearch import report
         self.assertTrue(os.path.isfile(report.build(self.out, cfg=self.cfg)))
 
+    def test_finalists_command_on_the_records(self):
+        """`main.py finalists`, as after stopping a search early."""
+        import ray
+        from snnsearch.search import run_finalists
+        try:
+            self.assertEqual(run_finalists(self.cfg, top=1, seeds=2, epochs=2), 0)
+        finally:
+            if ray.is_initialized():
+                ray.shutdown()
+        with open(os.path.join(self.out, "finalists.csv"), encoding="utf-8") as fh:
+            self.assertEqual(len(list(csv.DictReader(fh))), 2)
+
     def test_option_study(self):
         import ray
         from snnsearch.pipeline import load_flat_config
