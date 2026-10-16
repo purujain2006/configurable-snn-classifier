@@ -171,8 +171,14 @@ def _summary(cfg, args):
 
     enc = cfg["encoding"]
     # Shape comes from the dataset when it is known without loading it, so
-    # `summary` still works with no data on disk.
-    C, H, W, ncls = _shape_hint(cfg["dataset"].get("name"))
+    # `summary` still works with no data on disk. Any other dataset (a user
+    # module) is built to read its shape.
+    hint = None if cfg["dataset"].get("module") else _shape_hint(cfg["dataset"].get("name"))
+    if hint is None:
+        from .data import build_dataset
+        bundle = build_dataset({**cfg["dataset"], "T": enc.get("T", 16)})
+        hint = (bundle.C, bundle.H, bundle.W, bundle.num_classes)
+    C, H, W, ncls = hint
 
     flat = load_flat_config(args.from_best) if getattr(args, "from_best", None) else None
     if flat:
@@ -181,7 +187,8 @@ def _summary(cfg, args):
         for key in ("T", "resize_to"):
             if getattr(args, key, None) is None and flat.get(key) is not None:
                 enc[key] = flat[key]
-        spec = specs_from_flat({**flat, "T": enc.get("T", 16),
+        spec = specs_from_flat({**flat, "data_C": C, "data_H": H, "data_W": W,
+                                "num_classes": ncls, "T": enc.get("T", 16),
                                 "resize_to": enc.get("resize_to") or 0},
                                batch_size=cfg["search"].get("batch_size", 16))
         apply_unsampled_train_fields(spec, cfg, quiet=True)
@@ -207,7 +214,9 @@ def _summary(cfg, args):
 
     spec["input"] = InputSpec(C=C, H=H, W=W, T=enc.get("T", 16),
                               resize_to=enc.get("resize_to") or 0,
-                              N=cfg["search"].get("batch_size", 16))
+                              N=cfg["search"].get("batch_size", 16),
+                              input_bits=int((flat or {}).get("input_bits")
+                                             or enc.get("input_bits") or 1))
     spec["output"] = OutputSpec(num_classes=ncls)
     print(format_summary(spec))
     return 0
@@ -222,7 +231,7 @@ def _shape_hint(name):
         "mnist": (1, 28, 28, 10),
         "fashion_mnist": (1, 28, 28, 10),
     }
-    return table.get(name, (2, 128, 128, 11))
+    return table.get(name)
 
 
 def _check(data_root=None):

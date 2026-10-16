@@ -29,7 +29,7 @@
 <ul>
 <li><strong>Fan-in</strong> of one neuron is k² · C<sub>in</sub>, the window it reads.</li>
 <li><strong>Fan-out</strong> of one input neuron is ⌈k/s⌉² · C<sub>out</sub>, the number of windows that contain it.</li>
-<li><strong>Input axons</strong> are height × width × channels of the input image.</li>
+<li><strong>Input axons</strong> are height × width × channels of the input image, times the bits per pixel (<a href="training.html#binarize">section 5.2</a>).</li>
 <li>A head neuron reads everything the last convolution layer produces.</li>
 </ul>
 <h3>Pooling multiplies fan-in</h3>
@@ -37,6 +37,8 @@
 <p>The first search counted fan-in after pooling instead of before, and so it accepted networks the chip cannot hold. Its best network pools twice, and each of its 11 output neurons needs 32,256 connections, against a limit of 8,159. Two other ways to shrink the image avoid this cost. A stride-2 convolution has no pool to fold.</p>
 <h3>Max pooling as OR neurons</h3>
 <p>A max pool of spikes asks whether any input in the window fired. One chip neuron answers that exactly: give it weight 1 from each input and a threshold of 0, so it fires whenever its total is at least 1. Each window gets one such OR neuron, and the next layer reads the pooled values, so its fan-in stays at the pooled size. The OR neuron fires one step after its input, like every chip neuron, and training includes that step. With max pooling, the best network's design needs 8,064 connections per output neuron and fits.</p>
+<h3>Signed spikes</h3>
+<p>A chip neuron can only send a positive spike. The search also tries layers whose units send +1 or −1. Each such unit is two chip neurons: one adds up the unit's input and the other adds up its negative, each with its own threshold. The second neuron's outgoing connections carry negated weights, so the next layer receives +w or −w. Every neuron of a signed unit connects to both neurons of each unit in the next layer, so fan-in and fan-out double, and the chip check counts them that way. A max pool stays exact with one OR neuron per sign.</p>
 <div class="demo">
 <div class="demo-head">
 <span class="demo-tag">INTERACTIVE</span>

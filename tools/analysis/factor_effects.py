@@ -1,9 +1,10 @@
 """How each on/off choice did across a search, level by level.
 
-    python tools/analysis/factor_effects.py results/dvs128_search03
+    python tools/analysis/factor_effects.py results/dvs128_search04
 
 Reads trials.jsonl and, for each choice the balanced block covers (pooling,
-bias, head, conv dropout, firing-rate penalty), prints per level: how many
+bias, head, signed spikes, input bits, tau mode, loss, augmentation, conv
+dropout, firing-rate penalty), prints per level: how many
 trials used it, how many were rejected by the chip check, stopped early, or
 finished, and the median and best validation accuracy of the finished ones
 (deployed network, and on the simulator).
@@ -25,10 +26,17 @@ def levels(cfg):
     depth = int(cfg.get("depth", 0) or 0)
     pools = any(cfg.get(f"ds_{i}") == "pool" for i in range(depth)) or \
         cfg.get("downsample_mode") == "pool"
+    bits = int(cfg.get("input_bits", 1) or 1)
+    tau_mode = cfg.get("tau_mode") or ("layer" if cfg.get("trainable_tau") else "fixed")
     return {
         "pooling": cfg.get("pool_type", "avg") if pools else "none",
         "bias_mode": cfg.get("bias_mode", "threshold"),
         "final_reduction": cfg.get("final_reduction", "flatten"),
+        "signed_spikes": "on" if cfg.get("signed_spikes") else "off",
+        "input_bits": "1" if bits == 1 else "multi",
+        "tau_mode": tau_mode,
+        "loss": cfg.get("loss", "rate"),
+        "augment": "on" if cfg.get("use_augment") else "off",
         "conv_dropout": "on" if cfg.get("use_conv_dropout") else "off",
         "rate_penalty": "on" if cfg.get("use_rate_penalty") else "off",
     }

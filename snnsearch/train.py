@@ -3,6 +3,7 @@
     forward_over_time    T input steps plus one flush step per spiking layer,
                          as the chip runs a clip
     build_optimizer      weight decay on conv and linear weights only
+    train_one_epoch      the rate loss or TET, plus augmentation (augment.py)
     run_training         float warmup, then training on the INT16 grid, then
                          the deployed network, its metrics, and the per-trial
                          simulator check
@@ -113,9 +114,12 @@ def hardware_flush_steps(net) -> int:
                or (OrPool is not None and isinstance(m, OrPool)))
 
 
-def forward_over_time(net, x, flush_steps: int = None):
+def forward_over_time(net, x, flush_steps: int = None, per_step: bool = False):
     """
     x: (N, T, C, H, W) -> output spike rate, neuron state reset afterwards.
+    With per_step=True, returns (rate, steps) where steps is (T, N, classes):
+    the output at each step that carries an input step's evidence, i.e. steps
+    flush .. flush+T-1, since every spiking layer delays by one step.
 
     Mirrors the conversion script's measurement exactly: accumulate output over
     T input steps PLUS `flush_steps` zero-input steps, then divide by T (not by
@@ -133,17 +137,17 @@ def forward_over_time(net, x, flush_steps: int = None):
         if flush_steps > 0:
             pad = torch.zeros_like(x[:1]).expand(flush_steps, *x.shape[1:])
             x = torch.cat([x, pad], dim=0)
-        out = net(x).sum(0) / T
+        seq = net(x)
     else:
-        out_sum = 0.0
-        for t in range(T):
-            out_sum = out_sum + net(x[t])
+        outs = [net(x[t]) for t in range(T)]
         if flush_steps > 0:
             zeros = torch.zeros_like(x[0])
-            for _ in range(flush_steps):
-                out_sum = out_sum + net(zeros)
-        out = out_sum / T
+            outs += [net(zeros) for _ in range(flush_steps)]
+        seq = torch.stack(outs)
+    out = seq.sum(0) / T
     functional.reset_net(net)
+    if per_step:
+        return out, seq[flush_steps:flush_steps + T]
     return out
 
 
@@ -199,7 +203,8 @@ class _RateProbe:
 
 def train_one_epoch(net, loader, optimizer, device, criterion=None,
                     grad_clip: float = 0.0, batch_scheduler=None,
-                    rate_penalty: float = 0.0):
+                    rate_penalty: float = 0.0, loss_kind: str = "rate",
+                    augment=None):
     """Returns (mean loss, accuracy, mean firing rate).
 
     `rate_penalty` adds lambda * mean spatiotemporal firing rate to the loss.
@@ -207,6 +212,14 @@ def train_one_epoch(net, loader, optimizer, device, criterion=None,
     regularizer here that also buys energy. It is a global L1 on the rate: no
     per-layer targets, no schedule, because nothing yet says what the right
     per-layer rate would be.
+
+    `loss_kind` "rate" scores the output rate over the whole clip, which is
+    what the chip's answer is. "tet" averages a cross-entropy at every step
+    instead (Deng et al., ICLR 2022), so every step is trained to classify
+    rather than only their sum. Accuracy is the rate's either way.
+
+    `augment`, if given, maps a training batch to an augmented one
+    (augment.augment_batch).
     """
     net.train()
     criterion = criterion or (lambda o, y: F.cross_entropy(o, y))
@@ -216,11 +229,17 @@ def train_one_epoch(net, loader, optimizer, device, criterion=None,
                                     # lengths is always == T here since split_by="number"
                                     # gives every sample a fixed frame count -- safe to ignore.
         x, y = x.to(device), y.to(device)
+        if augment is not None:
+            x = augment(x)
         optimizer.zero_grad()
         if probe is not None:
             probe.clear()
-        out = forward_over_time(net, x)
-        loss = criterion(out, y)
+        if loss_kind == "tet":
+            out, steps = forward_over_time(net, x, per_step=True)
+            loss = torch.stack([criterion(o, y) for o in steps]).mean()
+        else:
+            out = forward_over_time(net, x)
+            loss = criterion(out, y)
         if probe is not None:
             rate = probe.mean()
             if rate is not None:
@@ -262,6 +281,17 @@ def run_training(cfg: dict, data_dir: str = None, device=None, report_fn=None,
     _require_torch()
     device = device or torch.device("cuda" if torch.cuda.is_available() else "cpu")
     train_cfg: TrainSpec = cfg["train"]
+    if train_cfg.loss not in ("rate", "tet"):
+        raise ValueError(f"train.loss must be 'rate' or 'tet', got {train_cfg.loss!r}")
+
+    # Before the model is built, so the seed fixes the initial weights, the
+    # order of the training batches and the augmentation draws.
+    if train_cfg.seed is not None:
+        import random
+        import numpy as np
+        random.seed(train_cfg.seed)
+        np.random.seed(train_cfg.seed % 2**32)
+        torch.manual_seed(train_cfg.seed)
 
     net = build_model(cfg).to(device)
     if loaders is None:
@@ -272,6 +302,11 @@ def run_training(cfg: dict, data_dir: str = None, device=None, report_fn=None,
         "assuming one directory layout.")
     train_loader, val_loader, _ = loaders
     criterion = nn.CrossEntropyLoss(label_smoothing=train_cfg.label_smoothing)
+    augment = None
+    if train_cfg.augment:
+        from .augment import augment_batch
+        hflip_ok = bool(getattr(cfg.get("input"), "hflip_ok", False))
+        augment = lambda x: augment_batch(x, train_cfg, hflip_ok)     # noqa: E731
 
     mode = getattr(train_cfg, "qat_mode", "inline")
 
@@ -308,7 +343,8 @@ def run_training(cfg: dict, data_dir: str = None, device=None, report_fn=None,
                 net, train_loader, optimizer, device, criterion,
                 grad_clip=train_cfg.grad_clip,
                 batch_scheduler=scheduler if step_per_batch else None,
-                rate_penalty=getattr(train_cfg, "rate_penalty", 0.0) or 0.0)
+                rate_penalty=getattr(train_cfg, "rate_penalty", 0.0) or 0.0,
+                loss_kind=train_cfg.loss, augment=augment)
             if rate is not None:
                 last["firing_rate"] = rate
             if scheduler is not None and not step_per_batch:
@@ -395,8 +431,14 @@ def run_training(cfg: dict, data_dir: str = None, device=None, report_fn=None,
         hw_net, hw = deploy_and_measure(net, cfg, train_loader, val_loader, device)
 
     hw["float_val_accuracy"] = float_best
-    # what each spiking layer deploys with, per layer, e.g. "8,8,4"
-    hw["deployed_tau"] = ",".join(str(m.hw_leak()) for m in hw_net.conv_fc
+    # what each spiking layer deploys with, per layer, e.g. "8,8,4"; a layer
+    # with a tau per channel shows its range, e.g. "2-16"
+    def _tau_text(leak):
+        if isinstance(leak, (list, tuple)):
+            lo, hi = min(leak), max(leak)
+            return str(lo) if lo == hi else f"{lo}-{hi}"
+        return str(leak)
+    hw["deployed_tau"] = ",".join(_tau_text(m.hw_leak()) for m in hw_net.conv_fc
                                   if isinstance(m, HardwareLIFNode))
 
     # Run the validation clips through simpleSim's arithmetic (IntegerSim), so

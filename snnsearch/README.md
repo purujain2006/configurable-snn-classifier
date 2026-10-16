@@ -10,7 +10,7 @@ through them.
 |---|---|
 | `config.py` | the dataclasses: `InputSpec`, `EncoderSpec`, `DownsampleSpec`, `HeadSpec`, `NeuronSpec`, `TrainSpec` |
 | `runconfig.py` | loads the YAML run file (`configs/*.yaml`) and its defaults |
-| `spaces.py` | the search space: what a trial samples, geometry first |
+| `spaces.py` | the search space: what a trial samples, geometry first, sized from the dataset; the balanced block |
 
 ## 2. Judge it before training (no GPU, no torch)
 
@@ -26,10 +26,11 @@ through them.
 |---|---|
 | `neuron.py` | `HardwareLIFNode` (the chip's neuron) and `ConvBNFoldQuant` (conv with BatchNorm folded in, trained on the INT16 grid) |
 | `quantgrid.py` | rounding weights, biases and thresholds to the INT16 grid, differentiably |
-| `model.py` | `DVSGesturePuru`: the network built from the plan |
-| `encoders.py` | turns input into spikes (DVS frames pass through and are binarized) |
+| `model.py` | `SpikingCNN`: the network built from the plan |
+| `encoders.py` | turns input into spikes or B-bit levels (events pass through; images become levels) |
 | `data/` | datasets, the frame cache, and the train/val/test loaders (val holds out whole subjects) |
-| `train.py` | the training loop and `forward_over_time`, the forward pass every number comes from |
+| `augment.py` | training-time shifts, cutout, dropped inputs and flips, the same at every timestep |
+| `train.py` | the training loop (rate or TET loss, seeding) and `forward_over_time`, the forward pass every number comes from |
 
 ## 4. Deploy and check
 
@@ -45,7 +46,7 @@ through them.
 | file | what it does |
 |---|---|
 | `pipeline.py` | config to dataset to model to report, shared by `single` and `search` |
-| `search.py` | the Ray trial and the Optuna/ASHA wiring |
+| `search.py` | the Ray trial, the Optuna/ASHA wiring, and re-scoring the finalists with new seeds |
 | `streaming.py` | writes each trial to `leaderboard.csv` and `trials.jsonl` as it finishes |
 | `results.py` | the results directory and the end-of-search trial table |
 | `report.py` | `report.html` |
@@ -59,5 +60,8 @@ through them.
 | `hw_val_accuracy` | the deployed network in PyTorch, on validation (held-out subjects) |
 | `sim_val_accuracy` | the same clips through `IntegerSim` |
 | `sim_disagreements` | clips where those two predict differently; should be 0 |
-| `deployed_tau` | the tau each layer deploys with (`tau` is only where training started) |
-| `hw_test_accuracy` | the six test subjects; measured once by `single`, never inside the search |
+| `deployed_tau` | the tau each layer deploys with (`tau` is only where training started); a per-channel layer shows its range |
+| `hw_test_accuracy` | the test set; measured once by `single`, never inside the search |
+
+After the search, `finalists.csv` has each finalist's score for every seed,
+and `best_finalist.json` the one with the best mean.

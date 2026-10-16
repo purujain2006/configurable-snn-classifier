@@ -60,6 +60,12 @@ LEADERBOARD_COLS = [
     "pool_type",
     # whether the trial used each regularizer at all (the amounts are above)
     "use_conv_dropout", "use_rate_penalty",
+    # bits per input value, signed spikes, how tau is learned, the loss, and
+    # augmentation (on or off, then how much of each kind)
+    "input_bits", "signed_spikes", "tau_mode", "loss",
+    "use_augment", "aug_shift", "aug_cutout", "aug_drop", "aug_flip",
+    # the dataset the trial was sampled for, and its seed
+    "data_C", "data_H", "data_W", "num_classes", "seed",
 ]
 
 

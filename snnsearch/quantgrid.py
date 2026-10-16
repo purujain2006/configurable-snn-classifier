@@ -17,7 +17,7 @@ if _HAS_TORCH:
         the gradient to `original` unchanged."""
         return original + (quantized - original).detach()
 
-    def fake_quantize_weight(w):
+    def fake_quantize_weight(w, max_int: int = INT16_MAX):
         """
         Bit-exact mirror of hs_api.quantizer.weight_quantization with
         w_alpha=1, w_bits=16, in a differentiable wrapper.
@@ -25,11 +25,18 @@ if _HAS_TORCH:
         The clamp is the part that matters: it is what makes an out-of-range
         folded weight visible to the loss instead of showing up as a surprise
         after conversion.
+
+        max_int lowers the largest stored integer. A first layer that reads
+        B-bit input sends its bit k through a synapse of weight w * 2**k, so
+        its weights must stay within INT16_MAX >> (B - 1) to fit 16 bits.
         """
         b = W_BITS - 1                                  # quantizer uses w_bit - 1
         levels = 2 ** b - 1
         wc = torch.clamp(w / W_ALPHA, min=-1.0, max=1.0)
-        q = torch.round(wc.abs() * levels) / levels * torch.sign(wc) * W_ALPHA
+        q = torch.round(wc.abs() * levels)
+        if max_int < levels:
+            q = torch.clamp(q, max=float(max_int))
+        q = q / levels * torch.sign(wc) * W_ALPHA
         return _ste(q, w)
 
     def fake_quantize_bias(b):
@@ -44,7 +51,7 @@ if _HAS_TORCH:
         bc = torch.clamp(b, min=-W_ALPHA, max=W_ALPHA)
         return _ste(torch.round(bc / W_DELTA) * W_DELTA, b)
 
-    def fold_bias_band(v_th: float, margin: float = 0.05):
+    def fold_bias_band(v_th: float, margin: float = 0.05, signed: bool = False):
         """The interval b' must lie in for theta' = theta - b' to be storable.
 
         Two-sided, because both ends fail silently:
@@ -56,9 +63,14 @@ if _HAS_TORCH:
         """
         lo = float(v_th) - W_ALPHA            # keeps theta' <= w_alpha
         hi = float(v_th) * (1.0 - float(margin))   # keeps theta' >= margin*theta
+        if signed:
+            # the negative neuron of a signed unit stores theta + b', so b'
+            # must also keep that inside (margin*theta, w_alpha]
+            lo = max(lo, -float(v_th) * (1.0 - float(margin)))
+            hi = min(hi, W_ALPHA - float(v_th))
         return lo, hi
 
-    def constrain_fold_bias(b, v_th, margin: float = 0.05):
+    def constrain_fold_bias(b, v_th, margin: float = 0.05, signed: bool = False):
         """Clamp the folded bias into the band above, straight-through.
 
         Forward uses the clamped value, so the neuron sees the b' that will
@@ -66,7 +78,7 @@ if _HAS_TORCH:
         the gradient to bn.bias unchanged, so the optimizer can still move beta
         toward a legal value on its own rather than being pinned at the bound.
         """
-        lo, hi = fold_bias_band(v_th, margin)
+        lo, hi = fold_bias_band(v_th, margin, signed)
         return _ste(torch.clamp(b, min=lo, max=hi), b)
 
     def fake_quantize_threshold(th):

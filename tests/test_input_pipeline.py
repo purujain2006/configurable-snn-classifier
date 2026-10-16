@@ -64,7 +64,8 @@ class InputPipelineTests(unittest.TestCase):
         self.assertEqual(self.dataset.call_args.args[0]["T"], 8)
         self.assertEqual((encoder.T, encoder.size), (8, (32, 32)))
         self.assertEqual(asdict(spec["input"]),
-                         dict(N=4, C=3, H=48, W=40, T=8, resize_to=32))
+                         dict(N=4, C=3, H=48, W=40, T=8, resize_to=32,
+                              input_bits=1, hflip_ok=False))
         self.assertEqual(spec["output"].num_classes, 7)
         self.assertEqual(spec["train"].epochs, 3)
         build.assert_called_once_with(bundle, batch_size=4, encoder=encoder,
@@ -202,6 +203,8 @@ class CacheOrderingTests(unittest.TestCase):
                     patch.object(search, "_ray_temp_dir", return_value=None), \
                     patch.object(search, "_warm_frame_caches", side_effect=warm), \
                     patch("snnsearch.spaces.make_define_by_run", side_effect=space), \
+                    patch("snnsearch.data.build_dataset", return_value=DatasetBundle(
+                        [], [], C=2, H=128, W=128, num_classes=11, is_event=True)), \
                     self.assertRaisesRegex(RuntimeError, "stop before scheduling"):
                 search.run_search(cfg, ".")
             self.assertEqual([e[0] if isinstance(e, tuple) else e for e in events],

@@ -14,21 +14,31 @@ from .hardware import (check_spec_feasibility, AXON_LIMITS, NEURON_LIMITS, HW_TA
 
 
 def count_neurons_and_synapses(cfg: dict) -> dict:
-    """cfg is the same dict used everywhere else: input/encoder/output/downsample/head/neuron."""
+    """cfg is the same dict used everywhere else: input/encoder/output/downsample/head/neuron.
+
+    Counts chip neurons and synapses. A signed layer has two neurons per unit,
+    each reading both neurons of every signed source unit, so its neurons
+    double and its connections from a signed layer quadruple. Multi-bit input
+    takes input_bits axons per value, each with its own synapse.
+    """
     plan = plan_network(cfg["input"], cfg["encoder"], cfg["output"], cfg["downsample"], cfg["head"])
     encoder_cfg, input_cfg = cfg["encoder"], cfg["input"]
+    sign = 2 if getattr(cfg.get("neuron"), "signed_spikes", False) else 1
+    bits = max(1, int(getattr(input_cfg, "input_bits", 1) or 1))
 
     rows = []
     for b in plan.blocks:
         oh, ow = b.conv_out_hw
         neurons = b.out_channels * oh * ow
         weights_per_neuron = b.kernel_size * b.kernel_size * b.in_channels
+        # sources per synapse: input axons for the first layer, else neurons
+        src = bits if b.index == 0 else sign
         rows.append({
             "layer": f"conv{b.index}",
             "detail": (f"{b.in_channels}x{b.in_hw[0]}x{b.in_hw[1]} -> "
                        f"{b.out_channels}x{oh}x{ow}  k={b.kernel_size} s={b.stride} p={b.padding}"),
-            "neurons": neurons,
-            "connections": neurons * weights_per_neuron,
+            "neurons": neurons * sign,
+            "connections": neurons * weights_per_neuron * src * sign,
             "params": weights_per_neuron * b.out_channels + (b.out_channels if encoder_cfg.bias else 0),
         })
         if encoder_cfg.norm != "none":
@@ -49,8 +59,9 @@ def count_neurons_and_synapses(cfg: dict) -> dict:
                 # a max pool is a layer of OR neurons on chip; an avg pool has none
                 "detail": (f"{'max (OR neurons)' if or_pool else 'avg'} k={b.pool_kernel} "
                            f"s={b.pool_stride} -> {b.out_channels}x{ph}x{pw}"),
-                "neurons": b.out_channels * ph * pw if or_pool else 0,
-                "connections": b.out_channels * ph * pw * b.pool_kernel * b.pool_kernel,
+                # one OR neuron per window and sign, reading its own sign only
+                "neurons": b.out_channels * ph * pw * sign if or_pool else 0,
+                "connections": b.out_channels * ph * pw * b.pool_kernel * b.pool_kernel * sign,
                 "params": 0,
             })
 
@@ -68,8 +79,8 @@ def count_neurons_and_synapses(cfg: dict) -> dict:
         rows.append({
             "layer": tag,
             "detail": f"{lin.in_features} -> {lin.out_features}",
-            "neurons": lin.out_features,
-            "connections": lin.in_features * lin.out_features,
+            "neurons": lin.out_features * sign,
+            "connections": lin.in_features * lin.out_features * sign * sign,
             "params": lin.in_features * lin.out_features,
         })
 
@@ -82,7 +93,7 @@ def count_neurons_and_synapses(cfg: dict) -> dict:
     return {
         "rows": rows,
         "totals": totals,
-        "input_axons": in_h * in_w * input_cfg.C,
+        "input_axons": in_h * in_w * input_cfg.C * bits,
         "timesteps": input_cfg.T,
         "neuron_updates_per_sample": totals["neurons"] * input_cfg.T,
         "plan": plan,
@@ -98,13 +109,16 @@ def format_summary(cfg: dict) -> str:
 
     lines = []
     lines.append("=" * 78)
-    lines.append("DVS Gesture SNN -- architecture summary")
+    lines.append("Spiking CNN -- architecture summary")
     lines.append("=" * 78)
     ec = cfg["encoder"]
     nc = cfg["neuron"]
     layers = resolve_conv_layers(ec)
     mode = "per-layer" if ec.layers_json else "uniform"
-    lines.append(f"input        : {cfg['input'].C}x{in_h}x{in_w}  (native 128x128, resize_to={cfg['input'].resize_to}), T={cfg['input'].T}, batch={cfg['input'].N}")
+    inp = cfg["input"]
+    lines.append(f"input        : {inp.C}x{in_h}x{in_w}  (native {inp.H}x{inp.W}, "
+                 f"resize_to={inp.resize_to}), T={inp.T}, batch={inp.N}, "
+                 f"{getattr(inp, 'input_bits', 1)} bit(s) per value")
     lines.append(f"encoder      : {mode}, depth={len(layers)} bias={ec.bias} norm={ec.norm}"
                  + (f" tdbn_alpha={ec.tdbn_alpha}" if ec.norm == "tdbn" else ""))
     if ec.layers_json:
@@ -116,16 +130,25 @@ def format_summary(cfg: dict) -> str:
     lines.append(f"head         : reduction={cfg['head'].final_reduction} fc_widths=[{cfg['head'].fc_widths}] "
                  f"dropout={cfg['head'].dropout_rate}")
     leak = int(round(float(nc.tau)))
-    tau_tag = f"learned int, init {leak}" if nc.trainable_tau else f"{leak}"
+    per = "channel" if getattr(nc, "tau_per_channel", False) else "layer"
+    tau_tag = f"learned power of 2 per {per}, init {leak}" if nc.trainable_tau else f"{leak}"
     th_tag = "learned in (0,1]" if nc.trainable_threshold else f"{nc.v_threshold}"
-    lines.append(f"neuron       : {nc.neuron_type} leak={tau_tag} v_th={th_tag} v_reset={nc.v_reset}")
+    signed = ", signed spikes (2 neurons per unit)" if getattr(nc, "signed_spikes", False) else ""
+    lines.append(f"neuron       : {nc.neuron_type} tau={tau_tag} v_th={th_tag} "
+                 f"v_reset={nc.v_reset}{signed}")
     th_int = int(min(max(round(float(nc.v_threshold) / W_DELTA), 1), INT16_MAX))
-    lines.append(f"  -> hardware: LIF_neuron(threshold={th_int}, shift=0, leak={leak})"
+    # the chip's leak is the shift: V -= V // 2**leak, so leak = log2(tau)
+    shift = max(0, leak.bit_length() - 1)
+    lines.append(f"  -> hardware: LIF_neuron(threshold={th_int}, nu=-17, leak={shift})"
                  f"   [w_alpha={W_ALPHA:g}, w_bits={W_BITS}, weights clamped to +/-1]")
     if "train" in cfg:
         t = cfg["train"]
         lines.append(f"training     : {t.optimizer} lr={t.lr:g} wd={t.weight_decay:g} sched={t.scheduler} "
                      f"epochs={t.epochs} label_smoothing={t.label_smoothing:g} grad_clip={t.grad_clip:g}")
+        aug = (f"shift {t.aug_shift:.2f} cutout {t.aug_cutout:.2f} drop {t.aug_drop:.2f}"
+               f"{' flip' if t.aug_flip and inp.hflip_ok else ''}") if t.augment else "off"
+        lines.append(f"               loss={t.loss} augment={aug} bias={t.fold_bias_mode} "
+                     f"seed={t.seed}")
     lines.append("")
 
     header = f"{'layer':<12} {'shape / detail':<46} {'neurons':>10} {'connections':>14} {'params':>12}"

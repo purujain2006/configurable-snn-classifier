@@ -51,6 +51,7 @@ _SEARCH_OWNED_TRAIN_FIELDS = frozenset({
     "label_smoothing", "grad_clip", "rate_penalty", "qat_mode",
     "qat_warmup_frac", "qat_epochs", "qat_lr_scale",
     "fold_bias_mode", "fold_bias_margin",
+    "loss", "augment", "aug_shift", "aug_cutout", "aug_drop", "aug_flip", "seed",
 })
 # a trial's flat config names the bias mode "bias_mode"; it fills fold_bias_mode
 
@@ -155,8 +156,13 @@ def resolve_specs(cfg, flat_config=None, quiet=False):
         print(f"dataset   : {json.dumps(bundle.describe(), default=str)}")
 
     # Event data passes through; static data needs a coding to gain a time axis.
-    coding = enc_cfg.get("coding") or ("passthrough" if bundle.is_event else "direct")
-    encoder = build_encoder(coding, T=T, resize_to=resize or None)
+    # A trial may sample the coding and the bits per input value; otherwise
+    # they come from the file. Still images default to "levels", the coding
+    # that deploys on chip ("direct" feeds analog values, which no axon carries).
+    coding = flat.get("coding") or enc_cfg.get("coding") or \
+        ("passthrough" if bundle.is_event else "levels")
+    input_bits = int(flat.get("input_bits") or enc_cfg.get("input_bits") or 1)
+    encoder = build_encoder(coding, T=T, resize_to=resize or None, input_bits=input_bits)
     if not quiet:
         print(f"encoding  : {json.dumps(encoder.describe(), default=str)}")
 
@@ -165,7 +171,10 @@ def resolve_specs(cfg, flat_config=None, quiet=False):
         # parameter and the whole training schedule.
         # The flat builder requires both input keys even when this trial did
         # not sample them (or a replay removed them for a CLI override).
-        spec = specs_from_flat({**flat_config, "T": T, "resize_to": resize or 0},
+        # The dataset's own facts win over whatever the record says.
+        from .spaces import data_facts
+        spec = specs_from_flat({**flat_config, **data_facts(bundle),
+                                "T": T, "resize_to": resize or 0},
                                batch_size=batch)
         # ...except the TrainSpec fields the search never samples. Those would
         # otherwise sit at their dataclass defaults with no way to reach them,
@@ -196,7 +205,9 @@ def resolve_specs(cfg, flat_config=None, quiet=False):
     # are facts about the data. T and resize_to are not: they are choices, and
     # they belong to whoever made them.
     spec["input"] = InputSpec(C=bundle.C, H=bundle.H, W=bundle.W,
-                              T=T, resize_to=resize or 0, N=batch)
+                              T=T, resize_to=resize or 0, N=batch,
+                              input_bits=input_bits,
+                              hflip_ok=bool(getattr(bundle, "hflip_ok", False)))
     spec["output"] = OutputSpec(num_classes=bundle.num_classes)
     return bundle, encoder, spec
 

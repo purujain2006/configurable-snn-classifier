@@ -51,16 +51,22 @@ sys.path.insert(0, ROOT)
 # 1. selftest
 # ---------------------------------------------------------------------------
 
-def _random_layers(rng, leak, small=False, variant="rank1"):
-    """Small network with one of the layer sequences the search can produce.
+VARIANTS = {
+    "rank1": "conv, LIF, 2x2 avg pool, conv, LIF, 2x2 avg pool, linear, LIF",
+    "bias": "the same, with a real bias on every layer (bias neurons); behind a pool "
+            "the bias exceeds one INT16 synapse and is split across bias neurons",
+    "gap": "conv, LIF, global average pool, linear with bias, LIF",
+    "maxpool": "conv, LIF, OR pool, conv, LIF, OR pool, linear, LIF",
+    "bits": "rank1's shape reading 3-bit input: 3 axons per value, weights w, 2w, 4w",
+    "signed": "rank1's shape with signed spikes and biases: two neurons per unit, "
+              "with separate positive and negative thresholds",
+    "signed_maxpool": "signed spikes through OR pools: one OR neuron per sign per window",
+    "per_channel_tau": "rank1's shape with a different leak in every channel",
+}
 
-    variant "rank1"  conv, LIF, 2x2 avg pool, conv, LIF, 2x2 avg pool, linear, LIF
-            "bias"   the same, with a real bias on every layer (bias neurons).
-                     Behind a pool the bias exceeds one INT16 synapse, so it is
-                     split across several bias neurons.
-            "gap"    conv, LIF, global average pool, linear with bias, LIF
-            "maxpool" conv, LIF, OR pool, conv, LIF, OR pool, linear, LIF: max
-                     pooling as one OR neuron per window
+
+def _random_layers(rng, leak, small=False, variant="rank1"):
+    """Small network of one of the layer types the tool deploys (VARIANTS).
 
     small=False uses INT16-sized weights, like a real export. small=True uses
     weights of a few units, so membranes land EXACTLY on thresholds and on
@@ -70,10 +76,11 @@ def _random_layers(rng, leak, small=False, variant="rank1"):
     """
     import numpy as np
 
-    def w(*shape):
+    def w(*shape, limit=None):
         if small:
             return rng.integers(-4, 7, size=shape).astype(np.int64)
-        return rng.integers(-26000, 32768, size=shape).astype(np.int64)
+        hi = 32767 if limit is None else limit
+        return rng.integers(-int(hi * 0.8), hi + 1, size=shape).astype(np.int64)
 
     def th(n, scale):
         t = rng.integers(3, 9, size=n) if small else rng.integers(30000, 90000, size=n)
@@ -84,100 +91,117 @@ def _random_layers(rng, leak, small=False, variant="rank1"):
         lim = 6 if small else scale * 30000
         return rng.integers(-lim, lim + 1, size=n).astype(np.int64)
 
+    def leaks(n):
+        if variant == "per_channel_tau":
+            return [int(x) for x in rng.integers(1, 4, size=n)]
+        return leak
+
     orpool = {"kind": "orpool", "pool": 2, "scale": 1, "threshold": np.zeros(1, dtype=np.int64),
               "bias": None, "tau": None, "leak": 0, "memoryless": True}
-    if variant == "maxpool":
-        return [
+
+    if variant in ("maxpool", "signed_maxpool"):
+        sg = variant == "signed_maxpool"
+        layers = [
             {"kind": "conv", "w": w(4, 2, 3, 3), "pool": 1, "scale": 1, "stride": (1, 1),
-             "padding": (1, 1), "threshold": th(4, 1), "tau": 2 ** leak, "leak": leak},
-            dict(orpool),
+             "padding": (1, 1), "threshold": th(4, 1), "leak": leak, "signed": sg},
+            dict(orpool, signed=sg),
             {"kind": "conv", "w": w(3, 4, 5, 5), "pool": 1, "scale": 1, "stride": (1, 1),
-             "padding": (2, 2), "threshold": th(3, 1), "tau": 2 ** leak, "leak": leak},
-            dict(orpool),
+             "padding": (2, 2), "threshold": th(3, 1), "leak": leak, "signed": sg},
+            dict(orpool, signed=sg),
             {"kind": "linear", "w": w(5, 3 * 2 * 2), "pool": 1, "scale": 1,
-             "threshold": th(5, 1), "tau": 2 ** leak, "leak": leak},
+             "threshold": th(5, 1), "leak": leak, "signed": sg},
         ]
+        if sg:
+            for L in layers:
+                if L["kind"] != "orpool":
+                    L["threshold_neg"] = th(L["w"].shape[0], 1)
+        return layers
     if variant == "gap":
         return [
             {"kind": "conv", "w": w(4, 2, 3, 3), "pool": 1, "scale": 1, "stride": (1, 1),
-             "padding": (1, 1), "threshold": th(4, 1), "bias": bias(4, 1),
-             "tau": 2 ** leak, "leak": leak},
+             "padding": (1, 1), "threshold": th(4, 1), "bias": bias(4, 1), "leak": leak},
             # GAP over the 8x8 map: a pool of 8, membrane 64x finer
             {"kind": "linear", "w": w(5, 4), "pool": 8, "scale": 64,
-             "threshold": th(5, 64), "bias": bias(5, 64), "tau": 2 ** leak, "leak": leak},
+             "threshold": th(5, 64), "bias": bias(5, 64), "leak": leak},
         ]
+    bits = 3 if variant == "bits" else 1
+    first_limit = 32767 >> (bits - 1)
     layers = [
-        {"kind": "conv", "w": w(4, 2, 3, 3), "pool": 1, "scale": 1, "stride": (1, 1),
-         "padding": (1, 1), "threshold": th(4, 1), "tau": 2 ** leak, "leak": leak},
+        {"kind": "conv", "w": w(4, 2, 3, 3, limit=first_limit), "pool": 1, "scale": 1,
+         "stride": (1, 1), "padding": (1, 1), "threshold": th(4, 1), "leak": leaks(4),
+         "input_bits": bits},
         {"kind": "conv", "w": w(3, 4, 5, 5), "pool": 2, "scale": 4, "stride": (1, 1),
-         "padding": (2, 2), "threshold": th(3, 4), "tau": 2 ** leak, "leak": leak},
+         "padding": (2, 2), "threshold": th(3, 4), "leak": leaks(3)},
         {"kind": "linear", "w": w(5, 3 * 2 * 2), "pool": 2, "scale": 4,
-         "threshold": th(5, 4), "tau": 2 ** leak, "leak": leak},
+         "threshold": th(5, 4), "leak": leaks(5)},
     ]
-    if variant == "bias":
+    if variant in ("bias", "signed"):
         for L in layers:
             L["bias"] = bias(L["w"].shape[0], L["scale"])
+    if variant == "signed":
+        for L in layers:
+            L["signed"] = True
+            L["threshold_neg"] = th(L["w"].shape[0], L["scale"])
     return layers
 
 
 def selftest(args):
     import numpy as np
     import torch
-    from snnsearch.hs_export import IntegerSim, unroll_to_hs_api
+    from snnsearch.hs_export import IntegerSim, unroll_to_hs_api, input_axons
     from hs_api.api import CRI_network
 
-    in_shape, T, flush = (2, 8, 8), 10, 3
+    in_shape, T, flush = (2, 8, 8), 10, 5
     all_ok = True
-    variants = ("rank1", "bias", "gap", "maxpool")
-    for variant, small, leak in [(v, sm, lk) for v in variants
+    names = list(VARIANTS)
+    for variant, small, leak in [(v, sm, lk) for v in names
                                  for sm in (False, True) for lk in (1, 2, 3)]:
-        rng = np.random.default_rng(10 * leak + small + 100 * variants.index(variant))
+        rng = np.random.default_rng(10 * leak + small + 100 * names.index(variant))
         layers = _random_layers(rng, leak, small, variant)
+        bits = layers[0].get("input_bits", 1)
         # hs_lif_neuron sets the noise shift to -17, which is zero noise on
         # every commit; see its docstring
-        axons, conns, keys = unroll_to_hs_api(
-            layers, in_shape)
-        all_keys = [k for layer_keys in keys for k in layer_keys]
+        axons, conns, groups = unroll_to_hs_api(layers, in_shape)
+        group_keys = [keys for layer_groups in groups for keys, _sign in layer_groups]
+        all_keys = [k for keys in group_keys for k in keys]
         net = CRI_network(axons=axons, connections=conns, outputs=all_keys,
                           target="simpleSim")
 
-        frames = torch.from_numpy((rng.random((T,) + in_shape) < 0.35).astype(np.float64))
+        top = 2 ** bits - 1
+        active = rng.random((T,) + in_shape) < 0.35
+        levels = rng.integers(1, top + 1, size=(T,) + in_shape)
+        frames = torch.from_numpy((active * levels).astype(np.float64))
         sim = IntegerSim(layers, in_shape, device="cpu")
 
-        # IntegerSim, instrumented to keep every membrane and every spike
-        # IntegerSim's membranes and spikes at every step
+        # IntegerSim's membranes and spikes at every step, in unroll's key order
         ref_V, ref_S = [], []
-        for V, spikes in sim.steps(frames, flush):
-            ref_V.append(torch.cat([v.reshape(-1) for v in V]).cpu().numpy().copy())
-            ref_S.append(set(k for i, s in enumerate(spikes)
-                             for j, k in enumerate(keys[i]) if s.reshape(-1)[j] > 0))
+        for grps, _outputs in sim.steps(frames, flush):
+            ref_V.append(torch.cat([v.reshape(-1) for v, _s in grps]).cpu().numpy().copy())
+            ref_S.append(set(k for (v, s), keys in zip(grps, group_keys)
+                             for j, k in enumerate(keys) if s.reshape(-1)[j] > 0))
 
-        flat = frames.reshape(T, -1)
         bad_steps = 0
-        n_spikes = 0
         for t in range(T + flush):
-            inputs = [f"A{i}" for i in range(flat.shape[1]) if t < T and flat[t, i] > 0]
+            inputs = input_axons(frames[t], bits) if t < T else []
             pots, spk = net.step(inputs, membranePotential=True)
             by_key = {k: float(p) for k, p in pots}
             hs_V = np.array([by_key[k] for k in all_keys])
             hs_S = set(spk)
-            n_spikes += len(hs_S)
             if hs_S != ref_S[t] or not np.array_equal(hs_V, ref_V[t]):
                 bad_steps += 1
                 if bad_steps <= 3:
                     dv = np.flatnonzero(hs_V != ref_V[t])
-                    print(f"  leak={leak} t={t}: spikes only in hs_api "
+                    print(f"  {variant} leak={leak} t={t}: spikes only in hs_api "
                           f"{sorted(hs_S - ref_S[t])[:5]}, only in IntegerSim "
                           f"{sorted(ref_S[t] - hs_S)[:5]}, {dv.size} membranes differ")
         ok = bad_steps == 0
         all_ok &= ok
-        _, per_layer = sim.run(frames, flush, record=True)
-        neg = int(sum((v < 0).sum() for v in ref_V))
+        n_spikes = sum(len(s) for s in ref_S)
         n_bias = sum(1 for k in conns if k.startswith("BiasN"))
-        print(f"{variant:5s} {'small' if small else 'INT16'} weights, leak shift {leak} "
-              f"(tau {2 ** leak}), {n_bias:2d} bias neurons: "
-              f"spikes per layer {[sum(r) for r in per_layer]}, "
-              f"{neg} negative membranes, "
+        neg = int(sum((v < 0).sum() for v in ref_V))
+        print(f"{variant:15s} {'small' if small else 'INT16'} leak {leak}: "
+              f"{len(all_keys):4d} neurons, {n_bias:3d} bias neurons, {n_spikes:5d} spikes, "
+              f"{neg:5d} negative membranes, "
               f"{'IDENTICAL' if ok else f'{bad_steps} of {T + flush} steps differ'}")
     print("\nSELFTEST PASSED: IntegerSim reproduces hs_api simpleSim exactly"
           if all_ok else "\nSELFTEST FAILED")
@@ -260,37 +284,39 @@ def _real_simplesim(layers, in_shape, items, flush):
     150 GB of RAM and a few hours before the first clip runs.
     """
     import torch
-    from snnsearch.hs_export import unroll_to_hs_api
+    from snnsearch.hs_export import unroll_to_hs_api, input_axons
     from hs_api.api import CRI_network
 
     t0 = time.time()
     print("real simpleSim: unrolling the network into hs_api dictionaries", flush=True)
-    axons, conns, keys = unroll_to_hs_api(
-        layers, in_shape)
+    axons, conns, groups = unroll_to_hs_api(layers, in_shape)
     n_syn = sum(len(v) for v in axons.values()) + sum(len(v[0]) for v in conns.values())
     print(f"  {len(axons)} axons, {len(conns)} neurons, {n_syn:,} synapses "
           f"({(time.time() - t0) / 60:.1f} min)", flush=True)
-    out_keys = keys[-1]
+    # output units: positive neurons, and negative ones for signed output
+    out_groups = groups[-1]
+    out_keys = [k for keys, _sign in out_groups for k in keys]
+    n_cls = len(out_groups[0][0])
     net = CRI_network(axons=axons, connections=conns, outputs=out_keys, target="simpleSim")
     del axons, conns
     print(f"  CRI_network built ({(time.time() - t0) / 60:.1f} min)", flush=True)
 
-    pos = {k: i for i, k in enumerate(out_keys)}
+    pos = {k: (i, sign) for keys, sign in out_groups for i, k in enumerate(keys)}
+    bits = layers[0].get("input_bits", 1)
     results = []
     for ci, (frames, _label) in enumerate(items):
         t1 = time.time()
         # fresh membranes per clip, as Christopher's DVS example clears the FPGA
         net.simpleSim.initialize_sim_vars(net.simpleSim.numNeurons)
-        flat = frames.reshape(frames.shape[0], -1)
-        counts = [0] * len(out_keys)
+        counts = [0] * n_cls
         per_step = []
         for t in range(frames.shape[0] + flush):
-            inputs = ([f"A{i}" for i in torch.nonzero(flat[t]).flatten().tolist()]
-                      if t < frames.shape[0] else [])
-            row = [0] * len(out_keys)
+            inputs = input_axons(frames[t], bits) if t < frames.shape[0] else []
+            row = [0] * n_cls
             for k in net.step(inputs):
-                row[pos[k]] += 1
-                counts[pos[k]] += 1
+                i, sign = pos[k]
+                row[i] += sign
+                counts[i] += sign
             per_step.append(row)
         pred = int(torch.tensor(counts).argmax().item())
         results.append((pred, per_step))

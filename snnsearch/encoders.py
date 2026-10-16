@@ -130,28 +130,73 @@ class TemporalEncoder(Encoder):
 
 
 class PassthroughEncoder(Encoder):
-    """The input is already events. Optionally resize, then binarize.
+    """The input is already events. Optionally resize, then turn counts into
+    values a chip axon can carry.
 
-    Averaging a sparse binary frame during resize produces small fractional
-    values a spiking input cannot represent, and isolated events vanish. So
-    anything non-zero after interpolation becomes a full spike: no event is
-    lost, and event density per pixel rises as resolution falls.
+    input_bits = 1: anything non-zero after interpolation becomes a full
+    spike. Averaging a sparse binary frame during resize produces small
+    fractions a spike cannot represent, and isolated events would vanish; this
+    way no event is lost.
+
+    input_bits = B > 1: each pixel carries its event count, clipped to
+    2**B - 1, so a busy pixel and a quiet one are told apart. On chip the count
+    travels on B axons, one per bit (hs_export.py). Shrinking sums the counts
+    of the pixels merged together, and any non-zero sum counts at least 1.
     """
 
     name = "passthrough"
     analog = False
 
-    def __init__(self, T, size=None, binarize=True):
+    def __init__(self, T, size=None, binarize=True, input_bits=1):
         super().__init__(T, size)
         self.binarize = binarize
+        self.input_bits = max(1, int(input_bits))
 
     def encode(self, x):
-        x = self._resize(x)
-        return (x > 0).to(x.dtype) if self.binarize else x
+        if self.input_bits <= 1:
+            x = self._resize(x)
+            return (x > 0).to(x.dtype) if self.binarize else x
+        top = 2 ** self.input_bits - 1
+        if self.size is not None:
+            lead, (c, h, w) = x.shape[:-3], x.shape[-3:]
+            flat = x.reshape(-1, c, h, w)
+            out = F.interpolate(flat, size=self.size, mode="area")
+            out = out * (h * w) / (self.size[0] * self.size[1])   # mean -> sum of counts
+            x = out.reshape(*lead, *out.shape[-3:])
+        return torch.clamp(torch.ceil(x - 1e-6), 0, top)
 
     def describe(self):
         d = super().describe()
         d["binarize"] = self.binarize
+        d["input_bits"] = self.input_bits
+        return d
+
+
+class LevelsEncoder(Encoder):
+    """A still image as B-bit levels, the same at every timestep.
+
+    Brightness in [0, 1] is rounded to an integer from 0 to 2**B - 1. The chip
+    carries each level on B axons, one per bit, so unlike the analog "direct"
+    coding this deploys. B = 1 thresholds brightness at one half.
+    """
+
+    name = "levels"
+    analog = False
+
+    def __init__(self, T, size=None, input_bits=1):
+        super().__init__(T, size)
+        self.input_bits = max(1, int(input_bits))
+
+    def encode(self, x):
+        top = 2 ** self.input_bits - 1
+        x = torch.round(self._resize(x).clamp(0.0, 1.0) * top)
+        if x.dim() == 5:
+            return x
+        return x.unsqueeze(1).expand(-1, self.T, *x.shape[1:]).contiguous()
+
+    def describe(self):
+        d = super().describe()
+        d["input_bits"] = self.input_bits
         return d
 
 
@@ -160,10 +205,11 @@ CODINGS = {
     "poisson": PoissonEncoder,
     "temporal": TemporalEncoder,
     "passthrough": PassthroughEncoder,
+    "levels": LevelsEncoder,
 }
 
 
-def build_encoder(coding, T, resize_to=None, **kwargs):
+def build_encoder(coding, T, resize_to=None, input_bits=1, **kwargs):
     """Look up a coding by name, with a message that lists the alternatives."""
     key = (coding or "direct").lower()
     if key not in CODINGS:
@@ -172,6 +218,12 @@ def build_encoder(coding, T, resize_to=None, **kwargs):
             "  direct      analog value repeated each step (default, static images)\n"
             "  poisson     stochastic spikes proportional to intensity\n"
             "  temporal    one spike per unit, earlier means brighter\n"
-            "  passthrough input is already events (DVS)")
+            "  passthrough input is already events (DVS)\n"
+            "  levels      still image as B-bit levels, deployable on chip")
     size = (resize_to, resize_to) if isinstance(resize_to, int) and resize_to else resize_to
+    if key in ("passthrough", "levels"):
+        kwargs["input_bits"] = input_bits
+    elif int(input_bits) > 1:
+        raise ValueError(f"input_bits={input_bits} needs coding 'passthrough' or "
+                         f"'levels'; {key!r} produces 0/1 spikes or analog values")
     return CODINGS[key](T=T, size=size, **kwargs)

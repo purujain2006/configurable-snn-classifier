@@ -55,6 +55,16 @@ DEFAULTS = {
         # does. "clip" is the split every run before October 2026 used, kept
         # only to re-score old checkpoints on the clips they were selected on.
         "val_split": "subject",
+        # Trials at the start in which every option of every on/off or
+        # either/or choice appears equally often (spaces.balanced_points).
+        "balanced_trials": 0,
+        # Bits per input value are searched from 1 to this, when the coding
+        # can send more than one (passthrough, levels). None means 4.
+        "max_input_bits": None,
+        # After the search, retrain the top `finalists` trials with
+        # `finalist_seeds` new seeds each and pick the best mean. 0 turns it
+        # off. finalist_epochs None keeps the search's epoch count.
+        "finalists": 3, "finalist_seeds": 3, "finalist_epochs": None,
     },
     "objective": {
         "mode": "accuracy",          # accuracy | constrained | weighted | pareto

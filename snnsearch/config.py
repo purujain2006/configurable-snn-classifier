@@ -24,6 +24,13 @@ class InputSpec:
     W: int = 128
     T: int = 16
     resize_to: int = 0   # 0 = no resize, feed native H,W straight through
+    # Bits per input value. A chip axon carries one bit, so a value of B bits
+    # takes B axons, the k-th weighted 2**k (hs_export.py). 1 is a plain spike.
+    input_bits: int = 1
+    # Whether a left-right flip keeps an example's label. False is the safe
+    # default: in DVS128 Gesture, left- and right-hand gestures are separate
+    # classes. Set by the dataset (DatasetBundle.hflip_ok), never by a search.
+    hflip_ok: bool = False
 
 
 def effective_hw(input_cfg: "InputSpec") -> tuple[int, int]:
@@ -141,11 +148,10 @@ class NeuronSpec:
     tau: int = 2
     v_threshold: float = 1.0
     v_reset: float = 0.0
-    # Q2/Q3: promote tau / threshold from fixed values to learned parameters.
-    # Granularity is PER-LAYER (one learned scalar per conv/fc neuron group),
-    # never per-channel -- see ConvLayerSpec note. Both are deployable:
-    # hs_api reads a neuron model PER NEURON KEY, so heterogeneous thresholds
-    # and leaks across layers cost nothing on hardware.
+    # Q2/Q3: promote tau / threshold from fixed values to learned parameters,
+    # one per layer (tau can also be one per channel, below). Both are
+    # deployable: hs_api reads a neuron model PER NEURON KEY, so different
+    # thresholds and leaks per layer cost nothing on hardware.
     trainable_tau: bool = False
     trainable_threshold: bool = False
     # The membrane is an integer register on chip, so the leak is floor(v/tau)
@@ -154,6 +160,14 @@ class NeuronSpec:
     # step. Off reproduces the float dynamics used before that was verified, and
     # exists only so the two can be compared.
     integer_leak: bool = True
+    # One learned tau per output channel instead of one per layer. The chip
+    # stores a neuron model for every neuron, so this costs nothing on chip.
+    # Only meaningful with trainable_tau.
+    tau_per_channel: bool = False
+    # Signed spikes: each unit can send +1 or -1. On chip it is two neurons,
+    # one integrating the input and one its negative, whose outgoing weights
+    # are +w and -w. Doubles neurons, fan-in and fan-out.
+    signed_spikes: bool = False
 
 
 @dataclass
@@ -181,6 +195,21 @@ class TrainSpec:
     # improved. Averaging a window estimates the level instead of the peak.
     # Set to 1 to recover the old best-single-epoch behaviour.
     val_smoothing_epochs: int = 5
+    # "rate": cross-entropy on the spike rate over the whole clip. "tet": the
+    # average of a cross-entropy at every timestep (Deng et al., ICLR 2022,
+    # Temporal Efficient Training), which trains every step to classify.
+    loss: str = "rate"
+    # Augmentation of training inputs (snnsearch/augment.py), applied the same
+    # way at every timestep of a clip. Shift and cutout are fractions of the
+    # image size, drop is the probability of removing each input value.
+    augment: bool = False
+    aug_shift: float = 0.0
+    aug_cutout: float = 0.0
+    aug_drop: float = 0.0
+    aug_flip: bool = False          # used only when the dataset allows flips
+    # Seed for weight initialization and data order. None leaves them random;
+    # re-scoring finalists sets it so each seed is a separate, repeatable run.
+    seed: Optional[int] = None
     # --- deployment / quantization-aware training (section 5c) -------------
     # qat_mode selects how the model reaches the deployable INT16 grid:
     #   "inline"  (Option A, default): after a short float warmup, every

@@ -104,7 +104,7 @@
   /* ---------- 6.4 define-by-run ---------- */
   (function dbr() {
     if (!$("db-params")) return;
-    const state = { space: "per_layer", norm: "bn", opt: "adam", sch: "cosine" };
+    const state = { space: "per_layer", norm: "bn", opt: "adam", sch: "cosine", aug: "off" };
     function segWire(id, key) {
       document.querySelectorAll("#" + id + " button").forEach(b => b.addEventListener("click", () => {
         document.querySelectorAll("#" + id + " button").forEach(x => x.classList.remove("on"));
@@ -114,7 +114,7 @@
       }));
     }
     segWire("db-space", "space"); segWire("db-norm", "norm");
-    segWire("db-opt", "opt"); segWire("db-sch", "sch");
+    segWire("db-opt", "opt"); segWire("db-sch", "sch"); segWire("db-aug", "aug");
 
     function update() {
       const depth = +$("db-d").value, nfc = +$("db-fc").value;
@@ -123,17 +123,27 @@
       const params = [["depth", "2–4"]];
       if (state.space === "per_layer") {
         for (let i = 0; i < depth; i++) {
-          params.push([`k_${i}`, "{5,7}"], [`ch_${i}`, "{32,64}"], [`ds_${i}`, "{stride,pool,none}"]);
+          params.push([`k_${i}`, "3–9 odd"], [`ch_${i}`, "8–128 log"], [`ds_${i}`, "{stride,pool,none}"]);
         }
       } else {
-        params.push(["channels", "{32,64}"], ["kernel_size", "{5,7}"], ["downsample_mode", "{stride,pool}"]);
+        params.push(["channels", "8–128 log"], ["kernel_size", "3–9 odd"], ["downsample_mode", "{stride,pool}"]);
       }
-      params.push(["resize_to", "{32,64}"], ["T", "{8,16}"], ["fc_layers", "0–1"]);
+      params.push(["input_bits", "1–4"], ["resize_to", "from dataset"], ["T", "from config"],
+                  ["fc_layers", "0–1"]);
       for (let i = 0; i < nfc; i++) params.push([`fc_width_${i}`, "{128,256,512}"]);
-      params.push(["tau", "{2,4,8,16}"], ["trainable_tau", "{F,T}"], ["trainable_threshold", "{F,T}"],
-                  ["dropout_rate", "0.1–0.45"], ["norm", "{bn,tdbn}"]);
+      params.push(["final_reduction", "{flatten,gap}"], ["bias_mode", "{threshold,neuron}"],
+                  ["signed_spikes", "{F,T}"], ["pool_type", "{avg,max} if a layer pools"]);
+      params.push(["tau", "{2,4,8,16}"], ["tau_mode", "{fixed,layer,channel}"],
+                  ["trainable_threshold", "{F,T}"], ["dropout_rate", "0.1–0.45"],
+                  ["use_conv_dropout", "{F,T}"], ["norm", "{bn,tdbn}"]);
       if (state.norm === "tdbn") params.push(["tdbn_alpha", "0.5–2.0"]);
-      params.push(["label_smoothing", "0–0.2"], ["grad_clip", "{0,1,5}"], ["optimizer", "{adam,adamw}"]);
+      params.push(["label_smoothing", "0–0.2"], ["grad_clip", "{0,1,5}"],
+                  ["use_rate_penalty", "{F,T}"], ["use_augment", "{F,T}"]);
+      if (state.aug === "on") {
+        params.push(["aug_shift", "0–0.2"], ["aug_cutout", "0–0.4"], ["aug_drop", "0–0.3"],
+                    ["aug_flip", "{F,T} if allowed"]);
+      }
+      params.push(["loss", "{rate,tet}"], ["optimizer", "{adam,adamw}"]);
       params.push(state.opt === "adamw" ? ["weight_decay", "1e-5–1e-2 log"] : ["weight_decay", "1e-7–1e-3 log"]);
       params.push(["lr", "5e-4–5e-3 log"], ["scheduler", "{cos,1cyc,step,none}"]);
       if (state.sch === "cosine" || state.sch === "step") params.push(["warmup_epochs", "0–3"]);

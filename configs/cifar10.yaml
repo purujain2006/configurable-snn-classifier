@@ -1,5 +1,8 @@
-# CIFAR-10: static images, so the encoder has to invent the time axis.
-# Exists to prove the generalization works rather than merely claiming it.
+# CIFAR-10: still images, so the encoder makes the time axis by repeating
+# each image T times. Exists so the tool is exercised on something other than
+# DVS128 Gesture: the search reads the channels (3), size (32x32) and class
+# count (10) from the dataset, allows left-right flips because a mirrored
+# photo keeps its label, and searches 1 to 4 bits per pixel.
 
 run:
   name: cifar10
@@ -11,16 +14,23 @@ dataset:
   download: true
 
 encoding:
-  coding: direct         # analog value repeated each step; converges fastest
-  T: 8                   # static data needs fewer steps than event data
-  resize_to: null        # 32x32 x 3 = 3,072 axons, well inside the 16,383 limit
+  # Each pixel as an integer level, 0 to 2**bits - 1, sent on `bits` axons.
+  # "direct" (the raw analog value) trains faster but no axon carries it, so
+  # its networks cannot be deployed.
+  coding: levels
+  T: 8                   # still images need fewer steps than event data
+  resize_to: null        # 32x32x3 = 3,072 axons per bit, inside the 16,000 limit
 
 search:
-  trials: 25
+  trials: 200
   epochs: 40
   grace_period: 8
+  balanced_trials: 48
+  finalists: 3
+  finalist_seeds: 3
+  T_choices: [4, 8, 16]
   target: 0.90
-  space: uniform
+  space: per_layer
   gpu_fraction: 0.25
 
 objective:

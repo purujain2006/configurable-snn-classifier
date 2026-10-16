@@ -9,7 +9,7 @@ quantization modes; inline QAT folds inside ConvBNFoldQuant (neuron.py).
 from .hardware import W_ALPHA, W_DELTA, INT16_MAX
 from .quantgrid import fake_quantize_weight, quantized_threshold_int, fold_bias_band
 from .neuron import HardwareLIFNode
-from .model import DVSGesturePuru
+from .model import SpikingCNN
 from ._torch import _HAS_TORCH, _require_torch, _no_grad, torch, nn, layer, functional
 
 # verify_fold needs the time loop from train.py. Imported inside the function
@@ -26,7 +26,7 @@ def _fold_conv_bn_params(conv_w, conv_b, bn_gamma, bn_beta, bn_mean, bn_var, eps
     return w_prime, b_prime
 
 
-def fold_bn(net: "DVSGesturePuru", bias_mode: str = "conv") -> "DVSGesturePuru":
+def fold_bn(net: "SpikingCNN", bias_mode: str = "conv") -> "SpikingCNN":
     """
     Return a BN-free deep copy of `net`. `net` must be in eval mode so BN uses
     running stats (folding in train mode silently uses batch stats -- the single
@@ -101,6 +101,8 @@ def fold_bn(net: "DVSGesturePuru", bias_mode: str = "conv") -> "DVSGesturePuru":
                     node._v_threshold_const = new_th
                 else:
                     node.v_threshold = new_th
+                if getattr(node, "signed", False):
+                    node._v_threshold_neg_const = base_th + b_prime.reshape(-1, 1, 1)
             i += 2  # consumed conv + bn; neuron handled in place
         else:
             new_mods.append(m)
@@ -132,7 +134,7 @@ def fold_bn(net: "DVSGesturePuru", bias_mode: str = "conv") -> "DVSGesturePuru":
     return folded
 
 
-def fold_bias_report(net: "DVSGesturePuru") -> list[dict]:
+def fold_bias_report(net: "SpikingCNN") -> list[dict]:
     """
     Per-conv distribution of the folded bias, for deciding whether
     bias_mode='threshold' is safe. Call on the trained eval-mode net BEFORE

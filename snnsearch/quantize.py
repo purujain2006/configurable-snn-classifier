@@ -43,7 +43,8 @@ def enable_weight_fake_quant(net):
     from .neuron import _BiasFakeQuant
     for m in _quantizable_modules(net):
         if not parametrize.is_parametrized(m, "weight"):
-            parametrize.register_parametrization(m, "weight", _WeightFakeQuant())
+            parametrize.register_parametrization(
+                m, "weight", _WeightFakeQuant(getattr(m, "_max_weight_int", INT16_MAX)))
         if getattr(m, "bias", None) is not None and not parametrize.is_parametrized(m, "bias"):
             parametrize.register_parametrization(m, "bias", _BiasFakeQuant())
     return net
@@ -123,6 +124,12 @@ def deployment_report(net) -> dict:
             "reasons": blocking + warnings_}
 
 
+def _leak_shifts(leak):
+    def one(t):
+        return int(math.log2(t)) if t >= 1 and t & (t - 1) == 0 else None
+    return [one(t) for t in leak] if isinstance(leak, list) else one(leak)
+
+
 def hardware_export(net) -> dict:
     """
     Everything the converter needs, with nothing left to hardcode.
@@ -150,8 +157,9 @@ def hardware_export(net) -> dict:
                 "leak": m.hw_leak(),
                 # what LIF_neuron(leak=...) takes: simpleSim does V -= V >> leak.
                 # None means this tau has no representation on chip.
-                "leak_shift": (int(math.log2(m.hw_leak()))
-                               if m.hw_leak() & (m.hw_leak() - 1) == 0 else None),
+                # a list when tau is learned per channel
+                "leak_shift": _leak_shifts(m.hw_leak()),
+                "signed": bool(getattr(m, "signed", False)),
                 "shift": 0,
             })
             li += 1

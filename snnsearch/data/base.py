@@ -47,6 +47,10 @@ class DatasetBundle:
     collate_fn: Optional[Callable] = None
     #: anything worth recording in the run report
     meta: dict = field(default_factory=dict)
+    #: True when a left-right flip keeps every label (most image datasets).
+    #: False by default: some datasets, like DVS128 Gesture, have left- and
+    #: right-hand classes, and flipping would swap them.
+    hflip_ok: bool = False
 
     def describe(self):
         return {"name": self.name, "C": self.C, "H": self.H, "W": self.W,

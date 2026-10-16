@@ -36,7 +36,7 @@ NEURON_LIMITS = {
 def check_feasibility(input_cfg: InputSpec, encoder_cfg: EncoderSpec,
                       downsample_cfg: DownsampleSpec,
                       head_cfg: HeadSpec = None, output_cfg: OutputSpec = None,
-                      bias_neurons: bool = False):
+                      bias_neurons: bool = False, signed: bool = False):
     """
     Check the chip's connection limits at every layer, before any training.
 
@@ -53,6 +53,13 @@ def check_feasibility(input_cfg: InputSpec, encoder_cfg: EncoderSpec,
 
     bias_neurons adds the bias neurons' share: behind a pool the bias is split
     across up to `scale` neurons (hs_export.split_bias), one fan-in slot each.
+
+    MULTI-BIT INPUT (InputSpec.input_bits = B) takes B axons per input value,
+    so it multiplies the axon count and the first layer's axonal fan-in by B.
+
+    SIGNED SPIKES put two chip neurons behind every unit, one for +1 and one
+    for -1, each connected to both neurons of the next unit. Fan-in and
+    fan-out double wherever a signed layer sends or receives.
 
     MAX pooling is different. It runs as one OR neuron per window (OrPool in
     neuron.py), so the next layer reads the pooled map and its fan-in is not
@@ -75,29 +82,32 @@ def check_feasibility(input_cfg: InputSpec, encoder_cfg: EncoderSpec,
 
     first_fc_width = plan.linears[0].out_features if plan.linears else 0
     folds = downsample_cfg.pool_type != "max"      # avg pools fold; max pools are OR neurons
+    bits = max(1, int(getattr(input_cfg, "input_bits", 1) or 1))
+    sign = 2 if signed else 1          # chip neurons per unit
     prev_pool = 1                      # pool kernel between the previous neurons and this layer
     for b in plan.blocks:
         k, s = b.kernel_size, b.stride
         scale = prev_pool * prev_pool
-        fan_in = k * k * b.in_channels * scale
         bias_in = scale if bias_neurons else 0
         is_last = b.index == len(plan.blocks) - 1
         # fan-out of whatever feeds this block: one input pixel (or one neuron
-        # in front of a pool) reaches ceil(k/s)^2 positions in every channel
-        fan_out = math.ceil(k / s) ** 2 * b.out_channels
+        # in front of a pool) reaches ceil(k/s)^2 positions in every channel,
+        # and both neurons of each unit when the layer is signed
+        fan_out = math.ceil(k / s) ** 2 * b.out_channels * sign
         tag = f"block{b.index}"
         if b.index == 0:
-            check(b.in_hw[0] * b.in_hw[1] * b.in_channels, AXON_LIMITS["total_axons"],
+            check(b.in_hw[0] * b.in_hw[1] * b.in_channels * bits, AXON_LIMITS["total_axons"],
                   f"{tag}: total_axons")
             check(fan_out, AXON_LIMITS["fan_out"], f"{tag}: axonal_fan_out")
-            check(fan_in, AXON_LIMITS["fan_in"], f"{tag}: axonal_fan_in")
+            check(k * k * b.in_channels * bits, AXON_LIMITS["fan_in"], f"{tag}: axonal_fan_in")
             check(bias_in, NEURON_LIMITS["fan_in"], f"{tag}: neuron_fan_in (bias)")
         else:
+            fan_in = k * k * b.in_channels * scale * sign
             check(fan_out, NEURON_LIMITS["fan_out"], f"block{b.index - 1}: neuron_fan_out")
             check(fan_in + bias_in, NEURON_LIMITS["fan_in"], f"{tag}: neuron_fan_in")
         if is_last:
             # the last block's neurons feed the head
-            check(first_fc_width, NEURON_LIMITS["fan_out"], f"{tag}: neuron_fan_out(->fc)")
+            check(first_fc_width * sign, NEURON_LIMITS["fan_out"], f"{tag}: neuron_fan_out(->fc)")
         prev_pool = b.pool_kernel if (b.pool and folds) else 1
 
     for lin in plan.linears:
@@ -117,11 +127,11 @@ def check_feasibility(input_cfg: InputSpec, encoder_cfg: EncoderSpec,
             scale = pool * pool
         else:
             fan_in, scale = lin.in_features, 1
-        check(fan_in + (scale if bias_neurons else 0), NEURON_LIMITS["fan_in"],
+        check(fan_in * sign + (scale if bias_neurons else 0), NEURON_LIMITS["fan_in"],
               f"{tag}: neuron_fan_in")
         # the LAST linear's neurons are the outputs; they feed nothing on chip
         if not lin.is_classifier:
-            check(lin.out_features, NEURON_LIMITS["fan_out"], f"{tag}: neuron_fan_out")
+            check(lin.out_features * sign, NEURON_LIMITS["fan_out"], f"{tag}: neuron_fan_out")
 
     return len(violations) == 0, violations
 
@@ -131,9 +141,10 @@ def check_spec_feasibility(spec: dict):
     reading the bias mode from its TrainSpec when it has one."""
     train = spec.get("train")
     bias_mode = getattr(train, "fold_bias_mode", "threshold") if train is not None else "threshold"
+    signed = bool(getattr(spec.get("neuron"), "signed_spikes", False))
     return check_feasibility(spec["input"], spec["encoder"], spec["downsample"],
                              spec["head"], spec["output"],
-                             bias_neurons=bias_mode in ("neuron", "conv"))
+                             bias_neurons=bias_mode in ("neuron", "conv"), signed=signed)
 
 
 W_BITS = 16

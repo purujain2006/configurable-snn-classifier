@@ -1,0 +1,75 @@
+# Search 04 on DVS128 Gesture. What changed since Search 03:
+#   * new options, each searched on and off: signed spikes, 1 to 4 bits per
+#     input value, tau fixed / learned per layer / learned per channel, the
+#     TET loss, and training-time augmentation
+#   * T is searched over 8 to 32
+#   * the balanced block covers all ten on/off and either/or choices
+#   * the top 5 trials are retrained with 3 new seeds each and the winner is
+#     the best mean (finalists.csv, best_finalist.json)
+#   * the search reads the input size and class count from the dataset
+# Its own results directory, because the leaderboard columns changed and
+# appending to an old leaderboard.csv misaligns them.
+#
+# Unchanged from Search 03: fan-in counts the neurons in front of each average
+# pool; tau only takes powers of two and weight decay leaves tau, thresholds
+# and BatchNorm alone; bias_mode and pool_type are searched; validation holds
+# out four whole subjects; every trial is checked clip by clip on IntegerSim.
+
+run:
+  name: dvs128_search04
+  results_dir: results/dvs128_search04
+
+dataset:
+  name: dvs128
+  root: /local_disk/$USER/DVS128Gesture
+
+encoding:
+  coding: passthrough    # already events; resized, then counts or single spikes
+  T: 16
+  resize_to: 64          # native 128x128 needs 32,768 axons against a limit of 16,000
+
+search:
+  trials: 400
+  # The first 96 trials are the balanced block: each option of pooling (none,
+  # average, max as OR neurons), bias (threshold, bias neurons), head
+  # (flatten, GAP), signed spikes, input bits (1, more), tau (fixed, per
+  # layer, per channel), loss (rate, TET), augmentation, conv dropout and the
+  # firing-rate penalty appears equally often, each trial with a random shape
+  # that fits the chip. Optuna steers after them (+10 more random trials).
+  balanced_trials: 96
+  startup_trials: 10
+  # Long and forgiving, so slow starters such as GAP heads and regularized
+  # networks get a fair run. Two ASHA brackets: half the trials are first
+  # judged at epoch 20 (then 60), the other half not until epoch 60.
+  epochs: 80
+  grace_period: 20
+  reduction_factor: 3
+  brackets: 2
+  batch_size: 16
+  # One frame cache per value, built before Ray starts (tens of minutes each,
+  # once). T = 32 doubles a trial's time and memory against T = 16.
+  T_choices: [8, 16, 24, 32]
+  target: 0.975          # published SNN accuracy on this task is 97-99%
+  # each conv layer samples its own kernel, channels and downsampling
+  space: per_layer
+  # Retrain the top 5 with 3 new seeds each, 80 epochs, no early stopping.
+  finalists: 5
+  finalist_seeds: 3
+  # MEASURED at T <= 16: a trial used 0.7 to 3.6 GiB of an L40S. T = 32 and
+  # signed spikes (two membranes per unit) roughly double the largest, so
+  # each trial gets a quarter of a card: 11 GiB, 4 trials per GPU. At 0.125
+  # the largest T = 32 trials would run out of memory and be retried.
+  gpu_fraction: 0.25
+
+train:
+  # Length of the quantized phase's LR schedule, independent of the epoch
+  # budget. Without it the grid-phase cosine stretches across whatever the
+  # budget leaves over, holding the learning rate high while the weights are
+  # meant to be settling onto the INT16 grid. That is what took the same
+  # configuration from 0.892 at 40 epochs to 0.756 at 100. Set it and the decay
+  # finishes in this many epochs whatever the budget, so the long runs the
+  # grokking question needs stay safe.
+  qat_schedule_epochs: 40
+
+objective:
+  mode: accuracy         # switch to pareto once SynOps have been recorded once

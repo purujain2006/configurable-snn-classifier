@@ -20,6 +20,13 @@ METRIC PLACEMENT. OptunaSearch must be given metric/mode directly, because its
 set_search_properties returns early when a space is already set. ASHAScheduler
 must NOT also receive them from TuneConfig, or Ray raises. Verified against
 ray 2.56; do not "simplify".
+
+FINALISTS. The best trial of a search is partly the luckiest one: its score is
+one training run, and the top of several hundred noisy scores sits above its
+true level. After the search, the top `finalists` trials are trained again
+from scratch with `finalist_seeds` new seeds each, and the winner is the one
+with the best MEAN validation score (finalists.csv, best_finalist.json). The
+test set is still never looked at.
 """
 
 import json
@@ -122,6 +129,20 @@ def run_search(cfg, out_dir):
     t_choices = s.get("T_choices") or [cfg["encoding"].get("T", 16)]
     _warm_frame_caches(cfg, t_choices, writer)
 
+    # The dataset's own facts (channels, size, classes, whether a flip keeps
+    # the label) shape the space, so it is built once here rather than assumed.
+    from .data import build_dataset
+    from .spaces import data_facts, MULTI_BIT_CODINGS, MAX_INPUT_BITS
+    bundle = build_dataset({**cfg["dataset"], "T": int(t_choices[0])})
+    data = data_facts(bundle)
+    coding = cfg["encoding"].get("coding") or ("passthrough" if bundle.is_event else "levels")
+    max_bits = int(s.get("max_input_bits") or MAX_INPUT_BITS)
+    if coding not in MULTI_BIT_CODINGS:
+        max_bits = 1
+    run_seed = cfg["run"].get("seed", 1)
+    writer.log(f"[stream] dataset {bundle.name}: {data}; coding {coding}, "
+               f"input bits searched 1..{max_bits}")
+
     # Ray puts its session directory, object store and spill files under /tmp.
     # On a shared cluster /tmp is usually a small partition, and Ray warns at
     # 95% then fails object creation once spilling is needed -- hours in, with
@@ -144,6 +165,7 @@ def run_search(cfg, out_dir):
         t_choices=t_choices,
         per_layer=(s.get("space", "uniform") != "uniform"),
         require=s.get("require") or [],
+        data=data, max_input_bits=max_bits, seed=run_seed,
     )
     if s.get("require"):
         writer.log(f"[stream] forced on for every trial: {list(s['require'])}")
@@ -153,20 +175,25 @@ def run_search(cfg, out_dir):
     # sampler. TPE samples at random until it has n_startup_trials results, so
     # the balanced trials count as its random start and steering begins after.
     from optuna.samplers import TPESampler
-    from .spaces import balanced_points
-    points = balanced_points(s.get("balanced_repeats", 0), seed=cfg["run"].get("seed", 1),
-                             t_choices=t_choices, batch_size=s.get("batch_size", 16),
-                             epochs=s["epochs"])
+    from .spaces import balanced_points, BALANCED_FACTORS
+    # balanced_repeats is the older setting: repeats of a 48-trial block
+    n_balanced = int(s.get("balanced_trials") or 48 * int(s.get("balanced_repeats") or 0))
+    if n_balanced and not space.per_layer:
+        writer.log("[stream] balanced block skipped: it draws per-layer shapes, "
+                   "and this search uses space: uniform")
+        n_balanced = 0
+    points = balanced_points(n_balanced, seed=run_seed, t_choices=t_choices,
+                             batch_size=s.get("batch_size", 16), epochs=s["epochs"],
+                             data=data, max_input_bits=max_bits, run_seed=run_seed)
     startup = len(points) + int(s.get("startup_trials", 10))
     algo = OptunaSearch(space=space, metric="val_accuracy", mode="max",
                         points_to_evaluate=points or None,
-                        sampler=TPESampler(n_startup_trials=startup,
-                                           seed=cfg["run"].get("seed", 1)))
+                        sampler=TPESampler(n_startup_trials=startup, seed=run_seed))
     if points:
-        writer.log(f"[stream] balanced block: {len(points)} trials covering every "
-                   f"combination of pooling, bias, head, conv dropout and rate penalty, "
-                   f"each with a random shape that fits the chip; Optuna steers after "
-                   f"{startup} trials")
+        names = [n for n in BALANCED_FACTORS if n != "input_bits" or max_bits > 1]
+        writer.log(f"[stream] balanced block: {len(points)} trials in which every "
+                   f"option of {', '.join(names)} appears equally often, each with a "
+                   f"random shape that fits the chip; Optuna steers after {startup} trials")
 
     scheduler = None
     if s.get("scheduler", "asha") == "asha":
@@ -193,8 +220,9 @@ def run_search(cfg, out_dir):
     writer.log(f"[stream] {cpus} CPU per trial ({workers} loader workers)")
 
     trainable = _make_trainable(cfg, out_dir)
+    resources = {"cpu": cpus, "gpu": gpu}
     tuner = tune.Tuner(
-        tune.with_resources(trainable, resources={"cpu": cpus, "gpu": gpu}),
+        tune.with_resources(trainable, resources=resources),
         tune_config=tune.TuneConfig(
             num_samples=s["trials"],
             search_alg=algo,
@@ -234,7 +262,124 @@ def run_search(cfg, out_dir):
         json.dump({"config": best.config, "metrics": dict(best.metrics)},
                   fh, indent=2, default=str)
     writer.log(f"[stream] best val_accuracy={best.metrics.get('val_accuracy')}")
+
+    _rescore_finalists(cfg, out_dir, results, writer, resources, run_seed)
     return results
+
+
+def _finalist_configs(results, k):
+    """The top k finished, deployable trials by their deploy-phase score."""
+    done = []
+    for r in results:
+        m = r.metrics or {}
+        if r.error is None and m.get("phase") == "deploy" and m.get("deployable"):
+            done.append((float(m.get("val_accuracy") or 0.0), m.get("trial_id"), dict(r.config)))
+    done.sort(key=lambda t: t[0], reverse=True)
+    return done[:k]
+
+
+def finalist_jobs(top, seeds, epochs=None):
+    """One job per (finalist, seed): the trial's own config with a new seed."""
+    jobs = []
+    for rank, (score, trial_id, config) in enumerate(top):
+        for seed in seeds:
+            flat = {k: v for k, v in config.items() if not k.startswith("_")}
+            flat["seed"] = seed
+            if epochs:
+                flat["epochs"] = int(epochs)
+            jobs.append({"rank": rank, "trial_id": trial_id, "search_score": score,
+                         "seed": seed, "config": flat})
+    return jobs
+
+
+def summarize_finalists(top, rows):
+    """Mean and spread of each finalist's re-scored validation accuracy, and
+    the one with the best mean."""
+    import statistics
+    summary = []
+    for rank, (score, trial_id, config) in enumerate(top):
+        vals = [float(r["val_accuracy"] or 0.0) for r in rows if r["rank"] == rank]
+        summary.append({
+            "rank_in_search": rank + 1, "search_trial_id": trial_id,
+            "search_val_accuracy": score,
+            "mean_val_accuracy": statistics.mean(vals) if vals else 0.0,
+            "std_val_accuracy": statistics.stdev(vals) if len(vals) > 1 else 0.0,
+            "seeds": len(vals),
+            "per_seed": [r for r in rows if r["rank"] == rank],
+            "config": config})
+    return summary, max(summary, key=lambda d: d["mean_val_accuracy"])
+
+
+def _rescore_finalists(cfg, out_dir, results, writer, resources, run_seed):
+    """Train the top trials again with fresh seeds and pick by the mean.
+
+    search.finalists (default 3) trials, search.finalist_seeds (default 3)
+    seeds each, search.finalist_epochs (default: the search's) epochs, no
+    early stopping. The seeds differ from the one every search trial used, so
+    no finalist reuses the run it was selected on.
+    """
+    import csv
+    from ray import tune
+
+    s = cfg["search"]
+    k, n_seeds = int(s.get("finalists") or 0), int(s.get("finalist_seeds") or 0)
+    if k <= 0 or n_seeds <= 0:
+        return None
+    top = _finalist_configs(results, k)
+    if not top:
+        writer.log("[stream] finalists: no deployable trial finished; nothing to re-score")
+        return None
+    seeds = [int(run_seed) + 1000 * (j + 1) for j in range(n_seeds)]
+    jobs = finalist_jobs(top, seeds, s.get("finalist_epochs"))
+    writer.log(f"[stream] finalists: re-training the top {len(top)} trials with seeds "
+               f"{seeds}, {len(jobs)} runs")
+
+    base = _make_trainable(cfg, out_dir)
+    flats = [j["config"] for j in jobs]
+
+    def finalist(trial_cfg):
+        return base(flats[int(trial_cfg["job"])])
+
+    tuner = tune.Tuner(
+        tune.with_resources(finalist, resources=resources),
+        param_space={"job": tune.grid_search(list(range(len(jobs))))},
+        run_config=_run_config_cls()(
+            storage_path=os.path.join(out_dir, "ray"),
+            name=cfg["run"].get("name", "search") + "_finalists",
+            failure_config=_failure_config_cls()(max_failures=s.get("max_failures", 3)),
+        ),
+    )
+    grid = tuner.fit()
+
+    rows = []
+    for r in grid:
+        m = r.metrics or {}
+        job = jobs[int(r.config["job"])]
+        rows.append({"rank": job["rank"], "search_trial_id": job["trial_id"],
+                     "search_val_accuracy": job["search_score"], "seed": job["seed"],
+                     "val_accuracy": m.get("val_accuracy") if m.get("phase") == "deploy" else 0.0,
+                     "hw_val_accuracy": m.get("hw_val_accuracy"),
+                     "sim_val_accuracy": m.get("sim_val_accuracy"),
+                     "deployable": m.get("deployable"),
+                     "error": str(r.error)[:200] if r.error else ""})
+    rows.sort(key=lambda row: (row["rank"], row["seed"]))
+    with open(os.path.join(out_dir, "finalists.csv"), "w", newline="", encoding="utf-8") as fh:
+        w = csv.DictWriter(fh, fieldnames=list(rows[0]))
+        w.writeheader()
+        w.writerows(rows)
+
+    summary, best = summarize_finalists(top, rows)
+    for d in summary:
+        writer.log(f"[stream] finalist {d['rank_in_search']} ({d['search_trial_id']}): "
+                   f"search {d['search_val_accuracy']:.4f}, re-scored "
+                   f"{d['mean_val_accuracy']:.4f} +- {d['std_val_accuracy']:.4f} "
+                   f"over {d['seeds']} seeds")
+    with open(os.path.join(out_dir, "best_finalist.json"), "w", encoding="utf-8") as fh:
+        json.dump({"config": best["config"], "best": best, "finalists": summary},
+                  fh, indent=2, default=str)
+    writer.log(f"[stream] best finalist: {best['search_trial_id']}, mean val "
+               f"{best['mean_val_accuracy']:.4f} (best_finalist.json)")
+    return best
 
 
 def _assert_records_what_ran(trial_cfg, spec, encoder):

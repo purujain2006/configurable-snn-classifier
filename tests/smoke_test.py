@@ -72,7 +72,9 @@ def main():
                     "factory": "make_datasets"},
         # T=2 keeps the time loop honest (a single step would hide the pipeline
         # flush) while staying fast.
-        "encoding": {"coding": "direct", "T": 2, "resize_to": None},
+        # levels, so the input is whole numbers an axon can carry and the
+        # simulator check runs on a deployable network
+        "encoding": {"coding": "levels", "T": 2, "resize_to": None},
         "search": {"epochs": 1, "batch_size": 8, "num_workers": 0},
         "objective": {"mode": "accuracy"},
         "report": {"html": True},

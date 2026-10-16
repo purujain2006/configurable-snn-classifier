@@ -48,7 +48,9 @@ def _vision(name, cls_name, C, H, W, num_classes):
         root = os.path.abspath(os.path.expanduser(root))
         train = cls(root=root, train=True, download=download, transform=transform)
         test = cls(root=root, train=False, download=download, transform=transform)
+        # a mirrored digit can read as a different digit; photos keep their label
         return DatasetBundle(train=train, test=test, C=C, H=H, W=W,
+                             hflip_ok=name not in ("mnist", "fashion_mnist"),
                              num_classes=num_classes, name=name, is_event=False,
                              meta={"root": root, "source": "torchvision"})
     return _provider

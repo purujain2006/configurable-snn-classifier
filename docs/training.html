@@ -43,14 +43,15 @@
 <table class="tbl">
 <thead><tr><th>Coding</th><th>What it does</th><th>Fits</th></tr></thead>
 <tbody>
+<tr><td class="layer-name">levels</td><td>Rounds each pixel to a whole number from 0 to 2<sup>B</sup> − 1 and feeds it at every step, on B input lines (below).</td><td>Still images on the chip. The default for still images.</td></tr>
 <tr><td class="layer-name">direct</td><td>Feeds the same pixel values at every step.</td><td>Still images in software. The chip's input lines carry spikes only, so this coding cannot run on the chip as is.</td></tr>
 <tr><td class="layer-name">poisson</td><td>Each step, fires a pixel with probability equal to its brightness.</td><td>Still images on the chip. The randomness costs accuracy at small T.</td></tr>
 <tr><td class="layer-name">temporal</td><td>Each pixel fires once; brighter pixels fire earlier.</td><td>The fewest spikes, and the hardest to train.</td></tr>
-<tr><td class="layer-name">passthrough</td><td>Shrinks event frames and turns any nonzero pixel into a spike.</td><td>Event cameras, including DVS128 Gesture.</td></tr>
+<tr><td class="layer-name">passthrough</td><td>Shrinks event frames and turns any nonzero pixel into a spike, or with B bits, into its event count up to 2<sup>B</sup> − 1.</td><td>Event cameras, including DVS128 Gesture.</td></tr>
 </tbody>
 </table>
 </div>
-<p>A 128×128 frame with two channels needs 32,768 input axons, and the chip has 16,000, so frames are shrunk first. The search tries sizes from 24×24 to 88×88 (2 × 88 × 88 = 15,488 axons). Shrinking averages neighboring pixels. A lone event then becomes a fraction that no spike can represent, so the passthrough encoder turns any nonzero result into a full spike and no event disappears.</p>
+<p>A 128×128 frame with two channels needs 32,768 input axons, and the chip has 16,000, so frames are shrunk first. The search works out its range of sizes from the dataset: from about a quarter of the largest size up to the native size or the largest square that fits in 16,000 axons, whichever is smaller. For DVS128 Gesture that is 24×24 to 88×88 (2 × 88 × 88 = 15,488 axons). A 32×32 color image fits at full size. Shrinking averages neighboring pixels. A lone event then becomes a fraction that no spike can represent, so the passthrough encoder turns any nonzero result into a full spike and no event disappears.</p>
 <div class="demo">
 <div class="demo-head">
 <span class="demo-tag">INTERACTIVE</span>
@@ -84,10 +85,12 @@
     x = self._resize(x)
     return (x &gt; 0).to(x.dtype) if self.binarize else x</code></pre>
 </div></div></details>
+<h3>More than one bit per pixel</h3>
+<p>An input line carries a spike or nothing at each step, which is one bit. A pixel's brightness, or how many events it saw, needs more. With B bits per pixel, each pixel gets B input lines, and line k carries bit k of the value. Its connections carry the weight multiplied by 2<sup>k</sup>, so the first layer receives exactly w times the value, as in training. The cost is B times the input lines and B times each first-layer neuron's fan-in. Doubling a weight must not overflow 16 bits, so first-layer weights are limited to 32,767 / 2<sup>B−1</sup>. The search tries 1 to 4 bits for codings that can send them (levels and passthrough).</p>
 </section>
 <section class="reveal" id="rate">
 <h2><span class="sec-num">5.3</span>Reading a prediction</h2>
-<p>The last layer has 11 neurons, one per gesture, and each fires a train of spikes across the clip. The prediction is the gesture whose neuron fired most. During training, the 11 spike rates act as class scores in a cross-entropy loss. Label smoothing moves a little of the target away from the correct class, which discourages overconfidence.</p>
+<p>The last layer has one neuron per class (11 for the gestures), and each fires a train of spikes across the clip. The prediction is the class whose neuron fired most. During training, the spike rates act as class scores in a cross-entropy loss. Label smoothing moves a little of the target away from the correct class, which discourages overconfidence.</p>
 </section>
 <section class="reveal" id="flush">
 <h2><span class="sec-num">5.4</span>Letting the last frames arrive</h2>
@@ -152,12 +155,15 @@
 <section class="reveal" id="loop">
 <h2><span class="sec-num">5.5</span>One training step</h2>
 <ol>
-<li><strong>Forward.</strong> A batch of clips, shape (N, T, 2, H, W), goes through the network for T plus flush steps, giving 11 spike rates per clip. Neuron state is then reset so clips do not affect each other.</li>
-<li><strong>Loss.</strong> Cross-entropy between the rates and the true gestures.</li>
+<li><strong>Forward.</strong> A batch of clips, shape (N, T, C, H, W), goes through the network for T plus flush steps, giving one spike rate per class for each clip. Neuron state is then reset so clips do not affect each other.</li>
+<li><strong>Loss.</strong> Cross-entropy between the rates and the true classes. The search also tries TET (temporal efficient training, Deng et al., 2022), which averages a cross-entropy computed at every step, so each step learns to classify on its own. The prediction is the rate either way.</li>
 <li><strong>Backward.</strong> Gradients flow back through every step, through each spike by the surrogate gradient (<a href="neurons.html#surrogate">section 2.5</a>), and through each rounded weight by the straight-through estimator (<a href="hardware.html#ste">section 4.4</a>).</li>
 <li><strong>Update.</strong> Optionally clip large gradients, then take an optimizer step.</li>
 </ol>
 <p>The optimizer is Adam, AdamW or SGD. Weight decay, a penalty that pulls parameters toward zero to reduce overfitting, applies only to convolution and linear weights. Applying it to τ, θ and batch normalization pulled those toward zero as well and changed what the network deployed with (<a href="neurons.html#leak">section 2.3</a>).</p>
+<h3>Augmentation</h3>
+<p>Augmentation changes each training clip slightly every time it is used, so the network cannot memorize the exact clips. The search can switch on four changes: shift the image by a few pixels, blank out a square, drop a fraction of the input values, and mirror the image left to right. Each change is drawn once per clip and applied the same way at every step, so motion within the clip is kept. Mirroring is used only when the dataset says a mirrored example keeps its label; DVS128 Gesture has separate left-hand and right-hand gestures, so it is never mirrored. Every changed clip is still made of whole input values the chip could receive. Validation and the simulator check always see the clips unchanged.</p>
+<p>A run can also be given a seed, a number that fixes its random starting weights, the order of its training batches and its augmentation. The same seed repeats a run exactly. The search uses this to retrain its best networks with several new seeds (<a href="search.html#narrow">section 6.6</a>).</p>
 <div class="demo">
 <div class="demo-head">
 <span class="demo-tag">INTERACTIVE</span>

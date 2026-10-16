@@ -13,7 +13,7 @@ import math
 from typing import Callable
 
 from .config import NeuronSpec
-from .hardware import (W_ALPHA, W_DELTA, HW_TAU_CHOICES, HW_TAU_MIN, HW_TAU_MAX,
+from .hardware import (W_ALPHA, W_DELTA, INT16_MAX, HW_TAU_CHOICES, HW_TAU_MIN, HW_TAU_MAX,
                        HW_LOG2_TAU_MIN, HW_LOG2_TAU_MAX)
 from .quantgrid import (_ste, fake_quantize_weight, fake_quantize_threshold,
                         fake_quantize_bias, quantized_threshold_int, fold_bias_band,
@@ -100,7 +100,9 @@ if _HAS_TORCH:
                      learn_tau: bool = False, learn_threshold: bool = False,
                      integer_leak: bool = True,
                      surrogate_function: Callable = None, detach_reset: bool = True,
-                     step_mode: str = "s", store_v_seq: bool = False):
+                     step_mode: str = "s", store_v_seq: bool = False,
+                     tau_per_channel: bool = False, num_channels: int = None,
+                     signed: bool = False):
             super().__init__(v_threshold=float(v_threshold), v_reset=v_reset,
                              surrogate_function=surrogate_function or surrogate.ATan(),
                              detach_reset=detach_reset, step_mode=step_mode,
@@ -108,6 +110,11 @@ if _HAS_TORCH:
             self.learn_tau = bool(learn_tau)
             self.learn_threshold = bool(learn_threshold)
             self.integer_leak = bool(integer_leak)
+            # signed spikes: a second membrane integrates the negated input, as
+            # the second chip neuron does; the unit outputs spike - spike_neg
+            self.signed = bool(signed)
+            if self.signed:
+                self.register_memory("v_neg", 0.0)
 
             tau0 = float(min(max(int(round(float(tau))), HW_TAU_MIN), HW_TAU_MAX))
             if self.learn_tau:
@@ -116,7 +123,13 @@ if _HAS_TORCH:
                 # Checkpoints from before this stored raw_tau, a linear tau
                 # that rounded to any integer; _load_from_state_dict keeps
                 # those loading as they trained.
-                self.raw_log2_tau = nn.Parameter(torch.tensor(math.log2(tau0)))
+                if tau_per_channel and num_channels:
+                    # one learned tau per output channel; the chip stores a
+                    # neuron model per neuron, so this costs nothing on chip
+                    self.raw_log2_tau = nn.Parameter(
+                        torch.full((int(num_channels),), math.log2(tau0)))
+                else:
+                    self.raw_log2_tau = nn.Parameter(torch.tensor(math.log2(tau0)))
             else:
                 self.register_buffer("_tau_const", torch.tensor(tau0))
 
@@ -173,109 +186,127 @@ if _HAS_TORCH:
                 return torch.sigmoid(self.raw_threshold)
             return self._v_threshold_const
 
-        def hw_leak(self) -> int:
-            return int(round(float(torch.as_tensor(self.hw_tau).detach().item())))
+        def hw_leak(self):
+            """The deployed tau: an int, or a list with one per channel."""
+            t = torch.as_tensor(self.hw_tau).detach().reshape(-1)
+            vals = [int(round(float(v))) for v in t]
+            return vals[0] if len(vals) == 1 else vals
+
+        def hw_leak_per_channel(self, n_channels: int) -> list:
+            leak = self.hw_leak()
+            return list(leak) if isinstance(leak, list) else [leak] * int(n_channels)
 
         def hw_threshold_int(self):
             """Integer threshold(s) written into LIF_neuron(threshold=...)."""
             return quantized_threshold_int(torch.as_tensor(self.v_threshold).detach())
 
+        @property
+        def v_threshold_neg(self):
+            """Threshold of the negative neuron of a signed unit. It equals
+            v_threshold unless threshold-mode folding gave the two different
+            values: the folded bias lowers one threshold and raises the other."""
+            v = getattr(self, "_v_threshold_neg_const", None)
+            if v is None:
+                return self.v_threshold
+            return fake_quantize_threshold(torch.as_tensor(v))
+
+        def hw_threshold_int_neg(self):
+            return quantized_threshold_int(torch.as_tensor(self.v_threshold_neg).detach())
+
+        @staticmethod
+        def _per_channel(t, x):
+            """Broadcast a per-channel tensor over (N, C, ...)."""
+            if torch.is_tensor(t) and t.dim() == 1 and t.numel() > 1:
+                return t.reshape([1, t.numel()] + [1] * (x.dim() - 2))
+            return t
+
+        def _fire_reset_leak(self, name, v_th, grid, tau, v_reset):
+            """Steps 1 to 3 of the chip's update, on one membrane (self.<name>).
+
+            1. Fire on the membrane carried in from the previous step. The chip
+               compares v > theta (strictly). The membrane lives on a grid of
+               `grid` (W_DELTA, or finer behind a pool), so v > theta means
+               v >= theta + W_DELTA; the surrogate tests >= 0. Testing half a
+               grid step lower gives the same answer for every value on the
+               grid, so a float a hair off its grid point cannot flip it.
+            2. Hard reset to v_reset.
+            3. Leak by integer division on the grid: the chip subtracts
+               floor(V / tau) in its integer units V. Adding half a unit before
+               the floor gives the same result for every integer V and keeps a
+               membrane that divides exactly by tau from rounding down a step
+               in float. When |V| < tau the leak is zero, as on the chip. The
+               straight-through estimator passes the float leak's gradient.
+            """
+            v = getattr(self, name)
+            spike = self.surrogate_function(v - v_th - W_DELTA + 0.5 * grid)
+            spike_d = spike.detach() if self.detach_reset else spike
+            v = v_reset * spike_d + (1.0 - spike_d) * v
+            leak = (v - v_reset) / tau
+            if getattr(self, "integer_leak", True):
+                units = (v - v_reset) / grid
+                leak = _ste(torch.floor((units + 0.5) / tau) * grid, leak)
+            setattr(self, name, v - leak)
+            return spike
+
         # ---- dynamics -------------------------------------------------------
         def single_step_forward(self, x: "torch.Tensor"):
             self.v_float_to_tensor(x)
+            if getattr(self, "signed", False) and not torch.is_tensor(self.v_neg):
+                self.v_neg = torch.full_like(x.data, float(self.v_neg))
             v_reset = 0.0 if self.v_reset is None else float(self.v_reset)
+            signed = getattr(self, "signed", False)
             v_th = self.v_threshold
+            v_th_neg = self.v_threshold_neg if signed else None
 
-            # During inline-fold QAT (ConvBNFoldQuant, threshold mode) the folded
-            # bias b' is delivered here each step instead of into the conv.
-            #
-            # It has to be applied the way the chip applies it. Adding b' to the
-            # input and lowering the threshold by b' are NOT the same operation
-            # once tau > 1. A bias arrives every timestep and accumulates against
-            # the leak: the membrane offset after t steps without a spike is
-            #     d_t = b' * tau * (1 - (1 - 1/tau)^t)   ->  b' * tau
-            # while a threshold shift is worth b' once and never compounds. At
-            # tau=63 a bias of 0.01*theta already moves the membrane by 0.63.
-            # export_deployed writes theta - b', so QAT must do the same or the
-            # trained network is not the deployed one. Measured on
-            # results/probe.pth the two forms disagree on 9-35% of
-            # channel-timesteps; see tools/analysis/fold_bias_equivalence.py.
+            # During inline-fold QAT in threshold mode, the folded bias b' is
+            # delivered here each step instead of into the conv, and applied
+            # the way the deployed chip applies it: as a threshold shift,
+            # theta - b' (and theta + b' for the negative neuron of a signed
+            # unit, which integrates the negated input). A bias added to the
+            # input would build up against the leak (to b' * tau), which a
+            # threshold shift does not, so the two are not interchangeable.
             fb = getattr(self, "_fold_bias", None)
             if fb is not None:
-                shape = [1, fb.shape[0]] + [1] * (x.dim() - 2)   # broadcast over (N,C,...)
-                fb_b = fb.reshape(*shape)
+                fb_b = fb.reshape([1, fb.shape[0]] + [1] * (x.dim() - 2))
                 if getattr(self, "_fold_bias_form", "threshold") == "threshold":
-                    # quantize AFTER the shift, so the value is the one the chip
-                    # stores, including saturation if the band was not enforced.
-                    v_th = fake_quantize_threshold(v_th - fb_b)
+                    base = v_th
+                    v_th = fake_quantize_threshold(base - fb_b)
+                    if signed:
+                        v_th_neg = fake_quantize_threshold(base + fb_b)
                 else:
                     x = x + fb_b            # legacy form, kept for A/B only
 
-            # 1. fire on the membrane carried in from the previous timestep.
-            #    The chip compares v > theta (strictly greater). The membrane
-            #    lives on a grid of `grid` (W_DELTA, or finer behind a pool), so
-            #    v > theta means v >= theta + W_DELTA, and the surrogate tests
-            #    `>= 0`. Testing at the midpoint, half a grid step below, gives
-            #    the same answer for every value on the grid, and a float that
-            #    lands a hair off its grid point can no longer flip it.
             grid = getattr(self, "leak_grid", W_DELTA)
-            spike = self.surrogate_function(self.v - v_th - W_DELTA + 0.5 * grid)
-            # 2. hard reset
-            spike_d = spike.detach() if self.detach_reset else spike
-            self.v = v_reset * spike_d + (1.0 - spike_d) * self.v
-            # 3. leak toward v_reset, by INTEGER DIVISION on the chip's grid.
-            #
-            #    The membrane is an integer register, so the chip cannot subtract
-            #    a fractional leak. It computes floor(v_int / tau) and subtracts
-            #    that. A float division is close but never equal, and the error
-            #    accumulates over T steps and compounds through depth.
-            #
-            #    Flooring here also CLOSES the grid. Every weight is an exact
-            #    multiple of W_DELTA after fake quantization, spikes are 0 or 1,
-            #    and v starts at rest, so v stays on the grid as long as nothing
-            #    ever subtracts an off-grid amount. The float leak was the one
-            #    operation that did. With it floored, the simulated membrane is
-            #    the deployed membrane, step for step.
-            #
-            #    Note the dead zone this creates: when |v - v_reset| < tau LSBs
-            #    the leak floors to zero and the membrane does not decay at all.
-            #    That is real hardware behaviour, not an artifact, and it makes
-            #    the large-tau end of HW_TAU_CHOICES behave very differently from
-            #    what a continuous model predicts.
-            #
-            #    floor has zero gradient everywhere it is defined, so the
-            #    straight-through estimator passes the float leak's gradient, the
-            #    same way fake_quantize_weight does for the weights.
-            #    Behind an AvgPool2d(p) the membrane moves in steps of
-            #    W_DELTA / p^2, and the deployed network keeps it in those finer
-            #    units (see hs_export.py). leak_grid lets evaluation floor on
-            #    that grid, which is what the chip does. Training leaves it at
-            #    W_DELTA.
-            leak = (self.v - v_reset) / self.hw_tau
-            if getattr(self, "integer_leak", True):
-                # floor(V / tau) in grid units V. Adding half a unit first gives
-                # the same floor for every integer V, and keeps a membrane that
-                # divides exactly by tau from rounding down one step in float.
-                units = (self.v - v_reset) / grid
-                leak = _ste(torch.floor((units + 0.5) / self.hw_tau) * grid, leak)
-            self.v = self.v - leak
-            # 4. integrate this timestep's input, undecayed
+            tau = self._per_channel(self.hw_tau, x)
+            spike = self._fire_reset_leak("v", v_th, grid, tau, v_reset)
+            # 4. integrate this step's input, undecayed
             self.v = self.v + x
-            return spike
+            if not signed:
+                return spike
+            spike_neg = self._fire_reset_leak("v_neg", v_th_neg, grid, tau, v_reset)
+            self.v_neg = self.v_neg - x
+            return spike - spike_neg
 
         def extra_repr(self):
             th = self.v_threshold
             th_s = "per-channel" if torch.is_tensor(th) and th.numel() > 1 else f"{float(th):.5f}"
             leak_s = "floored" if getattr(self, "integer_leak", True) else "float"
-            return (f"tau={self.hw_leak()} ({leak_s} leak), v_threshold={th_s}, "
-                    f"learn_tau={self.learn_tau}, learn_threshold={self.learn_threshold}")
+            leak = self.hw_leak()
+            tau_s = f"per-channel ({len(leak)})" if isinstance(leak, list) else str(leak)
+            return (f"tau={tau_s} ({leak_s} leak), v_threshold={th_s}, "
+                    f"learn_tau={self.learn_tau}, learn_threshold={self.learn_threshold}, "
+                    f"signed={getattr(self, 'signed', False)}")
 
 
     class _WeightFakeQuant(nn.Module):
         """Parametrization that makes `module.weight` return the INT16 value the
         chip stores, while gradients flow to the underlying float parameter."""
+        def __init__(self, max_int: int = INT16_MAX):
+            super().__init__()
+            self.max_int = int(max_int)
+
         def forward(self, w):
-            return fake_quantize_weight(w)
+            return fake_quantize_weight(w, self.max_int)
 
 
     class _BiasFakeQuant(nn.Module):
@@ -324,8 +355,11 @@ if _HAS_TORCH:
 
         def __init__(self, conv, bn, bias_mode="threshold", quantize=True,
                      fold_bias_margin: float = 0.05,
-                     fold_bias_qat_form: str = "threshold"):
+                     fold_bias_qat_form: str = "threshold",
+                     max_weight_int: int = INT16_MAX):
             super().__init__()
+            # below INT16_MAX for a first layer reading multi-bit input
+            self.max_weight_int = int(max_weight_int)
             self.fold_bias_qat_form = fold_bias_qat_form
             self.conv = conv                     # keep as trainable float params
             self.bn = bn                         # keep for gamma/beta + running stats
@@ -361,13 +395,15 @@ if _HAS_TORCH:
             cb = self.conv.bias if self.conv.bias is not None else 0.0
             b = bn.bias + (cb - bn.running_mean) * scale               # [O]
             if self.quantize:
-                w = fake_quantize_weight(w)      # STE: forward rounds, backward passes
+                # STE: forward rounds, backward passes
+                w = fake_quantize_weight(w, getattr(self, "max_weight_int", INT16_MAX))
             # In threshold mode b' becomes theta - b' on chip, so it has to stay
             # inside the storable band. Applied here rather than at export so the
             # forward pass, and therefore the loss, sees the deployed value.
             # conv mode needs no constraint: b' stays on the conv, untouched.
             if self.bias_mode == "threshold" and self.fold_bias_margin > 0:
-                b = constrain_fold_bias(b, self._sink_threshold(), self.fold_bias_margin)
+                b = constrain_fold_bias(b, self._sink_threshold(), self.fold_bias_margin,
+                                        signed=getattr(self._bias_sink, "signed", False))
             # bias neurons deliver b' as an INT16 synapse weight every step
             if self.bias_mode in ("neuron", "conv") and self.quantize:
                 b = fake_quantize_bias(b)
@@ -443,6 +479,7 @@ if _HAS_TORCH:
                                 stride=self.stride, padding=self.padding,
                                 dilation=self.dilation, groups=self.groups, bias=has_bias)
             conv.weight.data.copy_(w)
+            conv._max_weight_int = getattr(self, "max_weight_int", INT16_MAX)
             if has_bias:
                 conv.bias.data.copy_(b)
             conv.step_mode = self.step_mode
@@ -473,8 +510,15 @@ if _HAS_TORCH:
             self.step_mode = step_mode
             self.register_memory("prev", None)
 
+        def _pool(self, x):
+            # A signed input is two spike trains, +1 and -1. Each gets its own
+            # OR neurons on chip, so the pooled value is OR(+) - OR(-). For
+            # ordinary 0/1 spikes the second term is zero.
+            k, s = self.kernel_size, self.stride
+            return F.max_pool2d(F.relu(x), k, s) - F.max_pool2d(F.relu(-x), k, s)
+
         def single_step_forward(self, x):
-            pooled = F.max_pool2d(x, self.kernel_size, self.stride)
+            pooled = self._pool(x)
             out = self.prev if self.prev is not None else torch.zeros_like(pooled)
             self.prev = pooled
             return out
@@ -482,7 +526,7 @@ if _HAS_TORCH:
         def multi_step_forward(self, x_seq):
             # x_seq is (T, N, C, H, W): pool every step, then shift one step later
             T, N = x_seq.shape[:2]
-            pooled = F.max_pool2d(x_seq.flatten(0, 1), self.kernel_size, self.stride)
+            pooled = self._pool(x_seq.flatten(0, 1))
             pooled = pooled.reshape(T, N, *pooled.shape[1:])
             first = self.prev if self.prev is not None else torch.zeros_like(pooled[0])
             self.prev = pooled[-1]
@@ -547,7 +591,7 @@ else:
 LearnableThresholdLIF = _LegacyLearnableThresholdLIF   # back-compat alias
 
 
-def build_neuron(neuron_cfg: NeuronSpec, tau, v_threshold: float):
+def build_neuron(neuron_cfg: NeuronSpec, tau, v_threshold: float, num_channels: int = None):
     """
     One neuron group, always the deployable neuron.
 
@@ -571,6 +615,10 @@ def build_neuron(neuron_cfg: NeuronSpec, tau, v_threshold: float):
         learn_threshold=neuron_cfg.trainable_threshold,
         integer_leak=getattr(neuron_cfg, "integer_leak", True),
         surrogate_function=surrogate.ATan(), detach_reset=True,
+        tau_per_channel=bool(getattr(neuron_cfg, "tau_per_channel", False)
+                             and neuron_cfg.trainable_tau),
+        num_channels=num_channels,
+        signed=bool(getattr(neuron_cfg, "signed_spikes", False)),
     )
 
 

@@ -100,6 +100,7 @@
 <div class="ctl"><label>normalization</label><div class="seg" id="db-norm"><button class="on" data-v="bn">bn</button><button data-v="tdbn">tdbn</button></div></div>
 <div class="ctl"><label>optimizer</label><div class="seg" id="db-opt"><button class="on" data-v="adam">adam</button><button data-v="adamw">adamw</button></div></div>
 <div class="ctl"><label>scheduler</label><div class="seg" id="db-sch"><button class="on" data-v="cosine">cosine</button><button data-v="onecycle">onecycle</button><button data-v="step">step</button><button data-v="none">none</button></div></div>
+<div class="ctl"><label>augmentation</label><div class="seg" id="db-aug"><button class="on" data-v="off">off</button><button data-v="on">on</button></div></div>
 </div>
 <div class="pill-row" id="db-params"></div>
 <div class="stats">
@@ -119,21 +120,27 @@
 <tr><td class="layer-name">kernel</td><td>3, 5, 7 or 9</td><td>yes</td></tr>
 <tr><td class="layer-name">shrinking</td><td>stride-2 convolution, 2×2 pool, or none</td><td>yes</td></tr>
 <tr><td class="layer-name">pool type</td><td>average (folded) or max (OR neurons); only when a layer pools</td><td></td></tr>
-<tr><td class="layer-name">input size</td><td>24×24 to 88×88, in steps of 8</td><td></td></tr>
-<tr><td class="layer-name">frames per clip</td><td>8 or 16</td><td></td></tr>
+<tr><td class="layer-name">input size</td><td>from the dataset and the 16,000 axons; 24×24 to 88×88 in steps of 8 for DVS128 Gesture</td><td></td></tr>
+<tr><td class="layer-name">bits per pixel</td><td>1 to 4, for codings that can send them</td><td></td></tr>
+<tr><td class="layer-name">frames per clip</td><td>set in the config file; 8, 16, 24 or 32 for DVS128 Gesture</td><td></td></tr>
 <tr><td class="layer-name">head</td><td>flatten or GAP, then 0 or 1 hidden layer of 128, 256 or 512</td><td></td></tr>
 <tr><td class="layer-name">bias</td><td>threshold or bias neurons (<a href="hardware.html#folding">section 4.3</a>)</td><td></td></tr>
-<tr><td class="layer-name">τ</td><td>2, 4, 8 or 16; learned or fixed</td><td>learned per layer</td></tr>
+<tr><td class="layer-name">signed spikes</td><td>on or off (<a href="hardware.html#limits">section 4.1</a>)</td><td></td></tr>
+<tr><td class="layer-name">τ</td><td>starts at 2, 4, 8 or 16; fixed, learned per layer, or learned per channel</td><td>learned per layer or channel</td></tr>
 <tr><td class="layer-name">θ</td><td>learned or fixed</td><td>learned per layer</td></tr>
 <tr><td class="layer-name">normalization</td><td>batch normalization, or a version that normalizes over time as well</td><td></td></tr>
 <tr><td class="layer-name">regularization</td><td>head dropout 0.1 to 0.45; dropout inside the convolution layers; a penalty on firing rate; label smoothing 0 to 0.2; gradient clipping</td><td></td></tr>
+<tr><td class="layer-name">augmentation</td><td>on or off; then shift up to 20% of the image, a blank square up to 40% of its side, dropping up to 30% of input values, and mirroring where the dataset allows it</td><td></td></tr>
+<tr><td class="layer-name">loss</td><td>spike rate over the clip, or TET (<a href="training.html#loop">section 5.5</a>)</td><td></td></tr>
 <tr><td class="layer-name">optimizer</td><td>Adam or AdamW; learning rate 0.0005 to 0.005; weight decay; four learning-rate schedules</td><td></td></tr>
 </tbody>
 </table>
 </div>
 <p>The shape settings come first and are checked against the chip before anything else is sampled.</p>
 <h3>A balanced start</h3>
-<p>Optuna favors whatever has scored well so far, so an option that starts badly can end up barely tried. In the last search, 32 of 400 trials used GAP and 26 used the firing-rate penalty, too few to judge either. The search therefore begins with a balanced block: every combination of pooling (none, average, max), bias (threshold, bias neurons), head (flatten, GAP), convolution dropout (on, off) and the firing-rate penalty (on, off), twice over, 96 trials, with everything else sampled at random. Each option gets the same number of trials, and <code>tools/analysis/factor_effects.py</code> compares them level by level. Optuna steers only after the block.</p>
+<p>Optuna favors whatever has scored well so far, so an option that starts badly can end up barely tried. In an earlier 400-trial search, 32 trials used GAP and 26 used the firing-rate penalty, too few to judge either. The search therefore begins with a balanced block covering ten choices: pooling (none, average, max), bias (threshold, bias neurons), head (flatten, GAP), signed spikes, bits per pixel (one, more), τ (fixed, per layer, per channel), loss (rate, TET), augmentation, convolution dropout and the firing-rate penalty. Every combination of all ten would take 2,304 trials. Instead, each option appears equally often across the block, and every pair of choices is spread as evenly as possible, so no option is mostly tried alongside one setting of another. Each trial in the block gets a random network shape that fits the chip, and Optuna samples the rest. <code>tools/analysis/factor_effects.py</code> compares the options level by level, and Optuna steers only after the block.</p>
+<h3>Retraining the finalists</h3>
+<p>The best score in a search is partly luck: each trial is one training run, and the highest of hundreds of noisy scores sits above the network's true level. So when the search ends, its top few networks are trained again from scratch with three new seeds each, with no early stopping, and the winner is the network with the best average validation score. The test set is still not used.</p>
 </section>
 <section class="reveal" id="results">
 <h2><span class="sec-num">6.7</span>What the search writes down</h2>
@@ -148,6 +155,8 @@
 <tr><td class="layer-name">best.json</td><td>on improvement</td><td>The best configuration so far.</td></tr>
 <tr><td class="layer-name">infeasible.jsonl</td><td>on rejection</td><td>Configurations that broke a chip limit, and which limits.</td></tr>
 <tr><td class="layer-name">trial_records.csv</td><td>at the end</td><td>Settings, scores and size counts for every trial, including those that never trained.</td></tr>
+<tr><td class="layer-name">finalists.csv</td><td>after retraining</td><td>Each finalist's validation score for every new seed.</td></tr>
+<tr><td class="layer-name">best_finalist.json</td><td>after retraining</td><td>The finalist with the best average, ready to replay with <code>single --from-best</code>.</td></tr>
 </tbody>
 </table>
 </div>

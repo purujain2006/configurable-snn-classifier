@@ -1,7 +1,7 @@
 """The network, built from the plan so its shapes cannot drift from it.
 
-DVSGesturePuru is a stack of (conv, norm, HardwareLIFNode, pool) blocks and a
-head of (linear, HardwareLIFNode) layers. to_qat_folded() switches it to
+SpikingCNN is a stack of (conv, norm, HardwareLIFNode, pool) blocks and a
+head of (linear, HardwareLIFNode) layers, for any input shape and class count. to_qat_folded() switches it to
 training on the deployed INT16 grid, and export_deployed() freezes it into the
 BN-free network that hs_export.py converts for the chip.
 """
@@ -18,7 +18,7 @@ from ._torch import (_HAS_TORCH, _HAS_HS_API, _require_torch, _no_grad,
                      torch, nn, F, layer, functional, Custom_LIFNode, Custom_IFNode)
 
 
-class DVSGesturePuru(nn.Module):
+class SpikingCNN(nn.Module):
     def __init__(self, input_cfg: InputSpec, encoder_cfg: EncoderSpec, output_cfg: OutputSpec,
                  downsample_cfg: DownsampleSpec, head_cfg: HeadSpec, neuron_cfg: NeuronSpec,
                  bias_mode: str = "threshold"):
@@ -32,8 +32,8 @@ class DVSGesturePuru(nn.Module):
         def resolved(over, glob):
             return glob if over is None else over
 
-        def mk_neuron(tau, v_th):
-            return build_neuron(neuron_cfg, tau=tau, v_threshold=v_th)
+        def mk_neuron(tau, v_th, channels):
+            return build_neuron(neuron_cfg, tau=tau, v_threshold=v_th, num_channels=channels)
 
         # a conv with no normalization after it needs its own bias, or every
         # output channel is locked to zero mean
@@ -74,7 +74,7 @@ class DVSGesturePuru(nn.Module):
             elif norm_kind == "bn":
                 modules.append(layer.BatchNorm2d(b.out_channels))
             node = mk_neuron(resolved(b.tau, neuron_cfg.tau),
-                             resolved(b.v_threshold, neuron_cfg.v_threshold))
+                             resolved(b.v_threshold, neuron_cfg.v_threshold), b.out_channels)
             node.leak_grid = W_DELTA / finer_by(pools_before)
             modules.append(node)
             pools_before = []
@@ -110,7 +110,7 @@ class DVSGesturePuru(nn.Module):
             if head_cfg.dropout_rate > 0:
                 modules.append(layer.Dropout(head_cfg.dropout_rate))
             modules.append(layer.Linear(lin.in_features, lin.out_features, bias=bias_neurons))
-            node = mk_neuron(neuron_cfg.tau, neuron_cfg.v_threshold)
+            node = mk_neuron(neuron_cfg.tau, neuron_cfg.v_threshold, lin.out_features)
             node.leak_grid = W_DELTA / finer_by(pools_before)
             modules.append(node)
             pools_before = []
@@ -130,6 +130,13 @@ class DVSGesturePuru(nn.Module):
                             "Use norm='bn' with hs_api neurons, or verify multi-step support."
                         )
         self.plan = plan
+        # B-bit input reaches the first layer through B axons per value, the
+        # k-th weighted w * 2**k, so that layer's weights must leave room for
+        # the top bit's factor of 2**(B - 1) within 16 bits.
+        self.input_bits = int(getattr(input_cfg, "input_bits", 1) or 1)
+        first_conv = next((m for m in self.conv_fc if isinstance(m, (layer.Conv2d, nn.Conv2d))), None)
+        if first_conv is not None:
+            first_conv._max_weight_int = INT16_MAX >> (self.input_bits - 1)
         self.final_H, self.final_W = plan.encoder_out_hw
         self.in_features = plan.fc_in_features
 
@@ -169,7 +176,8 @@ class DVSGesturePuru(nn.Module):
             if isinstance(m, (layer.Conv2d, nn.Conv2d)) and isinstance(nxt, (layer.BatchNorm2d, nn.BatchNorm2d)):
                 block = ConvBNFoldQuant(m, nxt, bias_mode=bias_mode, quantize=True,
                                         fold_bias_margin=fold_bias_margin,
-                                        fold_bias_qat_form=fold_bias_qat_form)
+                                        fold_bias_qat_form=fold_bias_qat_form,
+                                        max_weight_int=getattr(m, "_max_weight_int", INT16_MAX))
                 block.step_mode = self.step_mode
                 new_mods.append(block)
                 # link the bias sink to the following neuron (threshold mode).
@@ -222,6 +230,10 @@ class DVSGesturePuru(nn.Module):
                     if hasattr(node, "raw_threshold"):
                         node.raw_threshold.requires_grad_(False)
                     node._v_threshold_const = base - b_prime.reshape(-1, 1, 1)
+                    if getattr(node, "signed", False):
+                        # the negative neuron integrates -input, so its
+                        # threshold rises by b' where the positive one falls
+                        node._v_threshold_neg_const = base + b_prime.reshape(-1, 1, 1)
                     node._fold_bias = None     # bias now lives in the threshold
             else:
                 new_mods.append(m)
@@ -232,9 +244,13 @@ class DVSGesturePuru(nn.Module):
         return self
 
 
-def build_model(cfg: dict) -> "DVSGesturePuru":
-    return DVSGesturePuru(
+def build_model(cfg: dict) -> "SpikingCNN":
+    return SpikingCNN(
         input_cfg=cfg["input"], encoder_cfg=cfg["encoder"], output_cfg=cfg["output"],
         downsample_cfg=cfg["downsample"], head_cfg=cfg["head"], neuron_cfg=cfg["neuron"],
         bias_mode=cfg["train"].fold_bias_mode if "train" in cfg else "threshold",
     )
+
+
+# the class's earlier, DVS-specific name; kept so existing scripts still import
+DVSGesturePuru = SpikingCNN

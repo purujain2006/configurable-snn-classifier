@@ -31,10 +31,11 @@ python tests/smoke_test.py            # the whole pipeline on synthetic data, ~1
 ```
 
 Run both before a real training run. Before a search, also confirm on the
-cluster that trained networks match the simulator:
+cluster that trained networks match the simulator, using the search's own
+config file (any dataset):
 
 ```bash
-python tools/checks/train_and_verify.py /path/to/DVS128Gesture
+python tools/checks/train_and_verify.py configs/dvs128_search04.yaml
 python tools/match_simplesim.py --selftest      # needs hs_api; checks IntegerSim against simpleSim
 ```
 
@@ -44,7 +45,9 @@ The tests, each runnable on its own:
 python tests/test_chip_rules.py      # tau, weight decay, fan-in behind pools, bias neurons
 python tests/test_input_pipeline.py  # sampled inputs, replay flags, warmup ordering
 python tests/test_frame_cache.py     # incomplete caches and sequential rebuilds
-python tests/test_search_space.py    # ordered sampling, GAP fan-in
+python tests/test_search_space.py    # every option sampled, balanced block, any dataset's shape
+python tests/test_sim_match.py       # PyTorch and IntegerSim fire identical spikes, every feature
+python tests/test_training_options.py  # augmentation, TET loss, seeds, on a synthetic dataset
 python tests/test_synops.py          # weight-layer arithmetic and dense ceilings
 node tests/test_snn_port.js          # the site's JavaScript math against Python
 ```
@@ -66,6 +69,32 @@ must fit the connection limits, survive batch-norm folding, and quantize to
 INT16 without driving a threshold out of range. One that cannot be represented
 on chip scores zero regardless of how well it trained.
 
+## What the search tries
+
+Nothing in the search is specific to one dataset: the input channels, size
+and class count come from the dataset, and the range of input sizes is worked
+out from them and the chip's 16,000 input axons. Besides the network's shape
+and the training recipe, it tries each of these on and off:
+
+| option | what it is |
+|---|---|
+| pooling | none, average (folded into the next layer), or max (one OR neuron per window) |
+| bias | folded into the threshold, or delivered by always-on bias neurons |
+| head | flatten or global average pooling |
+| signed spikes | a unit sends +1 or -1, as two chip neurons |
+| bits per input value | 1 to 4, one input axon per bit |
+| tau | fixed, learned per layer, or learned per channel (always a power of two) |
+| loss | spike rate over the clip, or TET (a loss at every timestep) |
+| augmentation | shifts, cutout, dropped inputs, and flips where they keep the label |
+| conv dropout, firing-rate penalty | regularizers |
+
+A search starts with a balanced block (`search.balanced_trials`) in which each
+option appears equally often, so all of them get a fair test before Optuna
+starts steering. When it ends, the top `search.finalists` trials are trained
+again with `search.finalist_seeds` new seeds each, and the one with the best
+mean validation score is written to `best_finalist.json`. Replay it with
+`python main.py single -c <config> --from-best results/<run>/best_finalist.json`.
+
 ## Bringing your own data
 
 Values go in the config. A dataset is code, so the config points at it:
@@ -76,7 +105,7 @@ dataset:
   factory: make_datasets
   root: ./data/cifar10
 encoding:
-  coding: direct     # direct | poisson | temporal | passthrough
+  coding: levels     # levels | passthrough | poisson | temporal | direct
   T: 8
 ```
 
@@ -90,10 +119,11 @@ axis matters:
 
 | coding | what it does | when |
 |---|---|---|
-| `direct` | analog value repeated each step | default for images, converges fastest |
+| `levels` | each value as a whole number 0..2^B-1, repeated each step, on B axons | default for images; B is searched |
+| `passthrough` | resize existing events; 1 bit = any event, B bits = event counts | DVS and other event cameras |
 | `poisson` | stochastic spikes, probability = intensity | fully spiking, noisier at small T |
 | `temporal` | one spike per unit, earlier = brighter | sparsest by SynOps, harder to train |
-| `passthrough` | resize and binarize existing events | DVS and other event cameras |
+| `direct` | analog value repeated each step | software only: no axon carries an analog value |
 
 Which one wins is task-dependent, so it is a config field rather than a constant.
 
