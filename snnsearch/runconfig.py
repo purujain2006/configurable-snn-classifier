@@ -27,8 +27,12 @@ import os
 DEFAULTS = {
     "run": {"name": "run", "results_dir": None, "seed": 1},
     "dataset": {"name": "dvs128", "root": None},
-    "encoding": {"coding": None, "T": 16, "resize_to": None},
-    "limits": {},          # overrides for AXON_LIMITS / NEURON_LIMITS
+    # input_bits: bits per input value when the search does not choose it
+    # (`single` runs); a search samples it from 1 to search.max_input_bits
+    "encoding": {"coding": None, "T": 16, "resize_to": None, "input_bits": None},
+    # chip limits for a different build: total_axons, axon_fan_out,
+    # axon_fan_in, neuron_fan_out, neuron_fan_in (hardware.set_limits)
+    "limits": {},
     # The network `single` builds. Empty means the dataclass defaults, which is
     # what the search samples around. Field names match the dataclasses in
     # config.py, and an unknown one is an error rather than a silent default.
@@ -37,8 +41,21 @@ DEFAULTS = {
     "architecture": {"encoder": {}, "downsample": {}, "head": {}, "neuron": {}},
     "train": {},           # TrainSpec fields: optimizer, lr, scheduler, ...
     "search": {
-        "trials": 25, "epochs": 40, "grace_period": 8, "reduction_factor": 3,
+        # grace_period: the first early-stopping cut, in epochs. It must come
+        # after the float warm-up (the first quarter of the epochs), or it
+        # judges trials before they train on integer weights.
+        "trials": 25, "epochs": 40, "grace_period": 15, "reduction_factor": 3,
         "brackets": 1, "target": 0.975, "space": "uniform",
+        # "asha" stops weak trials early; "none" runs every trial in full
+        "scheduler": "asha",
+        # random trials after the balanced block, before Optuna steers
+        "startup_trials": 10,
+        # a trial that crashes (CUDA out of memory, say) is retried this often
+        "max_failures": 3,
+        # where Ray keeps its scratch; must be a short path (unix socket limit)
+        "ray_temp_dir": None,
+        # regularizers every trial uses: conv_dropout, rate_penalty, augment
+        "require": [],
         "gpu_fraction": 1.0, "batch_size": 16,
         # DataLoader worker processes per trial. The frame cache is decoded,
         # resized and encoded on the CPU, single-threaded, in step with the
@@ -65,6 +82,12 @@ DEFAULTS = {
         # `finalist_seeds` new seeds each and pick the best mean. 0 turns it
         # off. finalist_epochs None keeps the search's epoch count.
         "finalists": 3, "finalist_seeds": 3, "finalist_epochs": None,
+        # Early stopping never cuts the balanced block's trials, so every
+        # option is judged on a full run.
+        "protect_balanced": True,
+        # A search refuses to start until `main.py preflight` has passed for the
+        # same config and code; true starts it anyway (--skip-preflight).
+        "skip_preflight": False,
     },
     "objective": {
         "mode": "accuracy",          # accuracy | constrained | weighted | pareto
@@ -131,6 +154,8 @@ def load(path=None, overrides=None):
     cfg = _deep_merge(cfg, overrides or {})
     cfg = _expand(cfg)
     _validate(cfg)
+    from .hardware import set_limits
+    set_limits(cfg.get("limits"))
     cfg["_source"] = path
     return cfg
 

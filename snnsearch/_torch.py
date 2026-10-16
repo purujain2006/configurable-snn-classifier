@@ -80,9 +80,22 @@ def _no_grad(fn):
     return torch.no_grad()(fn) if _HAS_TORCH else fn
 
 
+def set_step_mode(net, mode):
+    """spikingjelly's functional.set_step_mode, without its warning.
+
+    It sets step_mode on every module that has one and logs a warning, with
+    the module's full printout, for each that is not a spikingjelly
+    StepModule. Every folded conv block (ConvBNFoldQuant) is one of those, so
+    each multi-step trial filled the log with model printouts.
+    """
+    for m in net.modules():
+        if hasattr(m, "step_mode"):
+            m.step_mode = mode
+
+
 __all__ = [
     "_HAS_TORCH", "_HAS_SPIKINGJELLY", "_HAS_HS_API",
-    "_require_torch", "_no_grad",
+    "_require_torch", "_no_grad", "set_step_mode",
     "np", "torch", "nn", "F", "DataLoader", "Subset",
     "pad_sequence_collate", "neuron", "functional", "surrogate", "layer",
     "Custom_LIFNode", "Custom_IFNode",

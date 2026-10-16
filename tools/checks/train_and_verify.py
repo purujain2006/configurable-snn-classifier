@@ -14,7 +14,8 @@ The networks are the start of the search's own balanced block
 pooling (none, average, max as OR neurons), head (flatten, GAP), bias
 (threshold, bias neurons), signed spikes, bits per input value, how tau is
 learned, the loss, augmentation, conv dropout and the firing-rate penalty.
-Training settings are drawn at random like the block's.
+Training settings are drawn from the search space itself
+(spaces.sample_config), so they can never drift from what the search does.
 
 Every line should end in "disagreements 0". Anything else means training and
 deployment have drifted apart, and a search run now would select on a number
@@ -28,24 +29,6 @@ import time
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, ROOT)
-
-
-def training_settings(rng, point, hflip_ok):
-    """The knobs the balanced block leaves to the sampler, drawn from the
-    same ranges as DefineByRunSpace."""
-    flat = {"tau": rng.choice([2, 4, 8, 16]), "trainable_threshold": rng.random() < 0.5,
-            "dropout_rate": rng.uniform(0.1, 0.45), "norm": "bn",
-            "label_smoothing": rng.uniform(0, 0.2), "grad_clip": 1.0,
-            "optimizer": "adam", "lr": 2e-3, "weight_decay": 1e-4,
-            "scheduler": "cosine", "warmup_epochs": 0}
-    if point.get("use_conv_dropout"):
-        flat["conv_dropout"] = rng.uniform(0.05, 0.3)
-    if point.get("use_rate_penalty"):
-        flat["rate_penalty"] = 10 ** rng.uniform(-4, -1)
-    if point.get("use_augment"):
-        flat.update(aug_shift=rng.uniform(0, 0.2), aug_cutout=rng.uniform(0, 0.4),
-                    aug_drop=rng.uniform(0, 0.3), aug_flip=hflip_ok and rng.random() < 0.5)
-    return flat
 
 
 def main():
@@ -64,7 +47,7 @@ def main():
     from snnsearch.hardware import check_spec_feasibility
     from snnsearch.pipeline import resolve_specs, make_loaders
     from snnsearch.spaces import (balanced_points, data_facts, MULTI_BIT_CODINGS,
-                                  MAX_INPUT_BITS)
+                                  MAX_INPUT_BITS, make_define_by_run, sample_config)
     from snnsearch.train import run_training
 
     cfg = runconfig.load(args.config,
@@ -80,11 +63,13 @@ def main():
     points = balanced_points(args.trials, seed=args.seed, t_choices=t_choices,
                              batch_size=s.get("batch_size", 16), epochs=args.epochs,
                              data=data, max_input_bits=max_bits, run_seed=args.seed)
+    space = make_define_by_run(batch_size=s.get("batch_size", 16), epochs=args.epochs,
+                               data_dir_abs=".", t_choices=t_choices, per_layer=True,
+                               data=data, max_input_bits=max_bits, seed=args.seed)
     rng = random.Random(args.seed)
     failures = 0
     for i, point in enumerate(points):
-        flat = {**point, **training_settings(rng, point, data["hflip_ok"]),
-                "N": s.get("batch_size", 16), "epochs": args.epochs, "seed": args.seed}
+        flat = sample_config(space, rng, fixed=point)
         _bundle, enc, spec = resolve_specs(cfg, flat, quiet=True)
         ok, _why = check_spec_feasibility(spec)
         loaders = make_loaders(cfg, _bundle, enc, spec, quiet=True)

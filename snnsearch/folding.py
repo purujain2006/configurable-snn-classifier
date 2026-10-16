@@ -10,7 +10,8 @@ from .hardware import W_ALPHA, W_DELTA, INT16_MAX
 from .quantgrid import fake_quantize_weight, quantized_threshold_int, fold_bias_band
 from .neuron import HardwareLIFNode
 from .model import SpikingCNN
-from ._torch import _HAS_TORCH, _require_torch, _no_grad, torch, nn, layer, functional
+from ._torch import (_HAS_TORCH, _require_torch, _no_grad, torch, nn, layer, functional,
+                     set_step_mode)
 
 # verify_fold needs the time loop from train.py. Imported inside the function
 # rather than at module scope, because train.py imports this module.
@@ -110,7 +111,7 @@ def fold_bn(net: "SpikingCNN", bias_mode: str = "conv") -> "SpikingCNN":
 
     folded.conv_fc = nn.Sequential(*new_mods)
     if folded.step_mode == "m":
-        functional.set_step_mode(folded.conv_fc, "m")
+        set_step_mode(folded.conv_fc, "m")
 
     # The fused Conv2d modules were freshly constructed, so they default to CPU
     # even when `net` is on CUDA -- feeding a GPU batch then raises

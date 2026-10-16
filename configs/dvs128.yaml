@@ -28,10 +28,10 @@ search:
   # One frame cache per value, built sequentially before Ray starts. Each takes
   # tens of CPU minutes the first time and is then reused by every run.
   T_choices: [8, 16]
-  # Rungs land at grace_period * reduction_factor^k, so 10, 30, 60 here. Of 400
-  # trials roughly 133 clear the first cut, 44 the second, and those run to the
-  # full 60. Must stay > 1 regardless: cosine and one-cycle both improve late.
-  grace_period: 10
+  # The first cut, after the float warm-up (the first 15 of 60 epochs), so
+  # trials are judged once they train on integer weights. Must stay > 1
+  # regardless: cosine and one-cycle both improve late.
+  grace_period: 25
   reduction_factor: 3
   target: 0.975          # published SNN accuracy on this task is 97-99%
   # per_layer samples kernel, channels and downsampling INDEPENDENTLY per conv

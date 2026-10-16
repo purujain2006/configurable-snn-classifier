@@ -1,4 +1,10 @@
-# Search 04 on DVS128 Gesture. What changed since Search 03:
+# Search 04 on DVS128 Gesture, the record of what ran on 2026-10-16.
+# Its grace_period of 20 cut trials at the end of the float warm-up (epoch 20
+# of 80), before any had trained on integer weights, and early stopping cut
+# 77 of the 96 balanced-block trials. The config check now rejects that;
+# the next search is dvs128_search05.yaml.
+#
+# What changed since Search 03:
 #   * new options, each searched on and off: signed spikes, 1 to 4 bits per
 #     input value, tau fixed / learned per layer / learned per channel, the
 #     TET loss, and training-time augmentation

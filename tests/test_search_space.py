@@ -201,6 +201,24 @@ class SearchSpaceTests(unittest.TestCase):
         self.assertTrue(any("fan_in" in v for v in why), why)
 
 
+class SampleConfigTests(unittest.TestCase):
+    def test_random_configs_come_from_the_real_space(self):
+        import random
+        from snnsearch.spaces import sample_config
+        space = make_define_by_run(4, 3, ".", [8, 16], data=CIFAR, max_input_bits=4, seed=7)
+        rng = random.Random(0)
+        flats = [sample_config(space, rng) for _ in range(200)]
+        fits = [f for f in flats if not f.get("infeasible_geometry")]
+        self.assertTrue(fits)
+        for f in fits:
+            self.assertTrue(16 <= f["resize_to"] <= 32 and f["T"] in (8, 16))
+            self.assertIn(f["tau_mode"], TAU_MODES)
+            config_to_specs(f)
+        # a fixed value the space cannot take is refused, as Optuna would
+        with self.assertRaises(ValueError):
+            sample_config(space, rng, fixed={"depth": 9})
+
+
 class GenericDatasetTests(unittest.TestCase):
     def test_resize_range_follows_the_dataset(self):
         self.assertEqual(resize_range(DVS), (24, 88, 8))       # 89^2 x 2 = 15,842 axons

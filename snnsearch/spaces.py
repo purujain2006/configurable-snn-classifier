@@ -556,6 +556,62 @@ def balanced_points(n: int, seed: int = 0, t_choices=(16,), batch_size: int = 16
     return points
 
 
+class RandomTrial:
+    """Stands in for an Optuna trial: the given values where there are any,
+    random draws over exactly the ranges the space asks for elsewhere.
+
+    Lets the preflight and the checks sample configurations from the real
+    space without Optuna, so they can never drift from what the search does.
+    A fixed value outside the range the space asks for raises, the same way
+    Optuna would reject a bad point of the balanced block.
+    """
+
+    def __init__(self, rng, fixed=None):
+        self.rng = rng
+        self.fixed = dict(fixed or {})
+        self.params = {}
+
+    def _take(self, name, ok):
+        v = self.fixed[name]
+        if not ok(v):
+            raise ValueError(f"{name}={v!r} is not a value the search space can take")
+        self.params[name] = v
+        return v
+
+    def suggest_int(self, name, low, high, step=1, log=False):
+        if name in self.fixed:
+            return self._take(name, lambda v: low <= v <= high and (v - low) % step == 0)
+        if log:
+            v = int(round(math.exp(self.rng.uniform(math.log(low), math.log(high)))))
+            v = min(max(v, low), high)
+        else:
+            v = self.rng.randrange(low, high + 1, step)
+        self.params[name] = v
+        return v
+
+    def suggest_float(self, name, low, high, log=False):
+        if name in self.fixed:
+            return self._take(name, lambda v: low <= v <= high)
+        v = math.exp(self.rng.uniform(math.log(low), math.log(high))) if log \
+            else self.rng.uniform(low, high)
+        self.params[name] = v
+        return v
+
+    def suggest_categorical(self, name, choices):
+        if name in self.fixed:
+            return self._take(name, lambda v: v in choices)
+        v = self.rng.choice(list(choices))
+        self.params[name] = v
+        return v
+
+
+def sample_config(space, rng, fixed=None) -> dict:
+    """One flat trial config from `space`, as the search would record it."""
+    trial = RandomTrial(rng, fixed)
+    consts = space(trial)
+    return {**trial.params, **consts}
+
+
 def make_define_by_run(batch_size: int, epochs: int, data_dir_abs: str, t_choices: list,
                        per_layer: bool = True, require=(), *, data: dict,
                        max_input_bits: int = 1, seed: int = None) -> "DefineByRunSpace":

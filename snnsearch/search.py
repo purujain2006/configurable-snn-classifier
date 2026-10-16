@@ -21,6 +21,14 @@ set_search_properties returns early when a space is already set. ASHAScheduler
 must NOT also receive them from TuneConfig, or Ray raises. Verified against
 ray 2.56; do not "simplify".
 
+BEFORE ANYTHING STARTS. run_search refuses a config that contradicts itself
+(preflight.check_search_config) and, unless told otherwise, a config that has
+not passed `main.py preflight` with the same code. Both used to surface hours
+into a run.
+
+BALANCED BLOCK. Early stopping never cuts the balanced block's trials
+(scheduling.BalancedBlockASHA), so every option is judged on a full run.
+
 FINALISTS. The best trial of a search is partly the luckiest one: its score is
 one training run, and the top of several hundred noisy scores sits above its
 true level. After the search, the top `finalists` trials are trained again
@@ -113,7 +121,6 @@ def run_search(cfg, out_dir):
     """Run the search described by `cfg`, writing into `out_dir`."""
     import ray
     from ray import tune
-    from ray.tune.schedulers import ASHAScheduler
     from ray.tune.search.optuna import OptunaSearch
     import torch
 
@@ -122,9 +129,19 @@ def run_search(cfg, out_dir):
     from .streaming import make_streaming_callback
 
     s = cfg["search"]
-    obj = cfg["objective"]
     writer = ResultsWriter(out_dir)
     writer.log(f"[stream] {describe(cfg)}")
+
+    from .preflight import check_search_config, preflight_gate, n_balanced
+    errors, warnings = check_search_config(cfg)
+    for w in warnings:
+        writer.log(f"[stream] warning: {w}")
+    if errors:
+        raise SystemExit("The search config has problems, so nothing was started:\n  "
+                         + "\n  ".join(errors))
+    blocked = preflight_gate(cfg, out_dir)
+    if blocked:
+        raise SystemExit(blocked)
 
     t_choices = s.get("T_choices") or [cfg["encoding"].get("T", 16)]
     _warm_frame_caches(cfg, t_choices, writer)
@@ -176,13 +193,12 @@ def run_search(cfg, out_dir):
     # the balanced trials count as its random start and steering begins after.
     from optuna.samplers import TPESampler
     from .spaces import balanced_points, BALANCED_FACTORS
-    # balanced_repeats is the older setting: repeats of a 48-trial block
-    n_balanced = int(s.get("balanced_trials") or 48 * int(s.get("balanced_repeats") or 0))
-    if n_balanced and not space.per_layer:
+    n_block = n_balanced(s)
+    if n_block and not space.per_layer:
         writer.log("[stream] balanced block skipped: it draws per-layer shapes, "
                    "and this search uses space: uniform")
-        n_balanced = 0
-    points = balanced_points(n_balanced, seed=run_seed, t_choices=t_choices,
+        n_block = 0
+    points = balanced_points(n_block, seed=run_seed, t_choices=t_choices,
                              batch_size=s.get("batch_size", 16), epochs=s["epochs"],
                              data=data, max_input_bits=max_bits, run_seed=run_seed)
     startup = len(points) + int(s.get("startup_trials", 10))
@@ -197,7 +213,13 @@ def run_search(cfg, out_dir):
 
     scheduler = None
     if s.get("scheduler", "asha") == "asha":
-        scheduler = ASHAScheduler(
+        from .scheduling import BalancedBlockASHA
+        protect = len(points) if s.get("protect_balanced", True) else 0
+        if protect:
+            writer.log(f"[stream] early stopping never cuts the {protect} balanced-block "
+                       f"trials; it starts with trial {protect + 1}")
+        scheduler = BalancedBlockASHA(
+            protect=protect,
             time_attr="training_iteration",
             max_t=s["epochs"] + 1,            # the +1 buys the deployment report
             metric="float_val_accuracy",      # dense per-epoch trajectory
@@ -278,6 +300,61 @@ def _finalist_configs(results, k):
     return done[:k]
 
 
+def run_jobs(cfg, out_dir, flats, name, resources=None):
+    """Train each flat config in `flats` once, in parallel through Ray, with
+    no early stopping. Returns one dict per job, in order: the deploy-phase
+    metrics, or an error. Shared by the finalists and the option study."""
+    import ray
+    import torch
+    from ray import tune
+
+    s = cfg["search"]
+    if resources is None:
+        gpu = s.get("gpu_fraction", 1.0) if torch.cuda.is_available() else 0
+        resources = {"cpu": s.get("cpu_per_trial") or (int(s.get("num_workers", 0)) + 1),
+                     "gpu": gpu}
+    if not ray.is_initialized():
+        tmp = _ray_temp_dir(s.get("ray_temp_dir"), _PrintWriter())
+        kwargs = {"include_dashboard": False, "log_to_driver": True}
+        if tmp:
+            os.makedirs(tmp, exist_ok=True)
+            kwargs["_temp_dir"] = tmp
+        ray.init(**kwargs)
+    base = _make_trainable(cfg, out_dir)
+    flats = [dict(f) for f in flats]
+
+    def job(trial_cfg):
+        return base(flats[int(trial_cfg["job"])])
+
+    grid = tune.Tuner(
+        tune.with_resources(job, resources=resources),
+        param_space={"job": tune.grid_search(list(range(len(flats))))},
+        run_config=_run_config_cls()(
+            storage_path=os.path.join(out_dir, "ray"), name=name,
+            failure_config=_failure_config_cls()(max_failures=s.get("max_failures", 3)),
+        ),
+    ).fit()
+    out = [None] * len(flats)
+    for r in grid:
+        m = dict(r.metrics or {})
+        deployed = m.get("phase") == "deploy"
+        out[int(r.config["job"])] = {
+            "val_accuracy": m.get("val_accuracy") if deployed else 0.0,
+            "hw_val_accuracy": m.get("hw_val_accuracy"),
+            "sim_val_accuracy": m.get("sim_val_accuracy"),
+            "sim_disagreements": m.get("sim_disagreements"),
+            "deployable": m.get("deployable"),
+            "deployed_tau": m.get("deployed_tau"),
+            "synops_per_sample": m.get("synops_per_sample"),
+            "error": str(r.error)[:200] if r.error else ""}
+    return [o or {"val_accuracy": 0.0, "error": "no result"} for o in out]
+
+
+class _PrintWriter:
+    def log(self, msg):
+        print(msg, flush=True)
+
+
 def finalist_jobs(top, seeds, epochs=None):
     """One job per (finalist, seed): the trial's own config with a new seed."""
     jobs = []
@@ -319,7 +396,6 @@ def _rescore_finalists(cfg, out_dir, results, writer, resources, run_seed):
     no finalist reuses the run it was selected on.
     """
     import csv
-    from ray import tune
 
     s = cfg["search"]
     k, n_seeds = int(s.get("finalists") or 0), int(s.get("finalist_seeds") or 0)
@@ -334,34 +410,17 @@ def _rescore_finalists(cfg, out_dir, results, writer, resources, run_seed):
     writer.log(f"[stream] finalists: re-training the top {len(top)} trials with seeds "
                f"{seeds}, {len(jobs)} runs")
 
-    base = _make_trainable(cfg, out_dir)
-    flats = [j["config"] for j in jobs]
-
-    def finalist(trial_cfg):
-        return base(flats[int(trial_cfg["job"])])
-
-    tuner = tune.Tuner(
-        tune.with_resources(finalist, resources=resources),
-        param_space={"job": tune.grid_search(list(range(len(jobs))))},
-        run_config=_run_config_cls()(
-            storage_path=os.path.join(out_dir, "ray"),
-            name=cfg["run"].get("name", "search") + "_finalists",
-            failure_config=_failure_config_cls()(max_failures=s.get("max_failures", 3)),
-        ),
-    )
-    grid = tuner.fit()
-
+    results = run_jobs(cfg, out_dir, [j["config"] for j in jobs],
+                       cfg["run"].get("name", "search") + "_finalists", resources)
     rows = []
-    for r in grid:
-        m = r.metrics or {}
-        job = jobs[int(r.config["job"])]
+    for job, m in zip(jobs, results):
         rows.append({"rank": job["rank"], "search_trial_id": job["trial_id"],
                      "search_val_accuracy": job["search_score"], "seed": job["seed"],
-                     "val_accuracy": m.get("val_accuracy") if m.get("phase") == "deploy" else 0.0,
+                     "val_accuracy": m.get("val_accuracy"),
                      "hw_val_accuracy": m.get("hw_val_accuracy"),
                      "sim_val_accuracy": m.get("sim_val_accuracy"),
                      "deployable": m.get("deployable"),
-                     "error": str(r.error)[:200] if r.error else ""})
+                     "error": m.get("error", "")})
     rows.sort(key=lambda row: (row["rank"], row["seed"]))
     with open(os.path.join(out_dir, "finalists.csv"), "w", newline="", encoding="utf-8") as fh:
         w = csv.DictWriter(fh, fieldnames=list(rows[0]))
@@ -420,9 +479,11 @@ def _make_trainable(cfg, out_dir):
     def trainable(trial_cfg):
         import torch
         from ray import tune
-        from .hardware import check_spec_feasibility
+        from .hardware import check_spec_feasibility, set_limits
         from .pipeline import resolve_specs, make_loaders
         from .train import run_training
+
+        set_limits(run_cfg.get("limits"))     # a fresh process has the defaults
 
         # The trial config decides the input size and the time depth, not just
         # the architecture, so it has to reach the data pipeline. An earlier

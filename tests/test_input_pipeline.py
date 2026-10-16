@@ -191,6 +191,7 @@ class CacheOrderingTests(unittest.TestCase):
         for choices in (None, [8, 16]):
             cfg = run_config()
             cfg["search"]["T_choices"] = choices
+            cfg["search"]["skip_preflight"] = True      # this test is about ordering
             events.clear()
             def warm(_cfg, values, _writer):
                 events.append(("warm", values))

@@ -31,6 +31,8 @@
 <dt>ASHA</dt><dd>An early-stopping rule that comes with Ray Tune. It compares trials at set points in training and stops the weaker ones, so their GPU time goes to better ones.</dd>
 </dl>
 <p>This project's part is connecting those tools to its own planner, chip check, training procedure and simulator check.</p>
+<h3>Checking a search before it runs</h3>
+<p>A search runs for a day or more, and a mistake in its setup used to show up hours in: a missing package, a dataset path that only existed on another machine, a trial too large for its share of the GPU, or a bug in the steps after the trials finish. So before a search starts, a preflight runs every stage of one in miniature on the same machine: it checks the settings against each other, loads the data, measures the largest network on the GPU, trains two small networks and checks them against the simulator, and runs a six-trial search through Ray to the end. The search refuses to start until a preflight has passed for the same settings and the same code. The <a href="https://github.com/purujain2006/configurable-snn-classifier/blob/main/GUIDE.md">user guide</a> covers how to run both.</p>
 </section>
 <section class="reveal" id="funnel">
 <h2><span class="sec-num">6.2</span>Four stages per trial</h2>
@@ -54,7 +56,8 @@
 </section>
 <section class="reveal" id="asha">
 <h2><span class="sec-num">6.4</span>Early stopping</h2>
-<p>ASHA lets every trial train for a grace period, then compares it with the others at checkpoints spaced by a reduction factor. With a grace period of 20 epochs and a factor of 3, as in the current DVS128 configuration, the checkpoints fall at 20 and 60 epochs of an 80-epoch budget, and roughly the best third of trials continue past each one. The configuration also uses two brackets: half the trials are not judged until epoch 60, which protects networks that start slowly. Trials start and finish at different times, so each is compared with whichever trials have reached the same checkpoint.</p>
+<p>ASHA lets every trial train for a grace period, then compares it with the others at checkpoints spaced by a reduction factor. With a grace period of 30 epochs and a factor of 3, as in the current DVS128 configuration, the first checkpoint falls at epoch 30 of an 80-epoch budget, and roughly the best third of trials continue to the end. Trials start and finish at different times, so each is compared with whichever trials have reached the same checkpoint.</p>
+<p>Two rules come from a search where early stopping judged the wrong thing. Its first checkpoint was at epoch 20, the last epoch of the floating-point warm-up, so trials were cut before they had trained at all on the chip's integer weights. It also stopped 77 of the 96 trials in the balanced block, and the options that learn slowly at first, such as augmentation and GAP, lost the most: augmentation kept 5 of 48 trials. So the first checkpoint must now come after the warm-up, and early stopping never cuts a balanced-block trial. Every option is then judged on full runs.</p>
 <p>Some learning-rate schedules improve most toward the end of training, so a grace period that is too short stops promising trials early. The demo shows the effect: set the grace period to 1 and the late-improving curves are cut.</p>
 <div class="demo">
 <div class="demo-head">

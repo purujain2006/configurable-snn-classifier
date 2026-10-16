@@ -257,6 +257,12 @@ if _HAS_TORCH:
             signed = getattr(self, "signed", False)
             v_th = self.v_threshold
             v_th_neg = self.v_threshold_neg if signed else None
+            # exported per-channel thresholds are plain tensors, which
+            # .to(device) does not move; follow the input instead
+            if torch.is_tensor(v_th) and v_th.device != x.device:
+                v_th = v_th.to(x.device)
+            if torch.is_tensor(v_th_neg) and v_th_neg.device != x.device:
+                v_th_neg = v_th_neg.to(x.device)
 
             # During inline-fold QAT in threshold mode, the folded bias b' is
             # delivered here each step instead of into the conv, and applied
@@ -289,7 +295,8 @@ if _HAS_TORCH:
 
         def extra_repr(self):
             th = self.v_threshold
-            th_s = "per-channel" if torch.is_tensor(th) and th.numel() > 1 else f"{float(th):.5f}"
+            th = torch.as_tensor(th).detach()
+            th_s = "per-channel" if th.numel() > 1 else f"{float(th):.5f}"
             leak_s = "floored" if getattr(self, "integer_leak", True) else "float"
             leak = self.hw_leak()
             tau_s = f"per-channel ({len(leak)})" if isinstance(leak, list) else str(leak)

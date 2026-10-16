@@ -7,55 +7,46 @@ Built around **HiAER-Spike**, but the limits are configuration rather than
 constants, so it retargets as the hardware changes. Any dataset, any input
 coding, any architecture the configuration can express.
 
+**New here? Start with [GUIDE.md](GUIDE.md):** install, data, configs, the
+preflight, running a search, reading results, the option study, and a
+troubleshooting table.
+
 ## What to run
 
 ```bash
-python main.py check                              # what this machine is missing
-python main.py summary -c configs/dvs128.yaml     # no torch, no dataset needed
-python main.py single  -c configs/dvs128.yaml     # train one configuration
-python main.py search  -c configs/cifar10.yaml    # the automated search
-python main.py report  results/dvs128             # rebuild report.html
+python main.py check                                        # what this machine is missing
+python main.py summary   -c configs/dvs128_search05.yaml    # size and chip fit, no GPU
+python main.py preflight -c configs/dvs128_search05.yaml    # every stage of a search, ~15 min
+python main.py search    -c configs/dvs128_search05.yaml    # the search
+python main.py study     -c configs/dvs128_search05.yaml --from-best results/dvs128_search05/best_finalist.json
+python main.py single    -c configs/dvs128_search05.yaml --from-best results/dvs128_search05/best_finalist.json --epochs 300
+python main.py report    results/dvs128_search05            # rebuild report.html
 ```
 
-`summary` imports no deep-learning library. If it prints the architecture table,
-the config parser and the planner agree and you have spent nothing.
+A search will not start until `preflight` has passed for the same config and
+code. The preflight runs a miniature search end to end on the real data and
+GPU, so a problem that used to surface hours into a run (a missing package, a
+dataset path, a trial too big for its share of the GPU, a bug in the steps
+after the trials) surfaces in minutes instead.
 
-That is a weaker claim than it looks, because Python binds names when a line
-runs rather than when a module loads, so a module can import cleanly while the
-functions inside it reference names that were never imported. Two checks cover
-what an import cannot:
+The tests, each runnable on its own on a laptop:
 
 ```bash
-python tools/checks/check_static.py   # undefined names + call signatures, no torch
-python tests/smoke_test.py            # the whole pipeline on synthetic data, ~1 min
+python tools/checks/check_static.py      # undefined names and call signatures, no torch
+python tests/smoke_test.py               # the whole pipeline on synthetic data, ~1 min
+python tests/test_chip_rules.py          # tau, weight decay, fan-in behind pools, bias neurons
+python tests/test_search_space.py        # every option sampled, balanced block, any dataset's shape
+python tests/test_sim_match.py           # PyTorch and IntegerSim fire identical spikes, every feature
+python tests/test_training_options.py    # augmentation, TET loss, seeds, exact measurement
+python tests/test_preflight.py           # config rules, the preflight record, early stopping
+python tests/test_study.py               # the option study's variants and verdicts
+python tests/test_docs.py                # GUIDE.md covers every setting, command and test
+python tests/test_input_pipeline.py      # sampled inputs, replay flags, warmup ordering
+python tests/test_frame_cache.py         # incomplete caches and sequential rebuilds
+python tests/test_synops.py              # weight-layer arithmetic and dense ceilings
+python tests/test_search_e2e.py          # a real search and study through Ray, ~5 min
+node tests/test_snn_port.js              # the site's JavaScript math against Python
 ```
-
-Run both before a real training run. Before a search, also confirm on the
-cluster that trained networks match the simulator, using the search's own
-config file (any dataset):
-
-```bash
-python tools/checks/train_and_verify.py configs/dvs128_search04.yaml
-python tools/match_simplesim.py --selftest      # needs hs_api; checks IntegerSim against simpleSim
-```
-
-The tests, each runnable on its own:
-
-```bash
-python tests/test_chip_rules.py      # tau, weight decay, fan-in behind pools, bias neurons
-python tests/test_input_pipeline.py  # sampled inputs, replay flags, warmup ordering
-python tests/test_frame_cache.py     # incomplete caches and sequential rebuilds
-python tests/test_search_space.py    # every option sampled, balanced block, any dataset's shape
-python tests/test_sim_match.py       # PyTorch and IntegerSim fire identical spikes, every feature
-python tests/test_training_options.py  # augmentation, TET loss, seeds, on a synthetic dataset
-python tests/test_synops.py          # weight-layer arithmetic and dense ceilings
-node tests/test_snn_port.js          # the site's JavaScript math against Python
-```
-
-Search warms every configured DVS frame cache before Ray starts. Custom dataset
-factories receive the resolved `T`; static-image factories can accept
-`**_ignored`, as the supplied examples do. SynOps measurements from before this
-migration must be remeasured before comparing runs.
 
 ## Why it exists
 
@@ -181,6 +172,7 @@ examples/                a user-supplied dataset, worked
 snnsearch/               the package; snnsearch/README.md maps every file
 docs/                    the explainer site (GitHub Pages serves this folder)
 tests/                   every test, each runnable on its own
+GUIDE.md                 how to use the tool, start to finish
 tools/
   match_simplesim.py     per-clip match against the simulator; --selftest against hs_api
   replay_top.py          retrain the best N trials of a search
@@ -189,7 +181,7 @@ tools/
   leaderboard_from_trials.py   rebuild a complete leaderboard from trials.jsonl
   read_ckpt.py           read a .pth into numpy with no torch installed
   checks/                check_env, check_static, train_and_verify
-  analysis/              one-off studies (fold_bias_equivalence, trial_analysis)
+  analysis/              top_trials, factor_effects, and one-off studies
   site/                  website tooling: page validation, prose and jargon checks
   archive/               Practice2.py, the single file the package was split from
 ```
@@ -203,6 +195,6 @@ torch first, or spikingjelly may pull a different build.
 ```bash
 pip install torch --index-url https://download.pytorch.org/whl/cu121
 pip install spikingjelly
-pip install "ray[tune]" optuna
+pip install "pydantic<3" "ray[tune]" optuna
 python tools/checks/check_env.py /path/to/dataset
 ```

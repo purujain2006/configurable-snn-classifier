@@ -24,7 +24,7 @@ encoding:
 search:
   trials: 200
   epochs: 40
-  grace_period: 8
+  grace_period: 15       # after the float warm-up (10 of 40 epochs)
   balanced_trials: 48
   finalists: 3
   finalist_seeds: 3

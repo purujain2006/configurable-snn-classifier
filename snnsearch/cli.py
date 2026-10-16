@@ -1,12 +1,15 @@
 """The entry point. `python main.py <mode> [--config file] [overrides]`
 
-Five modes, ordered by what they cost:
+Seven modes, in the order a project uses them:
 
-  check     what this machine is missing. No torch needed.
-  summary   architecture table, connection limits, cost. No torch, no dataset.
-  single    train one configuration end to end, then fold and export.
-  search    the automated search.
-  report    rebuild report.html from a finished run directory.
+  check      what this machine is missing. No torch needed.
+  summary    architecture table, connection limits, cost. No torch, no dataset.
+  preflight  every stage of a search, small, on this machine; required before
+             `search` (GUIDE.md, step 4)
+  search     the automated search.
+  study      flip one option at a time on a chosen network, trained in full
+  single     train one configuration end to end, then fold and export.
+  report     rebuild report.html from a finished run directory.
 
 The config file supplies values; command-line flags override it, so a saved
 config stays the record of intent while a flag can vary one thing.
@@ -31,6 +34,7 @@ def _overrides(args):
     if getattr(args, "resize_to", None) is not None:
         o["encoding"]["resize_to"] = args.resize_to
     if getattr(args, "trials", None):        o["search"]["trials"] = args.trials
+    if getattr(args, "skip_preflight", False): o["search"]["skip_preflight"] = True
     if getattr(args, "epochs", None):        o["search"]["epochs"] = args.epochs
     if getattr(args, "gpu_fraction", None):  o["search"]["gpu_fraction"] = args.gpu_fraction
     if getattr(args, "results_dir", None):   o["run"]["results_dir"] = args.results_dir
@@ -110,6 +114,26 @@ def build_parser():
                    help="GPU per trial; 0.25 runs four trials on one card")
     r.add_argument("--objective", choices=["accuracy", "constrained", "weighted", "pareto"])
     r.add_argument("--synops-budget", type=float, dest="synops_budget")
+    r.add_argument("--skip-preflight", action="store_true", dest="skip_preflight",
+                   help="start without a passed preflight for this config and code")
+
+    f = sub.add_parser("preflight", help="check every stage of a search in minutes, "
+                                         "before it runs for days")
+    _add_common(f)
+    f.add_argument("--gpu-fraction", type=float, dest="gpu_fraction")
+    f.add_argument("--quick", action="store_true",
+                   help="skip the two training stages (about 2 minutes instead of 15); "
+                        "a search still needs the full preflight")
+
+    t = sub.add_parser("study", help="flip one option at a time on a chosen network "
+                                     "and train every variant in full")
+    _add_common(t)
+    t.add_argument("--from-best", dest="from_best", metavar="BEST_JSON", required=True,
+                   help="the network to study: best_finalist.json or best.json")
+    t.add_argument("--seeds", type=int, default=3)
+    t.add_argument("--epochs", type=int, help="default: the trial's own epoch count")
+    t.add_argument("--only", help="comma-separated options to study, e.g. augment,loss")
+    t.add_argument("--gpu-fraction", type=float, dest="gpu_fraction")
 
     p = sub.add_parser("report", help="rebuild report.html from a run directory")
     p.add_argument("run_dir")
@@ -151,6 +175,18 @@ def main(argv=None):
     if args.mode == "search":
         from .pipeline import run_search_mode
         return run_search_mode(cfg)
+
+    if args.mode == "preflight":
+        from .preflight import run_preflight
+        return run_preflight(cfg, quick=args.quick)
+
+    if args.mode == "study":
+        from .pipeline import load_flat_config
+        from .study import run_option_study
+        only = [o.strip() for o in args.only.split(",")] if args.only else None
+        run_option_study(cfg, load_flat_config(args.from_best), seeds=args.seeds,
+                         epochs=args.epochs, only=only)
+        return 0
 
     return 1
 

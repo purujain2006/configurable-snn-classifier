@@ -46,11 +46,14 @@ through them.
 | file | what it does |
 |---|---|
 | `pipeline.py` | config to dataset to model to report, shared by `single` and `search` |
-| `search.py` | the Ray trial, the Optuna/ASHA wiring, and re-scoring the finalists with new seeds |
+| `preflight.py` | the config rules a search must pass, and `main.py preflight`: every stage of a search, small, before the real one |
+| `search.py` | the Ray trial, the Optuna/ASHA wiring, re-scoring the finalists with new seeds, and `run_jobs` for fixed lists of runs |
+| `scheduling.py` | early stopping that never cuts the balanced block |
+| `study.py` | `main.py study`: one option flipped at a time on a chosen network, trained in full |
 | `streaming.py` | writes each trial to `leaderboard.csv` and `trials.jsonl` as it finishes |
 | `results.py` | the results directory and the end-of-search trial table |
 | `report.py` | `report.html` |
-| `cli.py` | `python main.py check | summary | single | search | report` |
+| `cli.py` | `python main.py check | summary | preflight | search | study | single | report` |
 | `_torch.py` | imports torch if present, so stages 1 and 2 run without it |
 
 ## The numbers a trial reports

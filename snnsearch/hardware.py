@@ -32,6 +32,33 @@ NEURON_LIMITS = {
     "fan_in": 8_159,    # neuron-to-neuron fan-in
 }
 
+# A config's `limits:` block names these; set_limits applies it.
+_LIMIT_KEYS = {
+    "total_axons": (AXON_LIMITS, "total_axons"),
+    "axon_fan_out": (AXON_LIMITS, "fan_out"),
+    "axon_fan_in": (AXON_LIMITS, "fan_in"),
+    "neuron_fan_out": (NEURON_LIMITS, "fan_out"),
+    "neuron_fan_in": (NEURON_LIMITS, "fan_in"),
+}
+_DEFAULT_LIMITS = {k: d[f] for k, (d, f) in _LIMIT_KEYS.items()}
+
+
+def set_limits(overrides=None):
+    """Apply a config's `limits:` block, for a chip build with other limits.
+
+    Starts from the defaults every time, so a second config never inherits a
+    first one's overrides, and changes the dicts in place, so every module
+    that imported them sees the new values. Called when a config is loaded
+    and at the start of every trial (Ray runs trials in fresh processes).
+    """
+    overrides = dict(overrides or {})
+    unknown = sorted(set(overrides) - set(_LIMIT_KEYS))
+    if unknown:
+        raise SystemExit(f"limits: unknown key(s) {unknown}; "
+                         f"known: {', '.join(_LIMIT_KEYS)}")
+    for key, (table, field) in _LIMIT_KEYS.items():
+        table[field] = int(overrides.get(key, _DEFAULT_LIMITS[key]))
+
 
 def check_feasibility(input_cfg: InputSpec, encoder_cfg: EncoderSpec,
                       downsample_cfg: DownsampleSpec,

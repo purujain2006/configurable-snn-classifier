@@ -14,7 +14,7 @@ from .quantgrid import (_ste, fake_quantize_weight, fake_quantize_threshold,
                         weight_clip_fraction)
 from .neuron import (build_neuron, HardwareLIFNode, TdBatchNorm2d,
                      ConvBNFoldQuant, OrPool)
-from ._torch import (_HAS_TORCH, _HAS_HS_API, _require_torch, _no_grad,
+from ._torch import (_HAS_TORCH, _HAS_HS_API, _require_torch, _no_grad, set_step_mode,
                      torch, nn, F, layer, functional, Custom_LIFNode, Custom_IFNode)
 
 
@@ -117,7 +117,7 @@ class SpikingCNN(nn.Module):
 
         self.conv_fc = nn.Sequential(*modules)
         if self.step_mode == "m":
-            functional.set_step_mode(self.conv_fc, "m")
+            set_step_mode(self.conv_fc, "m")
             if _HAS_HS_API:
                 # hs_api's custom neurons are built for their conversion flow and
                 # may be single-step only. Fail loudly rather than silently
@@ -191,7 +191,7 @@ class SpikingCNN(nn.Module):
                 i += 1
         self.conv_fc = nn.Sequential(*new_mods)
         if self.step_mode == "m":
-            functional.set_step_mode(self.conv_fc, "m")
+            set_step_mode(self.conv_fc, "m")
         # bias-free Linears are already on the grid; parametrize them too so the
         # FC weights train quantized alongside the folded convs.
         # local import: quantize -> folding -> model, so a module-level
@@ -239,7 +239,7 @@ class SpikingCNN(nn.Module):
                 new_mods.append(m)
         self.conv_fc = nn.Sequential(*new_mods)
         if self.step_mode == "m":
-            functional.set_step_mode(self.conv_fc, "m")
+            set_step_mode(self.conv_fc, "m")
         self._qat_folded = False
         return self
 

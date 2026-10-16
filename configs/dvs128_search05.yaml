@@ -1,0 +1,63 @@
+# Search 05 on DVS128 Gesture. What changed since Search 04:
+#   * the balanced block's 96 trials all run the full 80 epochs; early
+#     stopping only judges the trials after it (Search 04 cut 77 of the 96 at
+#     epoch 20, which favored options that learn fast over options that end
+#     well)
+#   * the first cut is at epoch 30, ten epochs into training on integer
+#     weights, instead of at the end of the float warm-up
+#   * T is searched over 16, 24, 32 and 48: every one of Search 04's top 10
+#     used T = 32, the largest it could pick, so the best T may be larger
+#   * six trials share the GPU instead of four (Search 04 used 15 of 46 GiB on
+#     mahowald's L40S); `main.py preflight` measures the largest trial and
+#     says whether that fits
+#
+# Run `python main.py preflight -c configs/dvs128_search05.yaml` first, on the
+# machine the search runs on. The search will not start until it has passed.
+
+run:
+  name: dvs128_search05
+  results_dir: results/dvs128_search05
+
+dataset:
+  name: dvs128
+  root: /Volumes/export/isn/$USER/DVSGesture128   # shared storage; /local_disk copies can vanish
+
+encoding:
+  coding: passthrough    # already events; resized, then counts or single spikes
+  T: 16
+  resize_to: 64          # native 128x128 needs 32,768 axons against a limit of 16,000
+
+search:
+  trials: 400
+  # Every option of pooling, bias, head, signed spikes, input bits, tau, loss,
+  # augmentation, conv dropout and the firing-rate penalty appears equally
+  # often in the first 96 trials, each with a random shape that fits the chip,
+  # and none of them is stopped early. Optuna steers after them.
+  balanced_trials: 96
+  protect_balanced: true
+  startup_trials: 10
+  epochs: 80
+  # One cut per trial after the block, at epoch 30: the float warm-up ends at
+  # epoch 20 and accuracy dips for a few epochs after the switch to integer
+  # weights. The top third continue to epoch 80.
+  grace_period: 30
+  reduction_factor: 3
+  brackets: 1
+  batch_size: 16
+  # One frame cache per value, built before Ray starts (tens of minutes each,
+  # once; 16, 24 and 32 already exist from Search 04).
+  T_choices: [16, 24, 32, 48]
+  target: 0.975          # published SNN accuracy on this task is 97-99%
+  space: per_layer
+  # Retrain the top 5 with 3 new seeds each, 80 epochs, no early stopping.
+  finalists: 5
+  finalist_seeds: 3
+  gpu_fraction: 0.167    # six trials per GPU; the preflight checks it fits
+
+train:
+  # Length of the integer phase's learning-rate schedule, independent of the
+  # epoch budget, so a long run's rate still decays in time.
+  qat_schedule_epochs: 40
+
+objective:
+  mode: accuracy
