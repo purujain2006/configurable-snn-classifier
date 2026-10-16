@@ -1,25 +1,39 @@
 """How each on/off choice did across a search, level by level.
 
     python tools/analysis/factor_effects.py results/dvs128_search04
+    python tools/analysis/factor_effects.py results/dvs128_search04 --block 96
 
-Reads trials.jsonl and, for each choice the balanced block covers (pooling,
-bias, head, signed spikes, input bits, tau mode, loss, augmentation, conv
-dropout, firing-rate penalty), prints per level: how many
-trials used it, how many were rejected by the chip check, stopped early, or
-finished, and the median and best validation accuracy of the finished ones
-(deployed network, and on the simulator).
+Reads trials.jsonl and trial_progress.jsonl and, for each choice the balanced
+block covers, prints per level: how many trials used it, how many were
+rejected by the chip check, stopped early, or finished; the median and best
+validation accuracy of the finished ones (deployed network, and on the
+simulator); and the median validation accuracy every trial had at one fixed
+epoch (--epoch, default 19, the last epoch before the first early-stopping
+checkpoint).
 
-The balanced block gives every level the same number of trials, so these
-counts start equal; differences in how many survive are part of the answer.
-Everything else about each trial was sampled at random, so a gap of a point
-or two between levels is within noise. Retrain the winner with the choice
-switched on and off, with a few seeds, to settle a close call.
+Read the last column first. Two things bias the others:
+
+  * Early stopping. A trial is cut at its first checkpoint if it trails the
+    others then, so options that learn slowly at first (augmentation, TET,
+    dropout) finish less often and their "finished" medians rest on a few
+    survivors. At the fixed epoch nobody has been stopped yet.
+  * Steering. After the balanced block, Optuna mostly picks the options that
+    have scored well, with better-tuned settings around them, so those
+    options' numbers rise for reasons that are not the option. --block N
+    keeps only the first N trials to start, the balanced block, where every
+    option had the same number of trials and everything else was random.
+
+A trial the chip check rejected stopped before it sampled any training
+setting, so it counts only toward the shape choices (pooling, bias, head,
+signed spikes, input bits).
 """
 import argparse
 import json
 import os
 import statistics
 import sys
+
+SHAPE = ("pooling", "bias_mode", "final_reduction", "signed_spikes", "input_bits")
 
 
 def levels(cfg):
@@ -48,27 +62,57 @@ def fmt(xs):
     return f"{statistics.median(xs):7.4f} {max(xs):7.4f}"
 
 
+def read_jsonl(path):
+    if not os.path.isfile(path):
+        return []
+    return [json.loads(line) for line in open(path, encoding="utf-8") if line.strip()]
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("run_dir", help="search results directory holding trials.jsonl")
+    ap.add_argument("--block", type=int, default=0,
+                    help="keep only the first N trials to start (the balanced block)")
+    ap.add_argument("--epoch", type=int, default=19,
+                    help="epoch at which every trial is compared (default 19)")
     args = ap.parse_args()
-    path = os.path.join(args.run_dir, "trials.jsonl")
-    rows = [json.loads(l) for l in open(path, encoding="utf-8") if l.strip()]
-    print(f"{len(rows)} trials in {path}\n")
+    rows = read_jsonl(os.path.join(args.run_dir, "trials.jsonl"))
+    progress = read_jsonl(os.path.join(args.run_dir, "trial_progress.jsonl"))
+
+    # start order: when each trial first reported anything
+    order, at_epoch = {}, {}
+    for p in progress:
+        order.setdefault(p["trial_id"], len(order))
+        if p.get("epoch") == args.epoch and p.get("phase") in ("float", "grid") \
+                and p.get("val_accuracy") is not None:
+            at_epoch[p["trial_id"]] = p["val_accuracy"]
+
+    if args.block:
+        rows = [r for r in rows if order.get(r["trial_id"], 10 ** 9) < args.block]
+        print(f"{len(rows)} finished or stopped trials among the first {args.block} to start\n")
+    else:
+        print(f"{len(rows)} trials in {args.run_dir}\n")
 
     table = {}
     for r in rows:
         cfg = r.get("config") or r.get("flat_config") or {}
         if not cfg:
             continue
+        rejected = r.get("feasible") is False or cfg.get("infeasible_geometry")
         for factor, level in levels(cfg).items():
+            if rejected and factor not in SHAPE:
+                continue          # never sampled
             t = table.setdefault(factor, {}).setdefault(level, {
-                "n": 0, "rejected": 0, "stopped": 0, "finished": 0, "hw": [], "sim": []})
+                "n": 0, "rejected": 0, "stopped": 0, "finished": 0,
+                "hw": [], "sim": [], "ep": []})
             t["n"] += 1
-            if r.get("feasible") is False:
+            if rejected:
                 t["rejected"] += 1
-            elif r.get("hw_val_accuracy") is None:
+                continue
+            if r["trial_id"] in at_epoch:
+                t["ep"].append(at_epoch[r["trial_id"]])
+            if r.get("hw_val_accuracy") is None:
                 t["stopped"] += 1
             else:
                 t["finished"] += 1
@@ -76,13 +120,19 @@ def main():
                 if r.get("sim_val_accuracy") is not None:
                     t["sim"].append(r["sim_val_accuracy"])
 
-    for factor, by_level in table.items():
+    ep_head = f"at epoch {args.epoch}"
+    for factor in levels({}):
+        by_level = table.get(factor)
+        if not by_level:
+            continue
         print(f"{factor}")
         print(f"  {'level':10s} {'trials':>6s} {'rejected':>8s} {'stopped':>7s} {'finished':>8s}"
-              f"   {'val median   best':>17s}   {'simulator median  best':>22s}")
+              f"   {'finished: median   best':>23s}   {'simulator: median  best':>23s}"
+              f"   {ep_head + ': n  median':>22s}")
         for level, t in sorted(by_level.items()):
+            ep = f"{len(t['ep']):4d}  {statistics.median(t['ep']):.4f}" if t["ep"] else "   -       -"
             print(f"  {level:10s} {t['n']:6d} {t['rejected']:8d} {t['stopped']:7d} {t['finished']:8d}"
-                  f"   {fmt(t['hw'])}   {fmt(t['sim']):>22s}")
+                  f"   {fmt(t['hw']):>23s}   {fmt(t['sim']):>23s}   {ep:>22s}")
         print()
     return 0
 
