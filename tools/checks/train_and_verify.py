@@ -2,6 +2,7 @@
 
     python tools/checks/train_and_verify.py configs/dvs128_search04.yaml
     python tools/checks/train_and_verify.py configs/cifar10.yaml --trials 12 --epochs 2
+    python tools/checks/train_and_verify.py configs/dvs128_search04.yaml --data-root /path/to/DVS128Gesture
 
 Run this on the cluster before a search, with the search's own config file,
 so it uses the same dataset, coding and T choices. It answers one question:
@@ -51,6 +52,7 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("config", help="the search's config file")
+    ap.add_argument("--data-root", help="override dataset.root in the config")
     ap.add_argument("--trials", type=int, default=12,
                     help="networks to train (rounded up to a multiple of 6)")
     ap.add_argument("--epochs", type=int, default=4)
@@ -65,7 +67,8 @@ def main():
                                   MAX_INPUT_BITS)
     from snnsearch.train import run_training
 
-    cfg = runconfig.load(args.config)
+    cfg = runconfig.load(args.config,
+                         overrides={"dataset": {"root": args.data_root}} if args.data_root else None)
     s = cfg["search"]
     t_choices = s.get("T_choices") or [cfg["encoding"].get("T", 16)]
     bundle = build_dataset({**cfg["dataset"], "T": int(t_choices[0])})

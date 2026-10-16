@@ -61,7 +61,7 @@ def _add_common(p):
     p.add_argument("--config", "-c", help="YAML config file")
     p.add_argument("--data-root", help="override dataset.root")
     p.add_argument("--dataset", help="override dataset.name")
-    p.add_argument("--coding", choices=["direct", "poisson", "temporal", "passthrough"])
+    p.add_argument("--coding", choices=["levels", "passthrough", "poisson", "temporal", "direct"])
     p.add_argument("--T", type=int, help="timesteps")
     p.add_argument("--resize-to", type=int, dest="resize_to")
     p.add_argument("--results-dir")
