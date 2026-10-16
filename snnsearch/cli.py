@@ -248,13 +248,18 @@ def _check(data_root=None):
     ]:
         mark = "ok  " if present else ("warn" if label == "hs_api" else "MISS")
         print(f"[{mark}] {label:<13} {'' if present else hint}")
-    for mod in ("ray", "optuna", "yaml"):
+    # ray.tune, not ray: a bare `pip install ray` imports fine and then fails
+    # in ray.tune for want of pydantic, which `ray[tune]` installs
+    for mod in ("ray.tune", "optuna", "yaml"):
         try:
             __import__(mod)
             print(f"[ok  ] {mod:<13}")
-        except ImportError:
-            need = "search mode" if mod in ("ray", "optuna") else "richer configs (a fallback parser is built in)"
-            print(f"[{'MISS' if mod != 'yaml' else 'warn'}] {mod:<13} needed for {need}")
+        except ImportError as exc:
+            need = ("search mode" if mod != "yaml"
+                    else "richer configs (a fallback parser is built in)")
+            fix = '  pip install "ray[tune]"' if mod == "ray.tune" else ""
+            print(f"[{'MISS' if mod != 'yaml' else 'warn'}] {mod:<13} needed for {need}: "
+                  f"{exc}{fix}")
     if _HAS_TORCH:
         import torch
         if torch.cuda.is_available():
