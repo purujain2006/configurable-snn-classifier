@@ -115,6 +115,161 @@ class Gate(unittest.TestCase):
         self.assertNotEqual(fingerprint(cfg()), fingerprint(cfg(grace_period=31)))
 
 
+GiB = 2**30
+L40S = 44.42 * GiB                  # mahowald's card, as torch reports it
+
+
+class Memory(unittest.TestCase):
+    """Search 05's first preflight measured 8.12 GiB for its heaviest trial and
+    suggested 0.333, while 0.25 passed its own check: the check left out the
+    CUDA context that the suggestion counted. It had also measured a block
+    trial chosen by chip neurons, and missed a heavier one."""
+
+    def test_ray_packing(self):
+        from snnsearch.preflight import ray_trials_per_gpu
+        for frac, n in ((1.0, 1), (0.5, 2), (0.333, 3), (0.25, 4), (0.167, 5), (0.166, 6)):
+            self.assertEqual(ray_trials_per_gpu(frac), n, frac)
+
+    def test_search05_numbers(self):
+        from snnsearch.preflight import memory_verdict
+        v = {f: memory_verdict(8.12 * GiB, L40S, f, 384, 5) for f in (0.167, 0.25, 0.333)}
+        self.assertFalse(v[0.167]["fits_cap"])
+        # its own cap holds it, but four at once plus their contexts overflow
+        self.assertTrue(v[0.25]["fits_cap"])
+        self.assertFalse(v[0.25]["fits_card"])
+        self.assertTrue(v[0.333]["fits_cap"] and v[0.333]["fits_card"])
+        self.assertEqual((v[0.25]["suggest"], v[0.25]["fit"]), (0.333, 3))
+
+    def test_the_suggestion_always_passes(self):
+        from snnsearch.preflight import memory_verdict
+        for total in (8 * GiB, 24 * GiB, L40S, 80 * GiB):
+            for tenth in range(1, 400):
+                peak = tenth / 10 * GiB
+                v = memory_verdict(peak, total, 1.0, 384, 5)
+                if v["fit"] < 1:
+                    self.assertIsNone(v["suggest"])
+                    continue
+                w = memory_verdict(peak, total, v["suggest"], 384, 5)
+                self.assertTrue(w["fits_cap"] and w["fits_card"], (total, peak))
+                self.assertEqual(w["resident"], v["fit"], (total, peak))
+
+    def test_cpu_cores_can_limit_the_suggestion(self):
+        from snnsearch.preflight import memory_verdict
+        v = memory_verdict(1 * GiB, L40S, 1.0, 8, 4)
+        self.assertEqual((v["fit"], v["suggest"], v["cpu_limited"]), (2, 0.5, True))
+
+
+class HeaviestTrial(unittest.TestCase):
+    """The memory check measures the heaviest trial, and random proposals
+    never find it: on DVS128 Gesture the climb lands at 2.7 times the heaviest
+    of 1,000 proposals that fit the chip."""
+
+    @classmethod
+    def setUpClass(cls):
+        import random
+        from snnsearch.spaces import (make_define_by_run, sample_config, balanced_points,
+                                      _LEGACY_DATA)
+        cls.data = dict(_LEGACY_DATA)
+        cls.space = make_define_by_run(16, 80, ".", [16, 48], True, data=cls.data,
+                                       max_input_bits=4, seed=1)
+        rng = random.Random(0)
+        block = balanced_points(24, seed=1, t_choices=[16, 48], batch_size=16, epochs=80,
+                                data=cls.data, max_input_bits=4, run_seed=1)
+        cls.block = [sample_config(cls.space, rng, fixed=p) for p in block]
+        cls.random = [f for f in (sample_config(cls.space, rng) for _ in range(2000))
+                      if not f.get("infeasible_geometry")]
+
+    def test_climb_beats_every_random_proposal_and_fits_the_chip(self):
+        from snnsearch.preflight import heaviest_shapes, activation_load
+        from snnsearch.spaces import geometry_fits
+        shapes = heaviest_shapes(self.space, self.block + self.random[:50], keep=2)
+        self.assertEqual(len(shapes), 2)
+        best = max(map(activation_load, self.random))
+        self.assertGreater(activation_load(shapes[0]), best)
+        self.assertGreaterEqual(activation_load(shapes[0]), activation_load(shapes[1]))
+        for f in shapes:
+            self.assertFalse(f.get("infeasible_geometry"))
+            self.assertTrue(geometry_fits(f))
+            self.assertEqual(f["T"], 48)
+
+    def test_heavy_variants(self):
+        from snnsearch.preflight import distinct_heaviest, heavy_variants, HEAVY_TRAINING
+        shape = distinct_heaviest(self.block, 1)[0]
+        variants = heavy_variants(self.space, shape)
+        self.assertEqual(sorted(v["norm"] for v in variants), ["bn", "tdbn"])
+        for v in variants:
+            for k, want in HEAVY_TRAINING.items():
+                self.assertEqual(v[k], want, k)
+            self.assertEqual(v["resize_to"], shape["resize_to"])
+            self.assertEqual(v["T"], shape["T"])
+
+    def test_an_option_the_space_no_longer_offers_is_drawn_instead(self):
+        import random
+        from snnsearch.preflight import _prefer_sample
+        f = _prefer_sample(self.space, random.Random(0),
+                           {**self.block[0], "loss": "gone", "conv_dropout": 9.0})
+        self.assertIn(f["loss"], ("rate", "tet"))
+        self.assertLessEqual(f.get("conv_dropout", 0.0), 0.3)
+
+    def test_uniform_space(self):
+        import random
+        from snnsearch.preflight import heaviest_shapes
+        from snnsearch.spaces import make_define_by_run, sample_config
+        space = make_define_by_run(16, 80, ".", [16, 48], False, data=self.data,
+                                   max_input_bits=1, seed=1)
+        rng = random.Random(0)
+        fits = [f for f in (sample_config(space, rng) for _ in range(300))
+                if not f.get("infeasible_geometry")]
+        shapes = heaviest_shapes(space, fits, keep=1)
+        self.assertEqual(len(shapes), 1)
+        self.assertEqual(shapes[0]["T"], 48)
+
+
+def _has_cuda():
+    if not importlib.util.find_spec("torch"):
+        return False
+    import torch
+    return torch.cuda.is_available()
+
+
+def _gib_block_point():
+    """The heaviest balanced-block trial under about 2 GiB at batch 16, light
+    enough for a laptop GPU and heavy enough that rounding in the allocator
+    does not decide the measurement."""
+    import random
+    from snnsearch.preflight import activation_load
+    from snnsearch.spaces import (make_define_by_run, sample_config, balanced_points,
+                                  _LEGACY_DATA)
+    data = dict(_LEGACY_DATA)
+    t = [16, 24, 32]
+    space = make_define_by_run(16, 80, ".", t, True, data=data, max_input_bits=4, seed=1)
+    rng = random.Random(0)
+    pts = [sample_config(space, rng, fixed=p)
+           for p in balanced_points(48, seed=1, t_choices=t, batch_size=16, epochs=80,
+                                    data=data, max_input_bits=4, run_seed=1)]
+    return max((p for p in pts if activation_load(p) <= 4e6), key=activation_load)
+
+
+@unittest.skipUnless(_has_cuda(), "needs a CUDA GPU")
+class MeasuredPeak(unittest.TestCase):
+    def test_a_trial_that_fits_is_measured_directly(self):
+        import torch
+        from snnsearch.preflight import (estimate_training_peak, extrapolated_peak,
+                                         measure_training_peak)
+        from snnsearch.spaces import config_to_specs
+        flat = _gib_block_point()
+        dev = torch.device("cuda")
+        direct = measure_training_peak(config_to_specs(flat), dev)
+        self.assertGreater(direct, 1 * GiB)
+        est, exact = estimate_training_peak(flat, dev)
+        self.assertTrue(exact)
+        self.assertLess(abs(est - direct) / direct, 0.02)
+        # the heaviest trial of the space may not fit the GPU at its batch
+        # size; then it is extrapolated from batches 8 and 4
+        line = extrapolated_peak(flat, dev, 8)
+        self.assertLess(abs(line - direct) / direct, 0.10, (line / GiB, direct / GiB))
+
+
 class Environment(unittest.TestCase):
     def test_every_package_module_that_is_imported_exists(self):
         """A file that never reached the cluster (git commit -a skips new

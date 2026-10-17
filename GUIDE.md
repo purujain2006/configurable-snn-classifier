@@ -141,7 +141,7 @@ Every line in those files is commented. The settings people change most:
 | `search.grace_period` | when early stopping first judges a trial; must come after the first quarter of the epochs |
 | `search.balanced_trials` | trials at the start in which every option is tried equally often; use about a quarter of the trials, a multiple of 6 |
 | `search.T_choices` | timesteps per sample to try; each costs a frame cache for event data |
-| `search.gpu_fraction` | the share of a GPU each trial gets; 0.25 runs 4 at once per GPU. The preflight measures what fits |
+| `search.gpu_fraction` | the share of a GPU each trial gets, and a hard cap on its memory; 0.25 runs 4 at once per GPU, 0.167 only 5 (Ray rounds down). The preflight measures what fits |
 | `search.finalists`, `search.finalist_seeds` | how many of the best trials to retrain at the end, and with how many seeds |
 
 Section 12 lists every setting.
@@ -161,7 +161,7 @@ about 15 minutes and checks, in order:
 | environment | every package imports, every package file exists, a GPU is visible, Ray's scratch folder is writable and has room |
 | dataset | the dataset loads, which frame caches still need building |
 | search space | the balanced block can be drawn, how many random proposals fit the chip, every block configuration builds, folds and exports |
-| memory | the largest network the search can propose, trained for a step on the GPU; whether it fits its share, and the `gpu_fraction` that would fit the most trials |
+| memory | the heaviest balanced-block trials, with both norms and every memory-adding option on, trained for a step in each phase on the GPU. FAIL unless the heaviest fits its own cap (`gpu_fraction` of the card) and the trials Ray packs onto one card, each with its CUDA context, fit the card. Prints the `gpu_fraction` that fits the most trials. Then it climbs to the heaviest trial Optuna could propose after the block and WARNs if it exceeds the cap, with the share of proposals that would |
 | exactness | two small networks trained on your data and checked clip by clip against the simulator |
 | mini search | a real search through Ray: six trials, the balanced block, early stopping, the simulator check, finalists, the report |
 
