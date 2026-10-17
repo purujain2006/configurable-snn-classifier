@@ -423,8 +423,8 @@ class DefineByRunSpace:
 BALANCED_FACTORS = {
     # geometry: drawn with the shape and checked against the chip with it
     "pooling": {
-        # no pooling anywhere: the first layer shrinks by stride, the rest
-        # by stride or not at all
+        # no pooling anywhere: every layer shrinks by stride or not at all.
+        # avg and max pool in at least one layer.
         "none": {},
         "avg": {"pool_type": "avg"},
         "max": {"pool_type": "max"},
@@ -487,13 +487,18 @@ def _random_geometry(rng, levels, t_choices, data, max_input_bits):
     the same ranges DefineByRunSpace samples from."""
     depth = rng.randint(2, 4)
     g = {"depth": depth}
-    for i in range(depth):
+    # Every layer, the first included, downsamples by stride, by pooling or
+    # not at all, as in the space. Pooling level "none" means no layer pools;
+    # avg and max mean at least one does, so the layers are drawn again until
+    # one pools. A first layer at full resolution is the heaviest shape the
+    # space can propose, so the block has to try it too.
+    choices = ["stride", "none"] if levels["pooling"] == "none" else ["stride", "pool", "none"]
+    downsample = [rng.choice(choices) for _ in range(depth)]
+    while levels["pooling"] != "none" and "pool" not in downsample:
+        downsample = [rng.choice(choices) for _ in range(depth)]
+    for i, ds in enumerate(downsample):
         g[f"k_{i}"] = rng.choice([3, 5, 7, 9])
         g[f"ch_{i}"] = int(round(math.exp(rng.uniform(math.log(8), math.log(128)))))
-        if levels["pooling"] == "none":
-            ds = rng.choice(["stride", "none"]) if i else "stride"
-        else:
-            ds = "pool" if i == 0 else rng.choice(["stride", "pool", "none"])
         g[f"ds_{i}"] = ds
         if ds == "stride":
             g[f"stride_{i}"] = 2

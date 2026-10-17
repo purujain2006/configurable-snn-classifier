@@ -301,6 +301,23 @@ class BalancedBlockTests(unittest.TestCase):
         points = self.check_block(MNIST, 1, 24)
         self.assertFalse(any("input_bits" in p for p in points))
 
+    def test_first_layer_takes_every_choice_the_space_offers(self):
+        """The space lets layer 0 downsample by stride, by pooling or not at
+        all, so the block tries all three. A first layer at full resolution
+        is also the heaviest shape the space can propose, and the preflight's
+        memory check measures the block's heaviest trial."""
+        trial, _ = sample(True, {**SMALL, "resize_to": 64})
+        offered = set(trial.calls["ds_0"][1])
+        self.assertIn("none", offered)
+        for data in (DVS, CIFAR):
+            with self.subTest(data=data["data_H"]):
+                points = balanced_points(48, seed=1, t_choices=[16, 24, 32, 48],
+                                         data=data, max_input_bits=4)
+                self.assertEqual({p["ds_0"] for p in points}, offered)
+                for p in points:
+                    pools = any(p[f"ds_{i}"] == "pool" for i in range(p["depth"]))
+                    self.assertEqual(pools, "pool_type" in p, p)
+
     def test_points_are_values_the_space_can_take(self):
         """Optuna replays each point through the space, so every value must
         be one the space would suggest."""
