@@ -22,6 +22,11 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 
 from snnsearch import cli, pipeline, runconfig, search
+# Imported before any test swaps sys.modules. patch.dict(sys.modules) drops a
+# module first imported inside it, and on older Pythons mock then patches the
+# dropped copy while the code imports a fresh one, so the space and the
+# summary went unpatched on mahowald.
+from snnsearch import cost, preflight, results, spaces  # noqa: F401
 from snnsearch._torch import _HAS_TORCH, _HAS_SPIKINGJELLY
 from snnsearch.data.base import DatasetBundle
 
