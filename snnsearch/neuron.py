@@ -291,6 +291,12 @@ if _HAS_TORCH:
                 return spike
             spike_neg = self._fire_reset_leak("v_neg", v_th_neg, grid, tau, v_reset)
             self.v_neg = self.v_neg - x
+            # Both trains are spikes on chip, so a firing rate counts both;
+            # the output, their difference, would let a -1 cancel a +1.
+            # train._RateProbe sets this list while it measures the rate.
+            activity = getattr(self, "_activity", None)
+            if activity is not None:
+                activity.append((spike + spike_neg).mean())
             return spike - spike_neg
 
         def extra_repr(self):

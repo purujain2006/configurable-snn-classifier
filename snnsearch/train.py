@@ -207,11 +207,24 @@ class _RateProbe:
         # Measured: trials with the penalty on reached 0.332 at epoch 9 against
         # 0.626 without it, and 92% of them were killed at the first rung
         # against 43%. Not a slow start, a network being told to go quiet.
-        for m in nodes[:-1]:
+        self._nodes = nodes[:-1]
+        for m in self._nodes:
+            if getattr(m, "signed", False):
+                m._activity = []
             self._handles.append(m.register_forward_hook(self._hook))
 
-    def _hook(self, _mod, _inp, out):
-        self.rates.append(out.mean())
+    def _hook(self, mod, _inp, out):
+        steps = getattr(mod, "_activity", None)
+        if steps:
+            # A signed unit outputs spike - spike_neg, so its mean let every
+            # -1 spike LOWER the penalty: Search 05's first trials with signed
+            # spikes and the penalty on were rewarded for negative spikes. Its
+            # rate is the two trains' sum instead, which the neuron records at
+            # every step (once per call in single-step mode, T in multi-step).
+            self.rates.append(torch.stack(steps).mean())
+            steps.clear()
+        else:
+            self.rates.append(out.mean())
 
     def mean(self):
         """Scalar mean rate for the batch just run, or None if nothing fired."""
@@ -221,11 +234,17 @@ class _RateProbe:
 
     def clear(self):
         self.rates.clear()
+        for m in self._nodes:
+            if getattr(m, "_activity", None):
+                m._activity.clear()
 
     def detach(self):
         for h in self._handles:
             h.remove()
         self._handles = []
+        for m in self._nodes:
+            if getattr(m, "_activity", None) is not None:
+                m._activity = None
 
 
 def train_one_epoch(net, loader, optimizer, device, criterion=None,

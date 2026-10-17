@@ -105,6 +105,41 @@ class ExactArithmeticTests(unittest.TestCase):
             b.cudnn.allow_tf32, b.cuda.matmul.allow_tf32 = before
 
 
+class RatePenaltyTests(unittest.TestCase):
+    def rate(self, drive, step_mode):
+        from snnsearch.neuron import HardwareLIFNode
+        from snnsearch.train import _RateProbe
+        x = torch.full((4, 1, 2), float(drive)).requires_grad_()
+        # the last spiking layer is the prediction and is never penalized
+        net = torch.nn.Sequential(HardwareLIFNode(signed=True, step_mode=step_mode),
+                                  HardwareLIFNode(step_mode=step_mode))
+        probe = _RateProbe(net)
+        if step_mode == "m":
+            net(x)
+        else:
+            for t in range(x.shape[0]):
+                net(x[t])
+        rate = probe.mean()
+        rate.backward()
+        probe.detach()
+        self.assertIsNone(net[0]._activity)
+        return float(rate), float(x.grad.sum())
+
+    def test_a_negative_spike_costs_what_a_positive_one_does(self):
+        """A signed unit sends +1 or -1, and both are a spike on chip. The
+        penalty used to average the output, so a -1 lowered it and the
+        network was rewarded for negative spikes."""
+        for step_mode in ("s", "m"):
+            with self.subTest(step_mode=step_mode):
+                up, grad_up = self.rate(2.0, step_mode)
+                down, grad_down = self.rate(-2.0, step_mode)
+                self.assertGreater(up, 0)
+                self.assertAlmostEqual(down, up, places=6)
+                # descent moves the input toward zero either way: fewer spikes
+                self.assertGreater(grad_up, 0)
+                self.assertLess(grad_down, 0)
+
+
 class TrainingTests(unittest.TestCase):
     def train(self, flat):
         with redirect_stdout(io.StringIO()):

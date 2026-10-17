@@ -8,8 +8,11 @@
 #   * T is searched over 16, 24, 32 and 48: every one of Search 04's top 10
 #     used T = 32, the largest it could pick, so the best T may be larger
 #   * two trials share the GPU instead of four: the heaviest block trial
-#     (T = 24, 88x88, tdBN) peaks at 13.4 GiB, which needs half of mahowald's
-#     L40S with margin; `main.py preflight` measures it and says what fits
+#     needs about half of mahowald's L40S with margin; `main.py preflight`
+#     measures it and says what fits
+#   * restarted on 2026-10-17: in the first start the firing-rate penalty
+#     rewarded -1 spikes on signed-spike trials. Those trials are in
+#     results/dvs128_search05_stopped and do not compare with these.
 #
 # Run `python main.py preflight -c configs/dvs128_search05.yaml` first, on the
 # machine the search runs on. The search will not start until it has passed.
