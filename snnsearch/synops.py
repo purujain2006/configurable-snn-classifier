@@ -30,7 +30,7 @@ WHY IT IS WORTH REPORTING ANYWAY
 
 import math
 
-from ._torch import torch
+from ._torch import torch, F
 
 
 class SynOpsCounter:
@@ -50,6 +50,8 @@ class SynOpsCounter:
         self.spike_elements = {}  # spiking layer name -> neuron-timesteps
         self.calls = {}         # weight layer name -> forward calls
         self.samples = 0
+        self._mag = {}          # id(pooled tensor) -> (tensor, |spikes| behind it)
+        self._or_prev = {}      # OR pool name -> what it emits next step, as |spikes|
         self._handles = []
 
     # ---- collection -----------------------------------------------------
@@ -67,8 +69,15 @@ class SynOpsCounter:
         arithmetic, and at hook time its input tensor says how much of that
         arithmetic a spike actually triggered. Nothing is paired, nothing can
         slide, and the number cannot exceed the layer's own dense cost.
+
+        Signed spikes are +1 or -1, and each is one event, so activity is
+        counted on magnitudes. Behind a pool that is not enough: the average
+        of a +1 and a -1 is 0, and so is OR(+) - OR(-) when both fired. So the
+        pooling and flatten layers are hooked too, and carry |spikes| beside
+        the values: a weight layer counts what the same network would with
+        every spike positive. For 0/1 spikes that is the tensor itself.
         """
-        from .neuron import HardwareLIFNode
+        from .neuron import HardwareLIFNode, OrPool
         try:
             from torch import nn as _nn
         except Exception:                     # pragma: no cover - torch absent
@@ -81,6 +90,12 @@ class SynOpsCounter:
             elif isinstance(mod, HardwareLIFNode):
                 self._handles.append(
                     mod.register_forward_hook(self._make_spike_hook(name)))
+            elif OrPool is not None and isinstance(mod, OrPool):
+                pre, post = self._make_or_hooks(name)
+                self._handles.append(mod.register_forward_pre_hook(pre))
+                self._handles.append(mod.register_forward_hook(post))
+            elif isinstance(mod, (_nn.AvgPool2d, _nn.AdaptiveAvgPool2d, _nn.Flatten)):
+                self._handles.append(mod.register_forward_hook(self._pass_hook))
         return self
 
     @staticmethod
@@ -101,11 +116,13 @@ class SynOpsCounter:
             with torch.no_grad():
                 dense = self._dense_macs(mod, x, out)
                 # The share of the dense arithmetic that a spike drove. Exact
-                # for Linear with binary input; Conv2d uses a mean-activity
-                # estimate (padding and stride can vary a spike's fan-out).
-                # Fractional inputs, including average pooling, retain their
-                # activity rather than being rounded to binary spikes.
-                active = float(x.sum(dtype=torch.float64).item()) / float(x.numel())
+                # for Linear with spike input, signed or not; Conv2d uses a
+                # mean-activity estimate (padding and stride can vary a spike's
+                # fan-out). Fractional inputs, including average pooling,
+                # retain their activity rather than being rounded to binary
+                # spikes.
+                mag = self._magnitude(x)
+                active = float(mag.sum(dtype=torch.float64).item()) / float(x.numel())
                 self.ops[name] = self.ops.get(name, 0.0) + active * dense
                 # Count the actual tensor shape on EVERY invocation. This
                 # includes the batch/time axes in multi-step mode and handles
@@ -116,18 +133,80 @@ class SynOpsCounter:
 
     def _make_spike_hook(self, name):
         def hook(_mod, _inp, out):
-            # `out` is the spike tensor: exactly 0 or 1, so sum == spike count.
-            # Reported for the firing rate; it no longer feeds the SynOps total.
+            # `out` is the spike tensor: 0 or 1, or 0, +1 or -1 for a signed
+            # unit (two chip neurons, out = spike - spike_neg). Every nonzero
+            # is one spike, so sum |out| == spike count, and the firing rate
+            # is spikes per unit per step. Reported for the firing rate; it no
+            # longer feeds the SynOps total.
             with torch.no_grad():
                 self.spikes[name] = self.spikes.get(name, 0) + float(
-                    out.sum(dtype=torch.float64).item())
+                    out.abs().sum(dtype=torch.float64).item())
                 self.spike_elements[name] = self.spike_elements.get(name, 0) + out.numel()
+            # Pooled tensors from before this layer are not what any later
+            # weight layer reads in a feed-forward stack; do not hold them.
+            self._mag.clear()
         return hook
+
+    def _magnitude(self, x):
+        """|spikes| behind x: what a pool hook recorded for x, else |x|.
+
+        The stored reference keeps the tensor alive, so its id cannot be
+        reused while the entry exists. Each entry is read once.
+        """
+        entry = self._mag.pop(id(x), None)
+        return entry[1] if entry is not None else x.abs()
+
+    def _pass_hook(self, mod, inp, out):
+        """Average pooling, GAP and flatten: run the same layer on |spikes|.
+
+        forward() rather than mod(...), so this hook does not fire again.
+        """
+        if not inp or not torch.is_tensor(inp[0]):
+            return
+        with torch.no_grad():
+            mag = mod.forward(self._magnitude(inp[0]))
+        self._mag[id(out)] = (out, mag)
+
+    def _make_or_hooks(self, name):
+        """OR pooling on |spikes|: one event per window that held a spike.
+
+        On chip a signed OR pool is one OR neuron per sign, so a window where
+        both signs fired in one step is two events; this counts one, as the
+        network with every spike positive would, and keeps every input's
+        activity at most 1 so the dense ceiling stays a hard bound. The OR
+        neurons emit one step late (neuron.OrPool), and so does this.
+        """
+        def pre(mod, _inp):
+            if mod.prev is None:              # reset_net: a new sample starts
+                self._or_prev.pop(name, None)
+
+        def post(mod, inp, out):
+            if not inp or not torch.is_tensor(inp[0]):
+                return
+            k, s = mod.kernel_size, mod.stride
+            with torch.no_grad():
+                src = self._magnitude(inp[0])
+                last = self._or_prev.get(name)
+                if mod.step_mode == "m":
+                    T, N = src.shape[:2]
+                    now = F.max_pool2d(src.flatten(0, 1), k, s)
+                    now = now.reshape(T, N, *now.shape[1:])
+                    first = torch.zeros_like(now[0]) if last is None else last
+                    mag = torch.cat([first.unsqueeze(0), now[:-1]], dim=0)
+                    self._or_prev[name] = now[-1]
+                else:
+                    now = F.max_pool2d(src, k, s)
+                    mag = torch.zeros_like(now) if last is None else last
+                    self._or_prev[name] = now
+            self._mag[id(out)] = (out, mag)
+        return pre, post
 
     def detach(self):
         for h in self._handles:
             h.remove()
         self._handles = []
+        self._mag.clear()
+        self._or_prev.clear()
 
     def __enter__(self):
         return self
@@ -142,6 +221,8 @@ class SynOpsCounter:
         self.spikes.clear()
         self.spike_elements.clear()
         self.calls.clear()
+        self._mag.clear()
+        self._or_prev.clear()
         self.samples = 0
 
     def add_samples(self, n):

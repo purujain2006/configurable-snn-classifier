@@ -430,7 +430,10 @@ Only for `single` without `--from-best`: the network to train, as fields of
 | `weight` | 0 | for `weighted` |
 
 SynOps is the number of synaptic operations per sample, the usual proxy for a
-spiking network's energy.
+spiking network's energy. A signed spike, +1 or -1, counts as one event, so a
+signed network reports the same SynOps as an unsigned one with the same spikes.
+Before 2026-10-17 a -1 cancelled a +1: signed trials of Search 04 and earlier
+runs report SynOps too low, or none.
 
 ### limits
 

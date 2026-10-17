@@ -251,6 +251,161 @@ def with_torch():
                s["synops_per_sample"] is None and "ceiling" in s.get("reason", ""))
 
 
+def check_num(name, got, want):
+    """check(), but a missing (None) measurement fails instead of raising."""
+    if got is None or want is None:
+        return check_true(name, False, f"got {got}  want {want}")
+    return check(name, got, want)
+
+
+def signed_spikes():
+    """A signed spike is +1 or -1, and either is one event.
+
+    Summing spikes let a -1 cancel a +1. Search 05's best trial, signed, got
+    no SynOps at all: the sum came out negative and was rejected as invalid.
+    Behind a pool the cancelling is worse, because the average of +1 and -1
+    is 0, and so is OR(+) - OR(-) when both fire.
+
+    The reference is the same network with every spike positive: weights |w|
+    on an input whose two channels never overlap make each unit's drive
+    |w . x|, so it fires exactly where the signed unit fired, sign dropped.
+    """
+    import torch
+    from torch import nn
+    from spikingjelly.activation_based import functional, layer
+    from snnsearch._torch import set_step_mode
+    from snnsearch.neuron import HardwareLIFNode, OrPool
+    from snnsearch.synops import SynOpsCounter
+
+    print("\n-- signed spikes --")
+
+    lin = nn.Linear(1024, 512, bias=False)
+    x = torch.zeros(1, 1024)
+    x[0, :60] = 1.0
+    x[0, 60:100] = -1.0
+    c = SynOpsCounter()
+    with c.attach(lin), torch.no_grad():
+        lin(x)
+        c.add_samples(1)
+    check_num("Linear, 60 of +1 and 40 of -1", c.summary()["synops_per_sample"], 100 * 512)
+    c.reset()
+    with c.attach(lin), torch.no_grad():
+        lin(-torch.ones(1, 1024))
+        c.add_samples(1)
+    check_num("Linear, all -1 == dense MACs", c.summary()["synops_per_sample"], 1024 * 512)
+
+    # Channel 0 on a checkerboard, channel 1 on the other squares. The signed
+    # weights drive +1 on one colour and -1 on the other, so every 2x2 window
+    # holds two of each and averages to zero.
+    board = (torch.arange(4).reshape(4, 1) + torch.arange(4)) % 2
+    x = torch.stack([board, 1 - board]).float().unsqueeze(0)      # 1, 2, 4, 4
+    w = torch.tensor([[1.0, -1.0], [-1.0, 1.0]]).reshape(2, 2, 1, 1)
+    T = 4
+
+    def build(signed, pool, step_mode):
+        conv = layer.Conv2d(2, 2, kernel_size=1, bias=False)
+        with torch.no_grad():
+            conv.weight.copy_(w if signed else w.abs())
+        pooling = {"avg": layer.AvgPool2d(2), "gap": layer.AdaptiveAvgPool2d(1),
+                   "or": OrPool(2, 2)}[pool]
+        net = nn.Sequential(conv, HardwareLIFNode(v_threshold=0.5, signed=signed), pooling,
+                            layer.Flatten(), layer.Linear(2 if pool == "gap" else 8, 3, bias=False))
+        set_step_mode(net, step_mode)
+        return net.eval()
+
+    def measure(net, step_mode):
+        """Two samples with a reset between, as forward_over_time runs them."""
+        spikes = []
+        probe = net[1].register_forward_hook(lambda m, i, o: spikes.append(o.reshape(-1).clone()))
+        c = SynOpsCounter()
+        with c.attach(net), torch.no_grad():
+            for _sample in range(2):
+                if step_mode == "m":
+                    net(x.unsqueeze(0).expand(T, *x.shape).contiguous())
+                else:
+                    for _t in range(T):
+                        net(x)
+                functional.reset_net(net)
+                c.add_samples(1)
+        probe.remove()
+        return c.summary(), torch.cat(spikes)
+
+    # By hand, per sample: the conv reads 16 of 32 inputs on each of 4 steps,
+    # 0.5 x 64 x 4 = 128. All 32 units fire on steps 2 to 4 (the hardware
+    # neuron fires on the membrane carried in). The head reads |spikes|
+    # pooled to 1.0: avg 3 steps x 24 MACs, GAP 3 x 6, and OR 2 x 24 because
+    # the OR neurons emit one step late. OR's count also proves the reset:
+    # carrying sample 1's last step into sample 2 would add 24 to sample 2.
+    want = {"avg": 128 + 72, "gap": 128 + 18, "or": 128 + 48}
+    for step_mode in ("s", "m"):
+        for pool in ("avg", "gap", "or"):
+            tag = f"{pool} pool, step mode {step_mode}:"
+            s_signed, spk_signed = measure(build(True, pool, step_mode), step_mode)
+            s_plain, spk_plain = measure(build(False, pool, step_mode), step_mode)
+            check_true(f"{tag} signed net fires -1 spikes", bool((spk_signed < 0).any()))
+            check_true(f"{tag} |spikes| equal the unsigned net's",
+                       torch.equal(spk_signed.abs(), spk_plain))
+            syn = s_signed["synops_per_sample"]
+            check_true(f"{tag} signed SynOps is positive", syn is not None and syn > 0,
+                       s_signed.get("reason", ""))
+            check_num(f"{tag} unsigned SynOps by hand", s_plain["synops_per_sample"], want[pool])
+            check_num(f"{tag} signed SynOps == unsigned", syn, s_plain["synops_per_sample"])
+            check_num(f"{tag} signed head == unsigned head",
+                      s_signed["per_layer"]["4"]["synops_per_sample"],
+                      s_plain["per_layer"]["4"]["synops_per_sample"])
+            check_num(f"{tag} signed firing rate == unsigned",
+                      s_signed["firing_rate"], s_plain["firing_rate"])
+    check_num("firing rate counts every |spike|", s_signed["firing_rate"], 0.75)
+
+    print("\n-- signed spikes in the deployed model --")
+    deployed_signed_model()
+
+
+def deployed_signed_model():
+    """The real converted network, signed, through measure_synops: the module
+    types, flush steps and step modes a search trial actually measures."""
+    import json
+    import torch
+    from snnsearch.config import (InputSpec, EncoderSpec, OutputSpec, DownsampleSpec,
+                                  HeadSpec, NeuronSpec, TrainSpec)
+    from snnsearch.model import build_model
+    from snnsearch.neuron import HardwareLIFNode
+    from snnsearch.synops import measure_synops
+
+    layers = [{"out_channels": 6, "kernel_size": 3, "stride": 1, "pool": True},
+              {"out_channels": 5, "kernel_size": 5, "stride": 1, "pool": True}]
+    for pool_type, head, norm in (("avg", "gap", "bn"), ("max", "flatten", "bn"),
+                                  ("avg", "flatten", "tdbn")):
+        torch.manual_seed(0)
+        spec = {"input": InputSpec(C=2, H=16, W=16, T=6, resize_to=16, N=2),
+                "encoder": EncoderSpec(layers_json=json.dumps(layers), norm=norm),
+                "output": OutputSpec(num_classes=4),
+                "downsample": DownsampleSpec(mode="stride", pool_type=pool_type),
+                "head": HeadSpec(final_reduction=head, fc_widths="", dropout_rate=0.0),
+                "neuron": NeuronSpec(tau=4, signed_spikes=True),
+                "train": TrainSpec(fold_bias_mode="threshold")}
+        net = build_model(spec).eval()
+        net.to_qat_folded(bias_mode="threshold")
+        for m in net.modules():
+            if hasattr(m, "bn"):
+                m.conv.weight.data.mul_(4)
+        net = net.export_deployed().eval()
+        for m in net.conv_fc:            # low thresholds so every layer fires
+            if isinstance(m, HardwareLIFNode):
+                m.learn_threshold = False
+                m._v_threshold_const = 0.03
+                m._v_threshold_neg_const = 0.03
+        loader = [((torch.rand(2, 6, 2, 16, 16) < 0.3).float(), torch.zeros(2, dtype=torch.long))
+                  for _ in range(2)]
+        s = measure_synops(net, loader, torch.device("cpu"), spec=spec)
+        tag = f"{pool_type} pool, {head}, {norm}:"
+        syn = s["synops_per_sample"]
+        check_true(f"{tag} SynOps measured", syn is not None and syn > 0, s.get("reason", ""))
+        check_true(f"{tag} within the dense ceiling",
+                   syn is not None and syn <= s["synops_ceiling_per_sample"])
+        check_true(f"{tag} firing rate positive", (s.get("firing_rate") or 0) > 0)
+
+
 def main():
     print("=" * 74)
     print("SynOps arithmetic")
@@ -264,6 +419,7 @@ def main():
         print("  Run this on the cluster to exercise the hooks.")
     else:
         with_torch()
+        signed_spikes()
     print("\n" + "=" * 74)
     print(f"{passed}/{passed + failed} passed")
     print("SYNOPS TESTS PASSED" if not failed else "SYNOPS TESTS FAILED")
