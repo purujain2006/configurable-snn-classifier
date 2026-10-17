@@ -432,8 +432,10 @@ Only for `single` without `--from-best`: the network to train, as fields of
 SynOps is the number of synaptic operations per sample, the usual proxy for a
 spiking network's energy. A signed spike, +1 or -1, counts as one event, so a
 signed network reports the same SynOps as an unsigned one with the same spikes.
-Before 2026-10-17 a -1 cancelled a +1: signed trials of Search 04 and earlier
-runs report SynOps too low, or none.
+With `input_bits` B > 1 each input value is B axons, one per bit, so the first
+layer counts one event per set bit and its ceiling is B times larger. Before
+2026-10-17 a -1 cancelled a +1 and a level counted as its value: signed or
+multi-bit trials of Search 04 and earlier runs report SynOps wrong, or none.
 
 ### limits
 

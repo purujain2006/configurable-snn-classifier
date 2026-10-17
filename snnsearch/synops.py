@@ -50,8 +50,10 @@ class SynOpsCounter:
         self.spike_elements = {}  # spiking layer name -> neuron-timesteps
         self.calls = {}         # weight layer name -> forward calls
         self.samples = 0
-        self._mag = {}          # id(pooled tensor) -> (tensor, |spikes| behind it)
+        # id(tensor) -> (tensor, events behind each element, sources per element)
+        self._mag = {}
         self._or_prev = {}      # OR pool name -> what it emits next step, as |spikes|
+        self._input_problem = None  # why the input has no on-chip form, if it has none
         self._handles = []
 
     # ---- collection -----------------------------------------------------
@@ -76,6 +78,11 @@ class SynOpsCounter:
         pooling and flatten layers are hooked too, and carry |spikes| beside
         the values: a weight layer counts what the same network would with
         every spike positive. For 0/1 spikes that is the tensor itself.
+
+        B-bit input (net.input_bits > 1) arrives as levels 0 to 2**B - 1, but
+        the chip carries each value on B axons, one per bit (hs_export). So
+        the network's input counts one event per set bit, and the layer that
+        reads it has B synapses per value: B times the dense ceiling.
         """
         from .neuron import HardwareLIFNode, OrPool
         try:
@@ -83,6 +90,9 @@ class SynOpsCounter:
         except Exception:                     # pragma: no cover - torch absent
             return self
         self.detach()
+        bits = int(getattr(net, "input_bits", 1) or 1)
+        if bits > 1:
+            self._handles.append(net.register_forward_pre_hook(self._make_input_hook(bits)))
         for name, mod in net.named_modules():
             if isinstance(mod, (_nn.Conv2d, _nn.Linear)):
                 self._handles.append(
@@ -121,13 +131,14 @@ class SynOpsCounter:
                 # fan-out). Fractional inputs, including average pooling,
                 # retain their activity rather than being rounded to binary
                 # spikes.
-                mag = self._magnitude(x)
+                mag, sources = self._magnitude(x)
                 active = float(mag.sum(dtype=torch.float64).item()) / float(x.numel())
                 self.ops[name] = self.ops.get(name, 0.0) + active * dense
                 # Count the actual tensor shape on EVERY invocation. This
                 # includes the batch/time axes in multi-step mode and handles
                 # uneven final batches without confusing calls with timesteps.
-                self.dense_macs[name] = self.dense_macs.get(name, 0) + dense
+                # B-bit input is B axons per value, each with its own synapse.
+                self.dense_macs[name] = self.dense_macs.get(name, 0) + dense * sources
                 self.calls[name] = self.calls.get(name, 0) + 1
         return hook
 
@@ -148,13 +159,33 @@ class SynOpsCounter:
         return hook
 
     def _magnitude(self, x):
-        """|spikes| behind x: what a pool hook recorded for x, else |x|.
+        """(events behind each element of x, sources per element).
 
-        The stored reference keeps the tensor alive, so its id cannot be
-        reused while the entry exists. Each entry is read once.
+        What a hook recorded for x, else (|x|, 1). The stored reference keeps
+        the tensor alive, so its id cannot be reused while the entry exists.
+        Each entry is read once.
         """
         entry = self._mag.pop(id(x), None)
-        return entry[1] if entry is not None else x.abs()
+        return (entry[1], entry[2]) if entry is not None else (x.abs(), 1)
+
+    def _make_input_hook(self, bits):
+        """The network's B-bit input as the chip sends it: a spike per set bit."""
+        top = 2 ** bits - 1
+
+        def hook(_mod, args):
+            if not args or not torch.is_tensor(args[0]):
+                return
+            x = args[0]
+            with torch.no_grad():
+                # hs_export refuses the same input: an axon carries one bit
+                if not bool(torch.all((x == torch.round(x)) & (x >= 0) & (x <= top))):
+                    self._input_problem = (f"input is not whole levels 0..{top}; "
+                                           f"{bits} axons per value cannot carry it")
+                    return
+                v = x.to(torch.int64)
+                mag = sum((v >> k) & 1 for k in range(bits)).to(x.dtype)
+            self._mag[id(x)] = (x, mag, bits)
+        return hook
 
     def _pass_hook(self, mod, inp, out):
         """Average pooling, GAP and flatten: run the same layer on |spikes|.
@@ -164,8 +195,9 @@ class SynOpsCounter:
         if not inp or not torch.is_tensor(inp[0]):
             return
         with torch.no_grad():
-            mag = mod.forward(self._magnitude(inp[0]))
-        self._mag[id(out)] = (out, mag)
+            mag, sources = self._magnitude(inp[0])
+            mag = mod.forward(mag)
+        self._mag[id(out)] = (out, mag, sources)
 
     def _make_or_hooks(self, name):
         """OR pooling on |spikes|: one event per window that held a spike.
@@ -185,7 +217,7 @@ class SynOpsCounter:
                 return
             k, s = mod.kernel_size, mod.stride
             with torch.no_grad():
-                src = self._magnitude(inp[0])
+                src, sources = self._magnitude(inp[0])
                 last = self._or_prev.get(name)
                 if mod.step_mode == "m":
                     T, N = src.shape[:2]
@@ -198,7 +230,7 @@ class SynOpsCounter:
                     now = F.max_pool2d(src, k, s)
                     mag = torch.zeros_like(now) if last is None else last
                     self._or_prev[name] = now
-            self._mag[id(out)] = (out, mag)
+            self._mag[id(out)] = (out, mag, sources)
         return pre, post
 
     def detach(self):
@@ -223,6 +255,7 @@ class SynOpsCounter:
         self.calls.clear()
         self._mag.clear()
         self._or_prev.clear()
+        self._input_problem = None
         self.samples = 0
 
     def add_samples(self, n):
@@ -255,7 +288,7 @@ class SynOpsCounter:
         # measured and gets too tight when one call contains multiple timesteps.
         # Checking each layer also catches an impossible layer hidden by silent
         # layers elsewhere in the network. No cost table is needed for safety.
-        problems = []
+        problems = [self._input_problem] if self._input_problem else []
         for name, ops in self.ops.items():
             dense = self.dense_macs.get(name)
             if dense is None:

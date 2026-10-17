@@ -361,40 +361,49 @@ def signed_spikes():
     deployed_signed_model()
 
 
-def deployed_signed_model():
-    """The real converted network, signed, through measure_synops: the module
-    types, flush steps and step modes a search trial actually measures."""
+def deployed_model(pool_type, head, norm, signed, bits=1):
+    """A small converted network, as a search trial measures it, with low
+    thresholds so every layer fires. Input is 2 x 16 x 16, T = 6."""
     import json
     import torch
     from snnsearch.config import (InputSpec, EncoderSpec, OutputSpec, DownsampleSpec,
                                   HeadSpec, NeuronSpec, TrainSpec)
     from snnsearch.model import build_model
     from snnsearch.neuron import HardwareLIFNode
-    from snnsearch.synops import measure_synops
 
+    torch.manual_seed(0)
     layers = [{"out_channels": 6, "kernel_size": 3, "stride": 1, "pool": True},
               {"out_channels": 5, "kernel_size": 5, "stride": 1, "pool": True}]
+    spec = {"input": InputSpec(C=2, H=16, W=16, T=6, resize_to=16, N=2, input_bits=bits),
+            "encoder": EncoderSpec(layers_json=json.dumps(layers), norm=norm),
+            "output": OutputSpec(num_classes=4),
+            "downsample": DownsampleSpec(mode="stride", pool_type=pool_type),
+            "head": HeadSpec(final_reduction=head, fc_widths="", dropout_rate=0.0),
+            "neuron": NeuronSpec(tau=4, signed_spikes=signed),
+            "train": TrainSpec(fold_bias_mode="threshold")}
+    net = build_model(spec).eval()
+    net.to_qat_folded(bias_mode="threshold")
+    for m in net.modules():
+        if hasattr(m, "bn"):
+            m.conv.weight.data.mul_(4)
+    net = net.export_deployed().eval()
+    for m in net.conv_fc:
+        if isinstance(m, HardwareLIFNode):
+            m.learn_threshold = False
+            m._v_threshold_const = 0.03
+            m._v_threshold_neg_const = 0.03
+    return net, spec
+
+
+def deployed_signed_model():
+    """The real converted network, signed, through measure_synops: the module
+    types, flush steps and step modes a search trial actually measures."""
+    import torch
+    from snnsearch.synops import measure_synops
+
     for pool_type, head, norm in (("avg", "gap", "bn"), ("max", "flatten", "bn"),
                                   ("avg", "flatten", "tdbn")):
-        torch.manual_seed(0)
-        spec = {"input": InputSpec(C=2, H=16, W=16, T=6, resize_to=16, N=2),
-                "encoder": EncoderSpec(layers_json=json.dumps(layers), norm=norm),
-                "output": OutputSpec(num_classes=4),
-                "downsample": DownsampleSpec(mode="stride", pool_type=pool_type),
-                "head": HeadSpec(final_reduction=head, fc_widths="", dropout_rate=0.0),
-                "neuron": NeuronSpec(tau=4, signed_spikes=True),
-                "train": TrainSpec(fold_bias_mode="threshold")}
-        net = build_model(spec).eval()
-        net.to_qat_folded(bias_mode="threshold")
-        for m in net.modules():
-            if hasattr(m, "bn"):
-                m.conv.weight.data.mul_(4)
-        net = net.export_deployed().eval()
-        for m in net.conv_fc:            # low thresholds so every layer fires
-            if isinstance(m, HardwareLIFNode):
-                m.learn_threshold = False
-                m._v_threshold_const = 0.03
-                m._v_threshold_neg_const = 0.03
+        net, spec = deployed_model(pool_type, head, norm, signed=True)
         loader = [((torch.rand(2, 6, 2, 16, 16) < 0.3).float(), torch.zeros(2, dtype=torch.long))
                   for _ in range(2)]
         s = measure_synops(net, loader, torch.device("cpu"), spec=spec)
@@ -404,6 +413,79 @@ def deployed_signed_model():
         check_true(f"{tag} within the dense ceiling",
                    syn is not None and syn <= s["synops_ceiling_per_sample"])
         check_true(f"{tag} firing rate positive", (s.get("firing_rate") or 0) > 0)
+
+
+def multi_bit_input():
+    """B-bit input: levels 0 to 2**B - 1, carried on B axons per value.
+
+    Search 05 rejected multi-bit trials with "exceeds the dense ceiling", by
+    up to 4x: the first layer counted a level of 7 as seven events against a
+    ceiling of one per value. On chip a 7 is three axon spikes (bits 0, 1
+    and 2), and a value has B synapses per weight, so the count is the set
+    bits and the ceiling is B times the layer's dense MACs.
+    """
+    import torch
+    from torch import nn
+    from snnsearch.encoders import LevelsEncoder, PassthroughEncoder
+    from snnsearch.synops import SynOpsCounter
+    from snnsearch.train import forward_over_time
+
+    print("\n-- multi-bit input --")
+
+    net = nn.Sequential(nn.Conv2d(1, 4, kernel_size=1, bias=False))
+    net.input_bits = 3
+
+    def count(x):
+        c = SynOpsCounter()
+        with c.attach(net), torch.no_grad():
+            net(x)
+            c.add_samples(1)
+        return c.summary()
+
+    # every level 0..7 once: 0+1+1+2+1+2+2+3 = 12 axon spikes, each reaching
+    # the 4 outputs of a 1x1 conv; 8 values x 3 axons x 4 outputs at most
+    s = count(torch.arange(8.0).reshape(1, 1, 2, 4))
+    check_num("levels 0..7 count one event per set bit", s["synops_per_sample"], 12 * 4)
+    check_num("ceiling is B synapses per value", s["synops_ceiling_per_sample"], 8 * 3 * 4)
+    s = count(torch.full((1, 1, 2, 4), 7.0))
+    check_num("every bit set reaches the ceiling, no more", s["synops_per_sample"], 8 * 3 * 4)
+    s = count(torch.full((1, 1, 2, 4), 2.5))
+    check_true("a value no axon can carry is no measurement",
+               s["synops_per_sample"] is None and "whole levels" in s.get("reason", ""),
+               s.get("reason", ""))
+
+    # The encoders a search uses, into the converted network. Both inputs
+    # average above one level, where the old count overflowed the ceiling.
+    torch.manual_seed(1)
+    cases = (("passthrough", 3, PassthroughEncoder(T=6, size=(16, 16), input_bits=3),
+              torch.randint(0, 4, (2, 6, 2, 32, 32)).float()),      # event counts
+             ("levels", 2, LevelsEncoder(T=6, input_bits=2),
+              torch.rand(2, 2, 16, 16)))                             # an image
+    for coding, B, encoder, raw in cases:
+        tag = f"{coding}, {B} bits:"
+        x = encoder(raw)
+        check_true(f"{tag} whole levels, mean above 1",
+                   bool(torch.all(x == x.round()) and x.max() == 2 ** B - 1 and x.mean() > 1),
+                   f"mean {float(x.mean()):.2f}")
+        net, _spec = deployed_model("avg", "gap", "bn", signed=False, bits=B)
+        c = SynOpsCounter()
+        with c.attach(net), torch.no_grad():
+            forward_over_time(net, x)
+            c.add_samples(x.shape[0])
+        s = c.summary()
+        check_true(f"{tag} SynOps measured", (s["synops_per_sample"] or 0) > 0,
+                   s.get("reason", ""))
+        # The first conv reads N x C x H x W values per step; flush steps
+        # read zeros. Its dense MACs per call, one per value, times the set
+        # bits over all steps, over the values per call, per sample:
+        first = "conv_fc.0"
+        v = x.long()
+        bits_set = float(sum(((v >> k) & 1).sum() for k in range(B)))
+        per_call = c.dense_macs[first] / (B * c.calls[first])
+        values_per_call = x.numel() / x.shape[1]
+        check_num(f"{tag} first layer counts the set bits",
+                  s["per_layer"][first]["synops_per_sample"],
+                  bits_set / values_per_call * per_call / x.shape[0])
 
 
 def main():
@@ -420,6 +502,7 @@ def main():
     else:
         with_torch()
         signed_spikes()
+        multi_bit_input()
     print("\n" + "=" * 74)
     print(f"{passed}/{passed + failed} passed")
     print("SYNOPS TESTS PASSED" if not failed else "SYNOPS TESTS FAILED")
