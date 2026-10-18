@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Every setting, visualized</title>
+<meta content="Every setting the search chooses, with a picture of the network it produces, the values the search tries, and how each one moved deployed accuracy." name="description"/>
+<link href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'&gt;&lt;rect width='32' height='32' fill='%23000'/&gt;&lt;path d='M3 22h5l3-13 4 19 3-11h4l2 5h5' fill='none' stroke='%23e0a94f' stroke-width='2.4' stroke-linejoin='round'/&gt;&lt;/svg&gt;" rel="icon"/>
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&amp;family=JetBrains+Mono:ital,wght@0,400;0,600;0,700;1,400&amp;display=swap" rel="stylesheet"/>
+<link href="assets/style.css" rel="stylesheet"/>
+<link href="assets/learn.css" rel="stylesheet"/>
+</head>
+<body>
+<header class="hero">
+<div class="hero-inner">
+<p class="kicker">Start here · D</p>
+<h1>Every setting, visualized</h1>
+<p class="lede">Every setting the search chooses, with a picture of what it changes, the values the search tries, and how it moved accuracy on the chip. Start by building a network and watching each choice reshape it.</p>
+</div>
+</header>
+<main class="with-toc">
+<div class="wrap">
+
+<section class="reveal" id="builder">
+<h2><span class="sec-num">D.1</span>Build a network</h2>
+<p>Each choice below changes the network's shape, its size, and whether the chip can hold it. The picture is drawn to scale in spirit: a bigger block is a bigger feature map, a deeper stack is more channels. The checks underneath are the same limits every trial must pass before training.</p>
+<div class="demo" id="demo-builder">
+<div class="demo-head">
+<span class="demo-tag">INTERACTIVE</span>
+<span class="demo-title">A spiking network, one setting at a time</span>
+<span class="demo-sub">Each block is a layer's output: its size is the map's width and height, its depth the number of channels. The small square on each block is the kernel the next layer slides over it.</span>
+</div>
+<div class="demo-body">
+<div class="controls">
+<div class="ctl"><label for="b-size">frame size <output id="b-size-out"></output></label><input id="b-size" max="88" min="24" step="8" type="range" value="40"/></div>
+<div class="ctl wide"><label>frames T</label><div class="seg" id="b-T"><button data-v="16" type="button">16</button><button data-v="24" type="button">24</button><button data-v="32" type="button">32</button><button class="on" data-v="48" type="button">48</button></div></div>
+<div class="ctl wide"><label>bits per pixel</label><div class="seg" id="b-bits"><button class="on" data-v="1" type="button">1</button><button data-v="2" type="button">2</button><button data-v="3" type="button">3</button><button data-v="4" type="button">4</button></div></div>
+<div class="ctl wide"><label>layers</label><div class="seg" id="b-depth"><button data-v="2" type="button">2</button><button class="on" data-v="3" type="button">3</button><button data-v="4" type="button">4</button></div></div>
+</div>
+<div class="builder-layers" id="b-layers"></div>
+<div class="controls">
+<div class="ctl wide"><label>pooling runs as</label><div class="seg" id="b-pool"><button class="on" data-v="avg" type="button">average</button><button data-v="max" type="button">max (OR)</button></div></div>
+<div class="ctl wide"><label>head</label><div class="seg" id="b-head"><button class="on" data-v="flatten" type="button">flatten</button><button data-v="gap" type="button">GAP</button></div></div>
+<div class="ctl wide"><label>hidden layer</label><div class="seg" id="b-fc"><button data-v="0" type="button">none</button><button class="on" data-v="128" type="button">128</button><button data-v="256" type="button">256</button><button data-v="512" type="button">512</button></div></div>
+<div class="ctl wide"><label>signed spikes</label><div class="seg" id="b-signed"><button data-v="0" type="button">off</button><button class="on" data-v="1" type="button">on</button></div></div>
+<div class="ctl wide"><label>bias</label><div class="seg" id="b-bias"><button class="on" data-v="threshold" type="button">in threshold</button><button data-v="neuron" type="button">bias neurons</button></div></div>
+</div>
+<div class="lv lv-scroll" id="b-vis"></div>
+<div class="stats"><div class="stat"><div class="k">Chip neurons</div><output class="val" id="b-neurons">-</output></div><div class="stat"><div class="k">Connections</div><output class="val" id="b-conns">-</output></div><div class="stat"><div class="k">Weights to learn</div><output class="val" id="b-params">-</output></div><div class="stat"><div class="k">Chip check</div><output class="val" id="b-pass">-</output></div></div>
+<ul class="check-list" id="b-checks"></ul>
+</div>
+<div class="demo-note"><p>Try GAP instead of flatten and watch the classifier's input shrink to one number per channel; try 4 bits per pixel at size 88 and watch the input fail the axon check; turn off shrinking in the first layer and watch the next layer's fan-in grow. Average pooling is folded into the next layer, so that layer reads four times as many inputs; max pooling costs an extra layer of OR neurons instead.</p></div>
+</div>
+</section>
+
+<section class="reveal" id="how-to-read">
+<h2><span class="sec-num">D.2</span>How to read the measurements</h2>
+<p>Each card below says what a setting does, what values the search tries, and how it moved accuracy. The numbers come from a balanced comparison: 96 networks, each trained for the full 80 epochs and scored on the chip simulator, in which every option appeared equally often next to random shapes. A bar is the average deployed validation accuracy of the networks that used that value.</p>
+<div class="teach"><div class="t-title">What counts as a real difference</div>
+<p>Scores across those 96 networks spread by about 13 points, so with about 48 networks per option, a difference smaller than about 5 points could easily be luck. The tags say how much to believe each one: <span class="verdict-tag strong">large</span> is far outside the noise, <span class="verdict-tag mild">moderate</span> is probably real, and <span class="verdict-tag none">unclear</span> is within the noise. Every result is for 80 epochs of training; some settings, especially the ones that fight overfitting, may behave differently in longer runs.</p></div>
+</section>
+
+<section class="reveal" id="input">
+<h2><span class="sec-num">D.3</span>The input</h2>
+<p>How each recording is turned into what the first layer reads.</p>
+<div class="set-grid" data-group="input"></div>
+</section>
+
+<section class="reveal" id="shape">
+<h2><span class="sec-num">D.4</span>The shape</h2>
+<p>How many layers, how wide, how they shrink the map, and how the maps become an answer. These are chosen first and checked against the chip before anything else.</p>
+<div class="set-grid" data-group="shape"></div>
+</section>
+
+<section class="reveal" id="neuron-settings">
+<h2><span class="sec-num">D.5</span>The neuron</h2>
+<p>How the spiking neurons behave. All of these deploy exactly; the chip stores a leak, a threshold and a sign for every neuron.</p>
+<div class="set-grid" data-group="neuron"></div>
+</section>
+
+<section class="reveal" id="normalization">
+<h2><span class="sec-num">D.6</span>Normalization</h2>
+<p>Keeping each layer's activity in a healthy range during training. Both options fold away completely at deployment.</p>
+<div class="set-grid" data-group="norm"></div>
+</section>
+
+<section class="reveal" id="regularization">
+<h2><span class="sec-num">D.7</span>Regularization</h2>
+<p>Settings that make memorising the training people harder, to close the gap between training and validation accuracy (<a href="data.html#overfit">page B</a>). They tend to slow learning down, so a short run can undersell them.</p>
+<div class="set-grid" data-group="reg"></div>
+</section>
+
+<section class="reveal" id="optimization">
+<h2><span class="sec-num">D.8</span>Optimization</h2>
+<p>How the weights are updated and what the loss rewards.</p>
+<div class="set-grid" data-group="opt"></div>
+</section>
+
+<section class="reveal" id="ranked">
+<h2><span class="sec-num">D.9</span>What mattered most</h2>
+<p>Every two-way or three-way setting from the balanced comparison, ranked by the gap between its best and worst option.</p>
+<figure class="figure"><div class="lv" id="ranked-vis" style="padding:20px 22px 10px"></div><figcaption>The dashed line marks roughly the gap luck alone could produce between two options tried 48 times each; options tried fewer times need more. The head is the one choice far beyond it; the learning-rate schedule, bits per pixel, augmentation and T come next.</figcaption></figure>
+<div class="recap"><strong>In short</strong><p>For deployed accuracy after 80 epochs, the head matters most: flatten beats GAP by about 13 points. Most other settings move accuracy by a few points at most, and many are within noise. The best networks share long clips (T = 48), one bit per pixel, signed spikes, a flatten head, a shrunk first layer and thresholds that fold the bias in, but the largest remaining problem is overfitting, which no single setting here fixes.</p></div>
+</section>
+
+</div>
+<aside class="toc"></aside>
+</main>
+<nav class="foot-nav">
+<a class="prev" href="pipeline.html"><span class="dir">Previous</span><span class="pg">C · The whole pipeline</span></a>
+<a class="next" href="bits.html"><span class="dir">Next</span><span class="pg">E · Bit encoding</span></a>
+</nav>
+<footer class="site-foot">
+<span>Documentation for <a href="https://github.com/purujain2006/configurable-snn-classifier">configurable-snn-classifier</a></span>
+</footer>
+<script src="assets/site.js"></script>
+<script src="assets/learn.js"></script>
+<script src="assets/demo-settings.js"></script>
+</body>
+</html>

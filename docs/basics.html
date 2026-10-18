@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Neural networks, from the ground up</title>
+<meta content="What an artificial neuron computes, how networks learn, how convolutional networks read images, and how spiking networks do the same job with spikes over time. Every idea comes with an interactive picture." name="description"/>
+<link href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'&gt;&lt;rect width='32' height='32' fill='%23000'/&gt;&lt;path d='M3 22h5l3-13 4 19 3-11h4l2 5h5' fill='none' stroke='%23e0a94f' stroke-width='2.4' stroke-linejoin='round'/&gt;&lt;/svg&gt;" rel="icon"/>
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&amp;family=JetBrains+Mono:ital,wght@0,400;0,600;0,700;1,400&amp;display=swap" rel="stylesheet"/>
+<link href="assets/style.css" rel="stylesheet"/>
+<link href="assets/learn.css" rel="stylesheet"/>
+</head>
+<body>
+<header class="hero">
+<div class="hero-inner">
+<p class="kicker">Start here · A</p>
+<h1>Neural networks, from the ground up</h1>
+<p class="lede">What an artificial neuron computes, how a network of them learns, why image networks slide small filters across the picture, and what changes when neurons talk in spikes instead of numbers. Every idea comes with a picture you can play with.</p>
+</div>
+</header>
+<main class="with-toc">
+<div class="wrap">
+
+<section class="reveal" id="neuron">
+<h2><span class="sec-num">A.1</span>One artificial neuron</h2>
+<p>An artificial neuron is a small calculation. It takes a few numbers in, multiplies each by its own <span class="term">weight</span>, adds the results together with one more number called the <span class="term">bias</span>, and passes the total through an <span class="term">activation function</span>. The most common activation, ReLU, keeps a positive total and turns a negative one into zero.</p>
+<p>The weights are what a network learns. A large positive weight means "this input pushes me to respond", a negative one means "this input argues against it", and a weight near zero means "ignore this input".</p>
+<div class="demo" id="demo-neuron">
+<div class="demo-head">
+<span class="demo-tag">INTERACTIVE</span>
+<span class="demo-title">One neuron, one calculation</span>
+<span class="demo-sub">Each input is multiplied by its weight. Amber lines are positive weights and rust lines are negative; a thicker line is a larger weight.</span>
+</div>
+<div class="demo-body">
+<div class="controls">
+<div class="ctl"><label for="nx1">input 1 <output id="nx1-out"></output></label><input id="nx1" max="100" min="0" step="5" type="range" value="80"/></div>
+<div class="ctl"><label for="nx2">input 2 <output id="nx2-out"></output></label><input id="nx2" max="100" min="0" step="5" type="range" value="30"/></div>
+<div class="ctl"><label for="nx3">input 3 <output id="nx3-out"></output></label><input id="nx3" max="100" min="0" step="5" type="range" value="60"/></div>
+<div class="ctl"><label for="nw1">weight 1 <output id="nw1-out"></output></label><input id="nw1" max="100" min="-100" step="5" type="range" value="60"/></div>
+<div class="ctl"><label for="nw2">weight 2 <output id="nw2-out"></output></label><input id="nw2" max="100" min="-100" step="5" type="range" value="-40"/></div>
+<div class="ctl"><label for="nw3">weight 3 <output id="nw3-out"></output></label><input id="nw3" max="100" min="-100" step="5" type="range" value="30"/></div>
+<div class="ctl"><label for="nb">bias <output id="nb-out"></output></label><input id="nb" max="100" min="-100" step="5" type="range" value="-10"/></div>
+</div>
+<div class="lv" id="neuron-vis"></div>
+<div class="stats"><div class="stat"><div class="k">Weighted sum plus bias</div><output class="val" id="neuron-sum">0</output></div><div class="stat"><div class="k">Output after ReLU</div><output class="val" id="neuron-out">0</output></div></div>
+</div>
+<div class="demo-note"><p>Make weight 2 strongly negative and input 2 large: the total drops below zero and ReLU silences the neuron. That on and off behavior, repeated across thousands of neurons, is what lets a network make complicated decisions.</p></div>
+</div>
+</section>
+
+<section class="reveal" id="layers">
+<h2><span class="sec-num">A.2</span>Layers, and one pass through a network</h2>
+<p>Neurons are arranged in layers. Each neuron in a layer reads every output of the layer before it, so information flows from the input, through the <span class="term">hidden layers</span>, to the output layer, which has one neuron per class. Running one input through the network is called a <span class="term">forward pass</span>.</p>
+<p>The output layer gives one score per class. A function called softmax turns the scores into probabilities that add up to 100%, and the network's answer is the class with the highest probability.</p>
+<div class="demo" id="demo-forward">
+<div class="demo-head">
+<span class="demo-tag">ANIMATION</span>
+<span class="demo-title">A forward pass through four layers</span>
+<span class="demo-sub">Brighter neurons are more active. The pulses show how much of each neuron's output each connection carries forward.</span>
+</div>
+<div class="demo-body">
+<div class="lv" id="fwd-vis"></div>
+<div class="play-row"><button class="btn primary" id="fwd-new" type="button">New input</button><button class="btn" id="fwd-run" type="button">Replay</button><span class="readout" id="fwd-answer"></span></div>
+</div>
+<div class="demo-note"><p>The weights never change between inputs here, only the input does. A trained network is exactly this: a fixed function from an input to an answer. Training is what picked the weights.</p></div>
+</div>
+</section>
+
+<section class="reveal" id="learning">
+<h2><span class="sec-num">A.3</span>How a network learns</h2>
+<p>Learning means adjusting the weights until the answers come out right. Three ideas do the work.</p>
+<dl class="kv">
+<dt>Loss</dt><dd>One number that says how wrong the network was on an example. The usual choice for classification, cross-entropy, is small when the right class got a high probability and large when it did not.</dd>
+<dt>Gradient</dt><dd>For every weight, which direction to nudge it to make the loss smaller, and how strongly. An algorithm called backpropagation computes all of them at once by working backwards from the output.</dd>
+<dt>Gradient descent</dt><dd>Move every weight a small step downhill, then repeat. The size of the step is the <span class="term">learning rate</span>.</dd>
+</dl>
+<p>Training never looks at the whole dataset at once. It takes a small random <span class="term">batch</span> of examples (16 clips in this project), computes the loss and gradient on that batch alone, takes one step, and moves to the next batch. One pass over all of the training data is an <span class="term">epoch</span>, and a training run is many epochs.</p>
+<div class="demo" id="demo-descent">
+<div class="demo-head">
+<span class="demo-tag">ANIMATION</span>
+<span class="demo-title">Gradient descent on a loss landscape</span>
+<span class="demo-sub">Darker is lower loss. Each dot is one step. The panel on the right shows the loss after each step, on a log scale.</span>
+</div>
+<div class="demo-body">
+<div class="controls">
+<div class="ctl"><label for="gd-lr">learning rate <output id="gd-lr-out"></output></label><input id="gd-lr" max="7" min="0" step="1" type="range" value="3"/></div>
+<button class="btn primary" id="gd-play" type="button">Play</button>
+<button class="btn" id="gd-reset" type="button">Start over</button>
+</div>
+<canvas id="gd-canvas"></canvas>
+<div class="stats"><div class="stat"><div class="k">Steps</div><output class="val" id="gd-step">0</output></div><div class="stat"><div class="k">Loss</div><output class="val" id="gd-loss">0</output></div><div class="stat"><div class="k">What is happening</div><output class="val" id="gd-status" style="font-size:16px">-</output></div></div>
+</div>
+<div class="demo-note"><p>A real loss landscape has one direction for every weight, millions of them, but the lesson carries over. A learning rate that is too small wastes time, and one that is too large bounces across the valley or flies out of it.</p></div>
+</div>
+</section>
+
+<section class="reveal" id="cnn">
+<h2><span class="sec-num">A.4</span>Convolutional networks</h2>
+<p>Pictures have structure that a plain layer ignores. Neighbouring pixels belong together, and a pattern means the same thing wherever it appears. A plain layer on a 40 × 40 picture would also need 1,600 weights for every neuron. A <span class="term">convolution</span> handles all three problems.</p>
+<p>A convolution slides a small grid of weights, the <span class="term">kernel</span>, across the picture. At each position it multiplies the pixels under the kernel by the kernel's weights and adds them up, exactly like the single neuron above. The results form a new picture, a <span class="term">feature map</span>, which is bright wherever the picture looks like the kernel. The same few weights are reused at every position.</p>
+<div class="demo" id="demo-conv">
+<div class="demo-head">
+<span class="demo-tag">ANIMATION</span>
+<span class="demo-title">A 3 × 3 kernel sliding over a picture</span>
+<span class="demo-sub">Each step multiplies the 9 pixels under the window by the 9 kernel weights and writes the sum into the feature map. Amber is positive and rust is negative.</span>
+</div>
+<div class="demo-body">
+<div class="play-row" style="margin:0 0 14px">
+<div class="seg" id="conv-kernel"><button class="on" data-v="vertical" type="button">vertical edge</button><button data-v="horizontal" type="button">horizontal edge</button><button data-v="blur" type="button">blur</button><button data-v="outline" type="button">outline</button></div>
+</div>
+<div class="lv" id="conv-vis"></div>
+<div class="play-row"><button class="btn primary" id="conv-play" type="button">Play</button><button class="btn" id="conv-step" type="button">One step</button><button class="btn" id="conv-clear" type="button">Clear picture</button><span class="readout" id="conv-readout"></span></div>
+</div>
+<div class="demo-note"><p>Click pixels in the picture to draw your own shape. The vertical-edge kernel turns amber where a bar begins and rust where it ends, and the horizontal one does the same from top to bottom. A trained network learns its kernels instead of being given them.</p></div>
+</div>
+
+<h3>Channels</h3>
+<p>One kernel finds one kind of pattern, so a layer has many kernels, one per output <span class="term">channel</span>, and each produces its own feature map. The kernels of the next layer read all of those maps at once, so they can combine "edge here" and "corner there" into larger shapes. Early layers find edges and blobs; later ones respond to parts of hands and arms.</p>
+<figure class="figure"><div class="figure-scroll lv" id="channels-vis"></div><figcaption>The input has two channels, one for events where the scene got brighter and one for events where it got darker. A layer with three channels has three kernels, each spanning both input channels, and makes three maps. Every kernel in the next layer spans all three.</figcaption></figure>
+
+<h3>Shrinking the map</h3>
+<p>Each layer usually makes the map smaller, so later layers see more of the picture per cell and the network stays affordable. There are two ways to do it. A <span class="term">stride</span> of 2 moves the kernel two cells at a time instead of one. <span class="term">Pooling</span> runs the convolution normally and then replaces each 2 × 2 block of the result with one number: its average, or its largest value.</p>
+<div class="demo" id="demo-shrink">
+<div class="demo-head">
+<span class="demo-tag">ANIMATION</span>
+<span class="demo-title">Three ways to shrink a map of spikes</span>
+<span class="demo-sub">Amber cells on the left are neurons that fired. The highlighted window shows which cells feed the highlighted output.</span>
+</div>
+<div class="demo-body">
+<div class="play-row" style="margin:0 0 14px"><div class="seg" id="shrink-mode"><button class="on" data-v="stride" type="button">stride 2</button><button data-v="avg" type="button">average pool</button><button data-v="max" type="button">max pool</button></div></div>
+<div class="lv" id="shrink-vis"></div>
+</div>
+<div class="demo-note"><p id="shrink-note"></p></div>
+</div>
+
+<h3>The head</h3>
+<p>After the last convolution, the feature maps have to become 11 scores, one per gesture. <span class="term">Flatten</span> lays every cell of every map out in a line and connects all of them to the classifier, so the classifier knows where each feature appeared. <span class="term">Global average pooling</span>, or GAP, averages each map down to one number, so the classifier knows how much of each feature there was but not where.</p>
+<figure class="figure"><div class="figure-scroll lv" id="head-vis"></div><figcaption>The same three 4 × 4 maps turned into classifier inputs two ways. With 41 maps of 6 × 6, flatten would give the classifier 1,476 inputs and GAP would give it 41.</figcaption></figure>
+</section>
+
+<section class="reveal" id="snn">
+<h2><span class="sec-num">A.5</span>Spiking neurons</h2>
+<p>The neurons above pass around numbers like 0.73. Neurons in a brain, and on a neuromorphic chip such as HiAER-Spike, pass around <span class="term">spikes</span>: at each moment a neuron either fires or it does not. So a spiking network runs through time. The input arrives as a sequence of T frames, every layer updates once per frame, and the answer comes from counting spikes.</p>
+<p>The spiking neuron used here is the <span class="term">leaky integrate-and-fire</span> neuron. It keeps one number, its <span class="term">membrane potential</span>, and at every timestep it does four things, in this order:</p>
+<ol class="steps">
+<li><span class="s-title">Fire</span>If the potential is above the threshold, send a spike.</li>
+<li><span class="s-title">Reset</span>A neuron that fired drops back to zero.</li>
+<li><span class="s-title">Leak</span>The potential loses a fraction 1/τ of itself, so old input fades away. τ (tau) is the leak constant.</li>
+<li><span class="s-title">Integrate</span>Add the weights of the input spikes that just arrived.</li>
+</ol>
+<div class="demo" id="demo-lif">
+<div class="demo-head">
+<span class="demo-tag">ANIMATION</span>
+<span class="demo-title">A leaky integrate-and-fire neuron with three inputs</span>
+<span class="demo-sub">The top rows are three input spike trains with weights 0.45, 0.35 and 0.25. The line is the membrane potential, the dashed line is the threshold, and amber ticks at the bottom are output spikes.</span>
+</div>
+<div class="demo-body">
+<div class="controls">
+<div class="ctl wide"><label>leak τ</label><div class="seg" id="lif-tau"><button data-v="2" type="button">2</button><button class="on" data-v="4" type="button">4</button><button data-v="8" type="button">8</button><button data-v="16" type="button">16</button></div></div>
+<div class="ctl"><label for="lif-th">threshold <output id="lif-th-out"></output></label><input id="lif-th" max="150" min="30" step="5" type="range" value="100"/></div>
+<div class="ctl"><label for="lif-rate">input spike rate <output id="lif-rate-out"></output></label><input id="lif-rate" max="60" min="5" step="5" type="range" value="30"/></div>
+<button class="btn primary" id="lif-play" type="button">Play</button>
+<button class="btn" id="lif-step" type="button">One step</button>
+</div>
+<canvas id="lif-canvas"></canvas>
+<div class="stats"><div class="stat"><div class="k">Membrane potential</div><output class="val" id="lif-v">0.00</output></div><div class="stat"><div class="k">Output spikes</div><output class="val" id="lif-n">0</output></div><div class="stat"><div class="k">Last step, in order</div><output class="val" id="lif-last" style="font-size:15px">-</output></div></div>
+</div>
+<div class="demo-note"><p>Raise τ and the neuron remembers longer, so scattered inputs can add up to a spike. Raise the threshold and it needs more input. Because the neuron checks for a spike before it adds new input, a spike arriving now can only cause an output spike on the next step.</p></div>
+</div>
+</section>
+
+<section class="reveal" id="snn-net">
+<h2><span class="sec-num">A.6</span>A spiking network, step by step</h2>
+<p>Put layers of these neurons together and run them over a clip. Each frame's spikes enter the first layer, that layer's spikes feed the next, and the output layer has one neuron per class. The output spikes are counted over the whole clip, and the class whose neuron fired most is the answer.</p>
+<p>Each layer adds one step of delay, because a neuron only reacts on the step after its input. So after the last frame the network runs a few more empty steps, one per layer, to let the evidence from the last frames reach the output. These are the <span class="term">flush steps</span>.</p>
+<div class="demo" id="demo-snn">
+<div class="demo-head">
+<span class="demo-tag">ANIMATION</span>
+<span class="demo-title">A bar sweeping across the input, read by a two-layer spiking network</span>
+<span class="demo-sub">The 8 × 8 input fires where the bar is. Each hidden neuron watches one column. The output neurons count spikes; the strip at the bottom is the clip, with the flush steps shaded.</span>
+</div>
+<div class="demo-body">
+<div class="controls">
+<div class="ctl"><label for="snn-T">frames T <output id="snn-T-out"></output></label><input id="snn-T" max="48" min="8" step="8" type="range" value="24"/></div>
+<button class="btn primary" id="snn-play" type="button">Play</button>
+<button class="btn" id="snn-restart" type="button">Restart</button>
+</div>
+<div class="lv" id="snn-vis"></div>
+<div class="stats"><div class="stat"><div class="k">Timestep</div><output class="val" id="snn-t">0</output></div><div class="stat"><div class="k">Answer so far</div><output class="val" id="snn-pred">-</output></div></div>
+</div>
+<div class="demo-note"><p>The output counts nothing for the first two steps: activity needs one step to reach the hidden layer and another to reach the output. More frames give the network more evidence before it has to answer, at the cost of more time and work.</p></div>
+</div>
+</section>
+
+<section class="reveal" id="work">
+<h2><span class="sec-num">A.7</span>Why spikes can save work</h2>
+<p>In an ordinary network every connection multiplies its input on every pass, whether or not the input carries anything. In a spiking network nothing happens unless a neuron fires, and a spike only adds its weight to the neurons it connects to. A layer in which few neurons fire does very little work. That is the case for neuromorphic hardware: the work, and so the energy, grows with activity rather than with the size of the network.</p>
+<div class="demo" id="demo-work">
+<div class="demo-head">
+<span class="demo-tag">ANIMATION</span>
+<span class="demo-title">The same layer, run two ways</span>
+<span class="demo-sub">Eight inputs and six outputs, so 48 connections. Lit connections are doing work on this step.</span>
+</div>
+<div class="demo-body">
+<div class="lv" id="work-vis"></div>
+<div class="play-row"><button class="btn primary" id="work-play" type="button">Play</button><span class="readout" id="work-readout"></span></div>
+</div>
+<div class="demo-note"><p>Each lit connection on the spiking side is one <span class="term">synaptic operation</span> (SynOp): one spike adding one weight to one neuron. Counting SynOps is the usual way to compare how much work spiking networks do.</p></div>
+</div>
+</section>
+
+<section class="reveal" id="surrogate">
+<h2><span class="sec-num">A.8</span>Training through a spike</h2>
+<p>A spike is a step: below the threshold the output is 0, above it the output is 1. The slope of a step is zero everywhere except at the jump, where it is infinite, so gradient descent gets no useful direction from it. Spiking networks are trained with a <span class="term">surrogate gradient</span> instead. The forward pass keeps the real step, so the network behaves exactly as it will on the chip. Only when the gradient is computed is the step treated as a smooth curve, whose slope tells each weight "this neuron was close to firing, and here is which way to push it".</p>
+<figure class="figure"><div class="figure-scroll lv" id="surrogate-vis"></div><figcaption>Left: what the neuron outputs, a hard step (amber), and the smooth curve used in its place for learning (dashed). Right: their slopes. The true slope gives no direction; the stand-in's slope is largest near the threshold and fades away from it.</figcaption></figure>
+</section>
+
+<section class="reveal" id="signed">
+<h2><span class="sec-num">A.9</span>Signed spikes</h2>
+<p>An ordinary spiking neuron can only say "yes". With <span class="term">signed spikes</span>, a unit can also fire a negative spike. On the chip such a unit is two neurons: one integrates the input, the other integrates its negative, and whichever crosses its threshold sends a +1 or a −1. A layer can then say "strongly not this" as well as "strongly this", at the cost of twice the neurons and up to four times the connections.</p>
+<figure class="figure"><div class="figure-scroll lv" id="signed-vis"></div><figcaption>One signed unit fed a drive that swings positive and negative. The positive neuron fires during the positive stretches and the negative neuron during the negative ones; the unit's output is +1 or −1 accordingly.</figcaption></figure>
+<div class="recap"><strong>In short</strong><p>An artificial neuron is a weighted sum and an activation, and a network is layers of them, trained by gradient descent on a loss. Convolutions reuse small kernels across the picture, stride and pooling shrink the maps, and the head turns maps into class scores. Spiking neurons do the same job with spikes over time: fire, reset, leak, integrate, and count the output spikes. Training uses a smooth stand-in for the spike's slope.</p></div>
+</section>
+
+</div>
+<aside class="toc"></aside>
+</main>
+<nav class="foot-nav">
+<a class="prev" href="index.html"><span class="dir">Previous</span><span class="pg">01 · The problem</span></a>
+<a class="next" href="data.html"><span class="dir">Next</span><span class="pg">B · Data and testing</span></a>
+</nav>
+<footer class="site-foot">
+<span>Documentation for <a href="https://github.com/purujain2006/configurable-snn-classifier">configurable-snn-classifier</a></span>
+</footer>
+<script src="assets/site.js"></script>
+<script src="assets/learn.js"></script>
+<script src="assets/demo-basics.js"></script>
+</body>
+</html>

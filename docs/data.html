@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Data, testing and augmentation</title>
+<meta content="How an event camera records gestures, how events become frames a spiking network can read, how the data is split so a score means something, and how augmentation stretches a small dataset." name="description"/>
+<link href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'&gt;&lt;rect width='32' height='32' fill='%23000'/&gt;&lt;path d='M3 22h5l3-13 4 19 3-11h4l2 5h5' fill='none' stroke='%23e0a94f' stroke-width='2.4' stroke-linejoin='round'/&gt;&lt;/svg&gt;" rel="icon"/>
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&amp;family=JetBrains+Mono:ital,wght@0,400;0,600;0,700;1,400&amp;display=swap" rel="stylesheet"/>
+<link href="assets/style.css" rel="stylesheet"/>
+<link href="assets/learn.css" rel="stylesheet"/>
+</head>
+<body>
+<header class="hero">
+<div class="hero-inner">
+<p class="kicker">Start here · B</p>
+<h1>Data, testing and augmentation</h1>
+<p class="lede">Where the training examples come from, how a stream of camera events becomes something a network can read, how the data is split so that a score means something, and how augmentation stretches a small dataset further.</p>
+</div>
+</header>
+<main class="with-toc">
+<div class="wrap">
+
+<section class="reveal" id="camera">
+<h2><span class="sec-num">B.1</span>An event camera</h2>
+<p>An ordinary camera takes whole pictures at a fixed rate. An <span class="term">event camera</span>, also called a dynamic vision sensor or DVS, has no frames at all. Each pixel watches its own brightness and reports an <span class="term">event</span> the moment the brightness changes enough: where it happened, when (to the microsecond), and which way it went, brighter or darker. A still scene produces almost nothing, and a moving hand produces a stream of events along its edges.</p>
+<p>That makes event cameras a natural partner for spiking networks: the data already arrives as spikes, and it costs nothing where nothing moves.</p>
+<div class="demo" id="demo-dvs">
+<div class="demo-head">
+<span class="demo-tag">ANIMATION</span>
+<span class="demo-title">A simulated 128 × 128 event camera</span>
+<span class="demo-sub">Amber events mean a pixel got brighter, rust events mean it got darker. Events fade after a few milliseconds so the motion is visible. The gesture chosen here is used throughout this page.</span>
+</div>
+<div class="demo-body">
+<div class="play-row" style="margin:0 0 14px"><div class="seg" id="dvs-kind"><button class="on" data-v="rwave" type="button">right hand wave</button><button data-v="lwave" type="button">left hand wave</button><button data-v="clap" type="button">hand clap</button><button data-v="roll" type="button">arm roll</button></div></div>
+<div class="lv" style="max-width:420px"><canvas class="pix" height="128" id="dvs-canvas" width="128"></canvas></div>
+<div class="play-row"><button class="btn primary" id="dvs-play" type="button">Play</button><span class="readout" id="dvs-readout"></span></div>
+</div>
+<div class="demo-note"><p>Only the moving arm and hand make events. The body, the background and the arm's still upper half are invisible to the sensor, because nothing about them changes.</p></div>
+</div>
+<p>The dataset is <strong>DVS128 Gesture</strong>: 29 people performing 11 gestures in front of a 128 × 128 event camera, under several lighting conditions. The gestures are hand clap, right and left hand wave, right and left arm circles in each direction, arm roll, air drums, air guitar, and a class for other movements. There are 1,464 recordings: 1,176 from 23 people for training and 288 from 6 other people for testing.</p>
+</section>
+
+<section class="reveal" id="frames">
+<h2><span class="sec-num">B.2</span>From events to frames</h2>
+<p>A spiking network runs in timesteps, so each recording is cut into <span class="term">T</span> slices holding the same number of events, and each slice becomes one frame with two channels: one for brighter events and one for darker events. With one bit per pixel, a pixel is 1 if any event landed on it during the slice. More slices give finer timing but more steps to run, and every step costs time on the chip.</p>
+<div class="demo" id="demo-frames">
+<div class="demo-head">
+<span class="demo-tag">INTERACTIVE</span>
+<span class="demo-title">One recording cut into T frames</span>
+<span class="demo-sub">The strip shows how many events arrive over time; the lines cut it into slices with equal numbers of events, so slices are short where the hand moves fast. Each tile below is one frame.</span>
+</div>
+<div class="demo-body">
+<div class="play-row" style="margin:0 0 14px"><span class="readout">frames T</span><div class="seg" id="frames-T"><button data-v="8" type="button">8</button><button class="on" data-v="16" type="button">16</button><button data-v="32" type="button">32</button><button data-v="48" type="button">48</button></div></div>
+<canvas id="frames-strip"></canvas>
+<div class="thumbs" id="frames-thumbs"></div>
+</div>
+<div class="demo-note"><p>With few frames, each frame smears a long stretch of motion into one picture. With many, each frame holds only a few events and the network has more steps to integrate them over.</p></div>
+</div>
+
+<h3>Making the picture smaller</h3>
+<p>The chip receives its input on input lines called <span class="term">axons</span>, and it has 16,000 of them. A 128 × 128 frame with two channels needs 32,768, so frames are shrunk first: each pixel of the small frame covers a block of the large one, and is 1 if any event landed anywhere in that block. The largest square that fits is 89 × 89, and the search tries sizes from 24 to 88. Smaller frames are cheaper but lose detail. With more than one bit per pixel, each pixel needs several axons (<a href="bits.html">page E</a>), which lowers the largest size that fits.</p>
+<div class="demo" id="demo-resize">
+<div class="demo-head">
+<span class="demo-tag">INTERACTIVE</span>
+<span class="demo-title">Shrinking a frame to fit the chip's input</span>
+<span class="demo-sub">Left: one frame at the camera's 128 × 128. Right: the same frame at the chosen size. The bar shows how many of the chip's 16,000 input axons it uses.</span>
+</div>
+<div class="demo-body">
+<div class="controls">
+<div class="ctl"><label for="rs-size">frame size <output id="rs-size-out"></output></label><input id="rs-size" max="88" min="24" step="8" type="range" value="40"/></div>
+<div class="ctl wide"><label>bits per pixel</label><div class="seg" id="rs-bits"><button class="on" data-v="1" type="button">1</button><button data-v="2" type="button">2</button><button data-v="3" type="button">3</button><button data-v="4" type="button">4</button></div></div>
+</div>
+<div class="pair"><figure><canvas id="rs-big"></canvas><figcaption>camera: 128 × 128</figcaption></figure><figure><canvas id="rs-small"></canvas><figcaption id="rs-small-cap">after shrinking</figcaption></figure></div>
+<div class="lv" id="rs-bar" style="margin-top:16px"></div>
+</div>
+</div>
+</section>
+
+<section class="reveal" id="split">
+<h2><span class="sec-num">B.3</span>Training, validation and test</h2>
+<p>The data is split three ways, and each part has one job.</p>
+<dl class="kv">
+<dt>Training set</dt><dd>The examples the network learns from. Its weights are adjusted to fit these.</dd>
+<dt>Validation set</dt><dd>Examples held back from training and used to choose between networks. Every trial in a search is scored on it. Because the search keeps whichever network does best here, the winner's validation score is a little optimistic.</dd>
+<dt>Test set</dt><dd>Examples nobody looks at until the very end, scored once on the final network. It is the honest estimate of how the network does on new data.</dd>
+</dl>
+<p>How the split is made matters as much as its size. The test set is 6 people who never appear in training, so the real question is how well a network handles people it has never seen. The validation set asks the same question by holding out whole people too: four of the 23 training people, 216 clips, are set aside, and the network trains on the other 19.</p>
+<div class="demo" id="demo-split">
+<div class="demo-head">
+<span class="demo-tag">INTERACTIVE</span>
+<span class="demo-title">29 people, three jobs</span>
+<span class="demo-sub">Each figure is one person, and each dot under it stands for about four of their recordings.</span>
+</div>
+<div class="demo-body">
+<div class="play-row" style="margin:0 0 14px"><div class="seg" id="split-mode"><button class="on" data-v="person" type="button">split by person</button><button data-v="clip" type="button">split by clip</button></div></div>
+<div class="lv" id="split-vis"></div>
+<p class="readout" id="split-readout" style="font-family:var(--mono);font-size:13.5px;color:var(--text-dim);margin:12px 0 0"></p>
+</div>
+<div class="demo-note"><p id="split-note"></p></div>
+</div>
+</section>
+
+<section class="reveal" id="overfit">
+<h2><span class="sec-num">B.4</span>Overfitting</h2>
+<p>A network can learn its training examples too well. It memorises details that belong to those 19 people, such as how one person holds their arm or where another stands, instead of what makes a wave a wave. The sign is a gap between accuracy on the training set and accuracy on the validation set.</p>
+<figure class="figure"><div class="lv" style="padding:18px 18px 8px"><canvas id="overfit-canvas"></canvas></div><figcaption>One real training run of a network that deploys on the chip. Training accuracy climbs to 99.7% while validation settles near 74%. The dashed line marks the switch from ordinary weights to the chip's integer weights (<a href="pipeline.html#phases">page C</a>).</figcaption></figure>
+<p>The usual remedies are more varied data (augmentation, below), regularization that makes memorising harder (dropout, weight decay and label smoothing, all on <a href="settings.html#regularization">page D</a>), smaller networks, and not training past the point where the gap opens. This gap, not the chip, is what holds accuracy back on this task.</p>
+</section>
+
+<section class="reveal" id="noise">
+<h2><span class="sec-num">B.5</span>How much to trust one number</h2>
+<p>The validation set has 216 clips, so each clip is worth 0.46 percentage points, and luck in which clips happen to be hard moves the score. Imagine a network whose true accuracy on new people is fixed, and score it on many different validation sets of the same size: the measured scores spread out around the truth.</p>
+<div class="demo" id="demo-noise">
+<div class="demo-head">
+<span class="demo-tag">INTERACTIVE</span>
+<span class="demo-title">The same network, scored on many validation sets</span>
+<span class="demo-sub">Each draw scores the network on a fresh set of clips. The dashed line is its true accuracy; the bars count how often each measured score came up.</span>
+</div>
+<div class="demo-body">
+<div class="controls">
+<div class="ctl"><label for="nz-p">true accuracy <output id="nz-p-out"></output></label><input id="nz-p" max="95" min="55" step="1" type="range" value="75"/></div>
+<div class="ctl wide"><label>clips per set</label><div class="seg" id="nz-n"><button data-v="54" type="button">54</button><button data-v="108" type="button">108</button><button class="on" data-v="216" type="button">216</button><button data-v="864" type="button">864</button></div></div>
+<button class="btn primary" id="nz-one" type="button">Draw one set</button>
+<button class="btn" id="nz-many" type="button">Draw 200</button>
+</div>
+<canvas id="nz-canvas"></canvas>
+<div class="stats"><div class="stat"><div class="k">Last measured score</div><output class="val" id="nz-last">-</output></div><div class="stat"><div class="k">95% of scores fall within</div><output class="val" id="nz-range">-</output></div><div class="stat"><div class="k">One clip is worth</div><output class="val" id="nz-clip">-</output></div></div>
+</div>
+<div class="demo-note"><p>Two networks a few points apart on 216 clips may be equally good. That is why a search retrains its best few networks with new random starting weights before picking one, and why the test set is used only once, at the end.</p></div>
+</div>
+</section>
+
+<section class="reveal" id="augment">
+<h2><span class="sec-num">B.6</span>Data augmentation</h2>
+<p><span class="term">Augmentation</span> makes new training examples out of old ones by changing them in ways that do not change the label. A wave moved a few pixels to the left is still a wave. The network sees a slightly different version of every clip each epoch, so memorising individual clips stops paying off.</p>
+<dl class="kv">
+<dt>Shift</dt><dd>Move the whole clip by up to a set fraction of the frame, filling the uncovered edge with nothing.</dd>
+<dt>Cutout</dt><dd>Blank out one square, so the network cannot depend on any single region.</dd>
+<dt>Event drop</dt><dd>Delete each event with some probability, as if the sensor were less sensitive.</dd>
+</dl>
+<p>Each change is drawn once per clip and applied to every frame of that clip alike, so the motion inside the clip stays intact. Augmentation happens only during training: validation, test and the chip always see clips exactly as recorded.</p>
+<div class="demo" id="demo-aug">
+<div class="demo-head">
+<span class="demo-tag">INTERACTIVE</span>
+<span class="demo-title">One clip, augmented five ways</span>
+<span class="demo-sub">Each picture shows three consecutive frames of the clip. The first is the original; the others are random draws with the strengths set here.</span>
+</div>
+<div class="demo-body">
+<div class="controls">
+<div class="ctl"><label for="aug-shift">shift <output id="aug-shift-out"></output></label><input id="aug-shift" max="20" min="0" step="1" type="range" value="10"/></div>
+<div class="ctl"><label for="aug-cut">cutout <output id="aug-cut-out"></output></label><input id="aug-cut" max="40" min="0" step="2" type="range" value="20"/></div>
+<div class="ctl"><label for="aug-drop">event drop <output id="aug-drop-out"></output></label><input id="aug-drop" max="30" min="0" step="1" type="range" value="10"/></div>
+<button class="btn primary" id="aug-new" type="button">New random draws</button>
+</div>
+<div class="aug-grid" id="aug-grid"></div>
+</div>
+</div>
+<div class="callout key"><span class="callout-title">Why no mirror flips</span>
+<p>Flipping left to right is the most common augmentation for photographs, but here it changes the answer: a mirrored right-hand wave is a left-hand wave, and a clockwise arm circle becomes counter-clockwise. So flips are switched off for this dataset.</p>
+<div class="aug-grid small" id="flip-grid"></div>
+</div>
+<p>Augmentation makes the training task harder, so it needs longer training to pay off. Judged after a short run it can look as if it hurts, which is why the strength of each change is searched rather than fixed.</p>
+<div class="recap"><strong>In short</strong><p>An event camera reports changes, not pictures. Each recording is cut into T frames with equal numbers of events and shrunk to fit the chip's 16,000 input axons. Training data teaches, validation data chooses, and test data is scored once at the end; all three are split by person, because the real question is how a network handles people it has never seen. Small validation sets are noisy, and the gap between training and validation accuracy is the overfitting that augmentation and regularization fight.</p></div>
+</section>
+
+</div>
+<aside class="toc"></aside>
+</main>
+<nav class="foot-nav">
+<a class="prev" href="basics.html"><span class="dir">Previous</span><span class="pg">A · Neural networks</span></a>
+<a class="next" href="pipeline.html"><span class="dir">Next</span><span class="pg">C · The whole pipeline</span></a>
+</nav>
+<footer class="site-foot">
+<span>Documentation for <a href="https://github.com/purujain2006/configurable-snn-classifier">configurable-snn-classifier</a></span>
+</footer>
+<script src="assets/site.js"></script>
+<script src="assets/learn.js"></script>
+<script src="assets/gesture.js"></script>
+<script src="assets/demo-data.js"></script>
+</body>
+</html>

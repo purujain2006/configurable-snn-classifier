@@ -6,6 +6,11 @@
   /* ---------- navigation ---------- */
   const PAGES = [
     ["index.html", "01", "The problem"],
+    ["basics.html", "A", "Basics"],
+    ["data.html", "B", "Data and testing"],
+    ["pipeline.html", "C", "The pipeline"],
+    ["settings.html", "D", "Settings"],
+    ["bits.html", "E", "Bit encoding"],
     ["neurons.html", "02", "The neuron"],
     ["architecture.html", "03", "The architecture"],
     ["hardware.html", "04", "Fitting the chip"],

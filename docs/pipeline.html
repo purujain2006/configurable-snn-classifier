@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>The whole pipeline</title>
+<meta content="Every stage a candidate network goes through, from camera events to a network checked on a simulator of the chip, and how the search decides which candidates to try." name="description"/>
+<link href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'&gt;&lt;rect width='32' height='32' fill='%23000'/&gt;&lt;path d='M3 22h5l3-13 4 19 3-11h4l2 5h5' fill='none' stroke='%23e0a94f' stroke-width='2.4' stroke-linejoin='round'/&gt;&lt;/svg&gt;" rel="icon"/>
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&amp;family=JetBrains+Mono:ital,wght@0,400;0,600;0,700;1,400&amp;display=swap" rel="stylesheet"/>
+<link href="assets/style.css" rel="stylesheet"/>
+<link href="assets/learn.css" rel="stylesheet"/>
+</head>
+<body>
+<header class="hero">
+<div class="hero-inner">
+<p class="kicker">Start here · C</p>
+<h1>The whole pipeline</h1>
+<p class="lede">From a gesture in front of a camera to a network running on the chip: every stage a candidate network goes through, and the search that decides which candidates to try and which one wins. Step through it in one picture first, then read each stage in detail.</p>
+</div>
+</header>
+<main class="with-toc">
+<div class="wrap">
+
+<section class="reveal" id="overview">
+<h2><span class="sec-num">C.1</span>The pipeline in one picture</h2>
+<p>The search tries a few hundred candidate networks. Each candidate is a <span class="term">trial</span>, and every trial goes through the same stages. Cheap stages come first, so a candidate that cannot win is dropped before it costs much.</p>
+<div class="demo" id="demo-pipe">
+<div class="demo-head">
+<span class="demo-tag">ANIMATION</span>
+<span class="demo-title">One trial, stage by stage</span>
+<span class="demo-sub">Press play to follow a trial through, use the arrows to step, or click any stage. The loop on the left is the search starting its next trial.</span>
+</div>
+<div class="demo-body">
+<div class="lv lv-scroll" id="pipe-vis"></div>
+<div class="play-row"><button class="btn" id="pipe-prev" type="button">← Back</button><button class="btn primary" id="pipe-play" type="button">Play</button><button class="btn" id="pipe-next" type="button">Next →</button></div>
+<div class="stage-cap" id="pipe-cap"></div>
+</div>
+</div>
+</section>
+
+<section class="reveal" id="step">
+<h2><span class="sec-num">C.2</span>One training step</h2>
+<p>Training repeats one step thousands of times. A batch of 16 clips runs through the network for T timesteps plus the flush steps, the output spikes are counted, the counts are compared with the right answers, and every weight moves a little in the direction that would have made the answers better.</p>
+<div class="flow" role="img" aria-label="One training step">
+<div class="flow-box input"><div class="fb-kind">input</div><div class="fb-shape">16 clips</div><div class="fb-meta">T frames each</div></div><div class="flow-arrow">→</div>
+<div class="flow-box"><div class="fb-kind">forward</div><div class="fb-shape">T + flush steps</div><div class="fb-meta">spikes layer to layer</div></div><div class="flow-arrow">→</div>
+<div class="flow-box"><div class="fb-kind">read out</div><div class="fb-shape">spike counts</div><div class="fb-meta">one per class</div></div><div class="flow-arrow">→</div>
+<div class="flow-box head"><div class="fb-kind">loss</div><div class="fb-shape">how wrong</div><div class="fb-meta">cross-entropy</div></div><div class="flow-arrow">→</div>
+<div class="flow-box"><div class="fb-kind">backward</div><div class="fb-shape">gradients</div><div class="fb-meta">through the surrogate</div></div><div class="flow-arrow">→</div>
+<div class="flow-box"><div class="fb-kind">update</div><div class="fb-shape">weights</div><div class="fb-meta">one small step</div></div>
+</div>
+<p>The loss can be computed two ways, and the search tries both. The <strong>rate</strong> loss scores the spike counts over the whole clip, which is exactly the chip's answer. The <strong>TET</strong> loss scores the output at every timestep and averages, so every step is pushed to be right on its own, which can make the counts more reliable.</p>
+</section>
+
+<section class="reveal" id="phases">
+<h2><span class="sec-num">C.3</span>Two training phases</h2>
+<p>The chip stores every weight as a 16-bit integer, so a deployed weight can only take one of 65,535 evenly spaced values between −1 and 1. A network trained with ordinary numbers and rounded at the end can lose a lot of accuracy, because training quietly relied on precise values that rounding destroys. So training happens in two phases. The first quarter uses ordinary weights. Then the weights are snapped to the integer grid, and the rest of training happens on the grid, so the network learns to work with exactly the weights it will deploy with.</p>
+<div class="demo" id="demo-phases">
+<div class="demo-head">
+<span class="demo-tag">ANIMATION</span>
+<span class="demo-title">Weights during training, before and after the switch</span>
+<span class="demo-sub">Each dot is one weight. The vertical lines are the values the chip can store; the spacing here is exaggerated thousands of times so it is visible.</span>
+</div>
+<div class="demo-body">
+<div class="lv" id="phases-vis"></div>
+<div class="play-row"><button class="btn primary" id="phases-play" type="button">Play</button><button class="btn" id="phases-restart" type="button">Restart</button><span class="readout" id="phases-readout"></span></div>
+</div>
+<div class="demo-note"><p>Before the switch the weights drift freely. After it, every weight sits exactly on a storable value, and a weight can only move by jumping to a neighbouring one. What the network computes from here on is exactly what the chip will compute.</p></div>
+</div>
+<h3>Folding batch normalization</h3>
+<p><span class="term">Batch normalization</span> rescales each channel's activity so training stays stable. The chip has no such operation, but it does not need one: at deployment, normalization is just a fixed scale and a fixed shift per channel. The scale is multiplied into the convolution's weights. The shift becomes either a change to that channel's firing threshold, which is free, or a real bias delivered by an always-on <span class="term">bias neuron</span>, which costs one connection per neuron. That choice is one of the settings the search tries. A variant called tdBN normalizes over time as well as over the batch, and folds the same way.</p>
+<figure class="figure"><div class="figure-scroll lv" id="fold-vis"></div><figcaption>Top: what is trained. Bottom: what is deployed. The two compute the same thing once normalization stops changing, which is why the fold happens at the switch, after the warm-up has given normalization real statistics.</figcaption></figure>
+</section>
+
+<section class="reveal" id="sim">
+<h2><span class="sec-num">C.4</span>Export, and the simulator check</h2>
+<p>After training, each layer is written out in the chip's own format: tables of neurons, the connections between them, integer weights, integer thresholds and leak settings. Then every validation clip runs through a simulator that uses the chip's exact integer arithmetic, and its answer on each clip is compared with the trained network's. A network whose numbers do not fit the chip, or that the simulator cannot run, is marked as not deployable and scores zero; any clip where the two answers differ is counted and reported.</p>
+<figure class="figure"><div class="figure-scroll lv" id="sim-vis"></div><figcaption>The same clip through the trained network (top) and the chip simulator (bottom). The two are built to agree spike for spike, which is tested separately for every kind of layer; each trial then confirms they give the same answer on every validation clip.</figcaption></figure>
+<p>The trial's score is the deployed network's accuracy on the validation people. Scoring the deployed network, rather than the network as it was during training, means the search is optimizing exactly what would run on the chip.</p>
+</section>
+
+<section class="reveal" id="why-search">
+<h2><span class="sec-num">C.5</span>What the search is for</h2>
+<p>A network here is described by about thirty settings: how deep it is, how wide each layer is, how each layer shrinks the map, how the input is encoded, how the neurons behave and how training runs. Each setting changes accuracy, many change how much the others matter, and some combinations do not fit the chip at all. There are trillions of possible shapes before a single training setting is chosen, and each trial costs 15 to 25 minutes of GPU time. The search exists to find a very good combination within a budget of a few hundred trials.</p>
+<div class="stats"><div class="stat"><div class="k">Settings per network</div><div class="val">about 30</div></div><div class="stat"><div class="k">Possible shapes</div><div class="val">trillions</div></div><div class="stat"><div class="k">Trials per search</div><div class="val">400</div></div><div class="stat"><div class="k">At a time</div><div class="val">2 per GPU</div></div></div>
+<p>It does that with five ideas, each covered below: check the shape before anything else, start with a balanced comparison of every option, learn from finished trials where to look next, stop weak trials early, and retrain the best few before naming a winner.</p>
+</section>
+
+<section class="reveal" id="shape-first">
+<h2><span class="sec-num">C.6</span>Shape first, then the chip check</h2>
+<p>A trial chooses its shape first: depth, widths, kernels, input size, bits, head and the options that change connection counts. The chip check runs on the shape alone. If it fails, the trial ends with a score of zero before any training setting is chosen.</p>
+<figure class="figure"><div class="figure-scroll lv" id="funnel-vis"></div><figcaption>The order matters for learning, not just for speed. A failed trial's zero is charged only to the shape settings that caused it, so the search never concludes that, say, a learning rate is bad because it once appeared next to a shape that could not fit.</figcaption></figure>
+</section>
+
+<section class="reveal" id="block">
+<h2><span class="sec-num">C.7</span>Starting with a balanced comparison</h2>
+<p>The first 96 trials are designed rather than sampled. Ten options with two or three choices each are covered so that every choice appears equally often, every pair of options is spread as evenly as possible, and each trial gets a random shape that fits the chip. These trials all train for the full 80 epochs and are never stopped early.</p>
+<figure class="figure"><div class="figure-scroll lv" id="block-vis"></div><figcaption>The 96 designed trials, one column each. Every row has each of its colours equally often.</figcaption></figure>
+<p>There are two reasons. First, a fair comparison: if an option appeared mostly next to good shapes, it would look better than it is, and balancing removes that. Second, a fair start: the sampler learns from whatever it has seen, so an even first map of every option keeps it from locking onto whatever happened to be tried first. The full 80 epochs matter because some options, such as augmentation, learn slowly at first and would be cut unfairly by early stopping.</p>
+</section>
+
+<section class="reveal" id="tpe">
+<h2><span class="sec-num">C.8</span>Learning where to look</h2>
+<p>After the designed trials, a sampler from the Optuna library proposes every new trial, using a method called the Tree-structured Parzen Estimator (TPE). It splits finished trials into the best tenth and the rest, estimates for each setting where good trials tend to sit and where the rest sit, and proposes values that are common among good trials and rare among the rest. It looks at one setting at a time, but because "good" is judged on whole trials, values that work well in combination keep coming back together.</p>
+<div class="demo" id="demo-tpe">
+<div class="demo-head">
+<span class="demo-tag">INTERACTIVE</span>
+<span class="demo-title">The sampler choosing a learning rate</span>
+<span class="demo-sub">Dots are finished trials. Amber dots are the best tenth. The amber curve is where good trials sit and the grey curve where the rest sit; the dashed line is the next value the sampler will try, where the amber curve is highest relative to the grey one.</span>
+</div>
+<div class="demo-body">
+<canvas id="tpe-canvas"></canvas>
+<div class="play-row"><button class="btn primary" id="tpe-one" type="button">Run the next trial</button><button class="btn" id="tpe-ten" type="button">Run 10</button><button class="btn" id="tpe-reset" type="button">Start over</button><span class="readout" id="tpe-readout"></span></div>
+</div>
+<div class="demo-note"><p>The hidden curve the trials are drawn from is not known to the sampler; each trial's score also has noise, as real training runs do. After a dozen trials the proposals crowd into the good region, while the occasional proposal elsewhere keeps checking that nothing better was missed.</p></div>
+</div>
+</section>
+
+<section class="reveal" id="asha">
+<h2><span class="sec-num">C.9</span>Stopping weak trials early</h2>
+<p>Most trials will not win, and it is usually clear well before the end. At epoch 30, ten epochs after the switch to integer weights, each trial is compared with every other trial that has reached epoch 30, and only the best third continue to epoch 80. The rule is called ASHA. Its checkpoint comes after the switch on purpose: accuracy dips for a few epochs while the network adjusts to its integer weights, and judging during the dip would be unfair.</p>
+<div class="demo" id="demo-asha">
+<div class="demo-head">
+<span class="demo-tag">ANIMATION</span>
+<span class="demo-title">Twelve trials meeting the checkpoint</span>
+<span class="demo-sub">Each line is one trial's validation accuracy. Grey lines are trials from the designed block, which always run to the end. At epoch 30 the others are ranked, and the bottom two thirds stop.</span>
+</div>
+<div class="demo-body">
+<canvas id="asha-canvas"></canvas>
+<div class="play-row"><button class="btn primary" id="asha-play" type="button">Play</button><button class="btn" id="asha-restart" type="button">Restart</button><span class="readout" id="asha-readout"></span></div>
+</div>
+</div>
+</section>
+
+<section class="reveal" id="finalists">
+<h2><span class="sec-num">C.10</span>Picking a winner fairly</h2>
+<p>A trial's score depends partly on luck: the random starting weights and the order of the batches. With a validation set of 216 clips, two runs of the same configuration can differ by several points (<a href="data.html#noise">page B</a>). So when the trials are done, the five best configurations are trained again from scratch with three new random seeds each, and the winner is the configuration with the best average. Only then is its accuracy on the test people measured, once.</p>
+<figure class="figure"><div class="figure-scroll lv" id="final-vis"></div><figcaption>An illustration. The configuration that ranked first in the search had a lucky run; retrained three times, another configuration is better on average and wins.</figcaption></figure>
+</section>
+
+<section class="reveal" id="timeline">
+<h2><span class="sec-num">C.11</span>A search, start to finish</h2>
+<div class="demo" id="demo-timeline">
+<div class="demo-head">
+<span class="demo-tag">ANIMATION</span>
+<span class="demo-title">Two trials at a time on one GPU</span>
+<span class="demo-sub">Each bar is one trial on one of the two GPU slots. Grey bars are the designed block, amber bars are trials the sampler proposed, short red bars were stopped at epoch 30, and ticks on the bottom lane were rejected by the chip check without training. The line on top is the best score so far.</span>
+</div>
+<div class="demo-body">
+<canvas id="tl-canvas"></canvas>
+<div class="play-row"><button class="btn primary" id="tl-play" type="button">Play</button><button class="btn" id="tl-restart" type="button">Restart</button><span class="readout" id="tl-readout"></span></div>
+</div>
+<div class="demo-note"><p>An illustration of the shape of a search, not a record of one. The designed block takes the first stretch; after it, sampled trials score higher on average because the sampler concentrates on what worked, early stopping frees slots quickly, and rejected shapes cost no GPU time at all.</p></div>
+</div>
+<p>When the search ends it leaves behind the winning configuration, its trained network in the chip's format, its validation, simulator and test accuracy, how much work it does in SynOps, and a record of every trial, so any of them can be retrained exactly.</p>
+<div class="recap"><strong>In short</strong><p>Every trial proposes a configuration, checks its shape against the chip, trains first with ordinary weights and then on the chip's integer grid, exports, and is scored by a simulator of the chip on held-out people. The search runs a balanced block of designed trials, then lets a sampler concentrate on what scores well, stops weak trials at epoch 30, and retrains the best five with fresh seeds before naming a winner.</p></div>
+</section>
+
+</div>
+<aside class="toc"></aside>
+</main>
+<nav class="foot-nav">
+<a class="prev" href="data.html"><span class="dir">Previous</span><span class="pg">B · Data and testing</span></a>
+<a class="next" href="settings.html"><span class="dir">Next</span><span class="pg">D · Every setting, visualized</span></a>
+</nav>
+<footer class="site-foot">
+<span>Documentation for <a href="https://github.com/purujain2006/configurable-snn-classifier">configurable-snn-classifier</a></span>
+</footer>
+<script src="assets/site.js"></script>
+<script src="assets/learn.js"></script>
+<script src="assets/demo-pipeline.js"></script>
+</body>
+</html>

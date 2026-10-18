@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Bit encoding</title>
+<meta content="How a pixel's event count reaches the chip one bit per input axon, why the weights make it add up, what extra bits cost, and how the work they cause is counted." name="description"/>
+<link href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'&gt;&lt;rect width='32' height='32' fill='%23000'/&gt;&lt;path d='M3 22h5l3-13 4 19 3-11h4l2 5h5' fill='none' stroke='%23e0a94f' stroke-width='2.4' stroke-linejoin='round'/&gt;&lt;/svg&gt;" rel="icon"/>
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&amp;family=JetBrains+Mono:ital,wght@0,400;0,600;0,700;1,400&amp;display=swap" rel="stylesheet"/>
+<link href="assets/style.css" rel="stylesheet"/>
+<link href="assets/learn.css" rel="stylesheet"/>
+</head>
+<body>
+<header class="hero">
+<div class="hero-inner">
+<p class="kicker">Start here · E</p>
+<h1>Bit encoding</h1>
+<p class="lede">The chip's input lines carry one bit each: a spike, or nothing. This page shows how a pixel that saw several events gets its count onto the chip anyway, why the weights make it add up, what each extra bit costs, and how the work it causes is counted.</p>
+</div>
+</header>
+<main class="with-toc">
+<div class="wrap">
+
+<section class="reveal" id="one-bit">
+<h2><span class="sec-num">E.1</span>One axon, one bit</h2>
+<p>Everything the chip receives arrives on input lines called <span class="term">axons</span>, and at each timestep an axon either spikes or stays silent. With one bit per pixel, a pixel's axon spikes if any event landed on that pixel during the frame. Two events and twenty look the same.</p>
+<p>That throws information away: a pixel the hand swept across many times is busier than one it barely touched. <span class="term">Multi-bit input</span> keeps the count. With B bits per pixel, the count is capped at the largest number B bits can hold, 2<sup>B</sup> − 1, written in binary, and each bit gets its own axon.</p>
+<div class="pill-row"><span class="pill"><b>1 bit</b> 0 or 1</span><span class="pill"><b>2 bits</b> 0 to 3</span><span class="pill"><b>3 bits</b> 0 to 7</span><span class="pill"><b>4 bits</b> 0 to 15</span></div>
+</section>
+
+<section class="reveal" id="animation">
+<h2><span class="sec-num">E.2</span>Watching a count arrive</h2>
+<div class="demo" id="demo-bits">
+<div class="demo-head">
+<span class="demo-tag">ANIMATION</span>
+<span class="demo-title">One pixel, one neuron, frame by frame</span>
+<span class="demo-sub">Each frame: events land on the pixel, the count is capped and written in binary, every 1 bit fires its own axon, and the neuron adds up what arrives. Every axon uses the same base weight w = 0.2, doubled for each higher bit, so you can compare settings fairly.</span>
+</div>
+<div class="demo-body">
+<div class="controls">
+<div class="ctl wide"><label>bits per pixel</label><div class="seg" id="bits-B"><button data-v="1" type="button">1</button><button data-v="2" type="button">2</button><button class="on" data-v="3" type="button">3</button><button data-v="4" type="button">4</button></div></div>
+<div class="ctl wide"><label>speed</label><div class="seg" id="bits-speed"><button data-v="0.5" type="button">slow</button><button class="on" data-v="1" type="button">normal</button><button data-v="2" type="button">fast</button></div></div>
+<button class="btn primary" id="bits-play" type="button">Play</button>
+<button class="btn" id="bits-step" type="button">Next frame</button>
+</div>
+<div class="lv lv-scroll" id="bits-vis"></div>
+<div class="stats"><div class="stat"><div class="k">Neuron receives</div><output class="val" id="bits-recv" style="font-size:17px">-</output></div><div class="stat"><div class="k">Axon spikes, this frame</div><output class="val" id="bits-ops">0</output></div><div class="stat"><div class="k">Axon spikes, so far</div><output class="val" id="bits-total">0</output></div></div>
+</div>
+<div class="demo-note"><p>Switch to 1 bit: every busy frame arrives as the same single spike, and the neuron can no longer tell a grazing touch from a full sweep. Switch to 4 bits: the counts arrive in full, using up to four axon spikes per frame. Counts above the cap are clipped, as the frame with 9 events shows at 3 bits.</p></div>
+</div>
+</section>
+
+<section class="reveal" id="adds-up">
+<h2><span class="sec-num">E.3</span>Why the weights make it add up</h2>
+<p>Each axon's weight is the pixel's weight multiplied by its bit's place value: w for the 1s bit, 2w for the 2s bit, 4w for the 4s bit, and so on. Adding up whatever arrives gives exactly the count times w:</p>
+<div class="formula">b<sub>0</sub>·<span class="v">w</span> + b<sub>1</sub>·<span class="v">2w</span> + b<sub>2</sub>·<span class="v">4w</span> = (b<sub>0</sub> + 2b<sub>1</sub> + 4b<sub>2</sub>) · <span class="v">w</span> = count · <span class="v">w</span><span class="note">For a count of 5, written 101: the 1s and 4s axons fire and the neuron receives w + 4w = 5w. So the network can be trained as if it read the count directly, and the chip, delivering it bit by bit, computes exactly the same thing.</span></div>
+</section>
+
+<section class="reveal" id="cost">
+<h2><span class="sec-num">E.4</span>What extra bits cost</h2>
+<p>Bits are not free. Every bit is another axon for every pixel, so the chip's 16,000 input axons cover a smaller frame. The first layer reads B times as many inputs per neuron. And because the top bit's weight is the pixel's weight times 2<sup>B−1</sup>, and that product must still fit in the chip's 16-bit weights, the first layer's weights get coarser with every extra bit.</p>
+<figure class="figure"><div class="figure-scroll lv" id="cost-vis"></div><figcaption>The three costs for 1 to 4 bits. Left: the largest square frame of two channels that fits in 16,000 axons. Middle: how many distinct positive values a first-layer weight can take. Right: the input axons each first-layer neuron reads with a 5 × 5 kernel.</figcaption></figure>
+</section>
+
+<section class="reveal" id="counting">
+<h2><span class="sec-num">E.5</span>Counting the work</h2>
+<p>One synaptic operation (SynOp) is one spike arriving at one connection, so the work a pixel causes depends on how many of its bits are 1, not on the count itself. A count of 4, written 100, is a single spike on the 4s axon; a count of 3, written 011, is two spikes. Across a frame the first layer's work is the number of 1 bits times each axon's connections. Its ceiling is B times the work of a one-bit input, because each pixel has B axons.</p>
+<figure class="figure"><div class="figure-scroll lv" id="pop-vis"></div><figcaption>Every count a 3-bit pixel can carry, its bits, and the axon spikes it costs. The cost is the number of 1 bits, so it is at most 3, however large the count.</figcaption></figure>
+</section>
+
+<section class="reveal" id="when">
+<h2><span class="sec-num">E.6</span>When more bits help</h2>
+<p>Extra bits help when pixels collect many events per frame and the difference between a busy pixel and a quiet one carries meaning: short clips cut into few frames, or frames shrunk a lot, so each pixel covers a large patch of the camera. They cost a smaller frame, a wider first layer and coarser first-layer weights.</p>
+<p>In the balanced comparison of 96 networks (<a href="settings.html#input">page D</a>), one bit did as well as any: 54.7% for 1 bit, 50.8% for 2, 47.7% for 3 and 54.9% for 4, all within noise of each other, and every one of the twelve best networks used one bit. At the frame sizes and clip lengths that score best, a bigger frame is worth more than a count.</p>
+<div class="recap"><strong>In short</strong><p>An axon carries one bit. With B bits per pixel, the event count is capped at 2<sup>B</sup> − 1, written in binary, and sent on B axons whose weights double with each bit, so the neuron receives exactly count × w. Each bit costs axons, first-layer inputs and weight precision, and the work it causes is one SynOp per 1 bit per connection.</p></div>
+</section>
+
+</div>
+<aside class="toc"></aside>
+</main>
+<nav class="foot-nav">
+<a class="prev" href="settings.html"><span class="dir">Previous</span><span class="pg">D · Every setting, visualized</span></a>
+<a class="next" href="neurons.html"><span class="dir">Next</span><span class="pg">02 · The neuron</span></a>
+</nav>
+<footer class="site-foot">
+<span>Documentation for <a href="https://github.com/purujain2006/configurable-snn-classifier">configurable-snn-classifier</a></span>
+</footer>
+<script src="assets/site.js"></script>
+<script src="assets/learn.js"></script>
+<script src="assets/demo-bits.js"></script>
+</body>
+</html>
