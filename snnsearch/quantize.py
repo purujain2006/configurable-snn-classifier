@@ -117,9 +117,36 @@ def deployment_report(net) -> dict:
         warnings_.append(f"max folded threshold {max_th:.4f} > w_alpha "
                          f"({W_ALPHA:g}); it saturates at INT16_MAX on chip")
 
+    # The thresholds the chip is handed, which the model's own (above) do not
+    # show: an average pool folds into the layer after it, whose threshold
+    # becomes 4 * theta + 3 per 2x2 pool. Search 05's best networks needed 18
+    # bits there. A warning past hardware.THRESHOLD_LIMITS, since a chip
+    # build with a narrower field would still run everything else.
+    from .hardware import THRESHOLD_LIMITS
+    chip, chip_reason = None, ""
+    try:
+        from .hs_export import integer_layers, chip_thresholds
+        chip = chip_thresholds(integer_layers(net))
+    except Exception as exc:      # a net that is not the deployed form
+        chip_reason = f"{type(exc).__name__}: {exc}"
+    limit = THRESHOLD_LIMITS["bits"]
+    for r in chip or []:
+        if r["bits"] > limit:
+            warnings_.append(
+                f"layer {r['layer']} needs a {r['bits']}-bit threshold ({r['threshold']:,})"
+                + (f" after folding the {r['pool']}x{r['pool']} average pool before it"
+                   if r["pool"] > 1 else "")
+                + f"; the chip's field is {limit} bits (limits.threshold_bits). "
+                  "Max pooling or a strided layer keeps thresholds within it")
+
     return {"neurons": rows, "weight_clip_frac": clip, "max_abs_weight": max_abs_w,
             "min_threshold": (min_th if math.isfinite(min_th) else None),
             "max_threshold": max_th, "deployable": not blocking,
+            "chip_thresholds": chip,
+            "chip_threshold_max": max((r["threshold"] for r in chip), default=None)
+            if chip else None,
+            "threshold_bits": max((r["bits"] for r in chip), default=None) if chip else None,
+            "chip_threshold_reason": chip_reason,
             "blocking_reasons": blocking, "warnings": warnings_,
             "reasons": blocking + warnings_}
 

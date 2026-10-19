@@ -471,6 +471,9 @@ def run_training(cfg: dict, data_dir: str = None, device=None, report_fn=None,
             "deployable": rep["deployable"],
             "deploy_reasons": "; ".join(rep["blocking_reasons"])[:300],
             "deploy_warnings": "; ".join(rep["warnings"])[:300],
+            # bits the widest threshold needs as the chip receives it
+            "threshold_bits": rep.get("threshold_bits"),
+            "chip_threshold_max": rep.get("chip_threshold_max"),
             "flush_steps": hardware_flush_steps(hw_net),
         }
     else:

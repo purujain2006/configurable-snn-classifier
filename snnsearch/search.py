@@ -675,6 +675,9 @@ def _make_trainable(cfg, out_dir):
             "sim_disagreements": res.get("sim_disagreements"),
             "deployable": deployable,
             "deploy_reasons": res.get("deploy_reasons"),
+            "deploy_warnings": res.get("deploy_warnings"),
+            # bits the widest threshold needs as the chip receives it
+            "threshold_bits": res.get("threshold_bits"),
             "phase": "deploy",
             "feasible": True,
             # Carried explicitly rather than derived from `epoch`, which this

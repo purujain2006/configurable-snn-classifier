@@ -66,6 +66,8 @@ LEADERBOARD_COLS = [
     "use_augment", "aug_shift", "aug_cutout", "aug_drop", "aug_flip",
     # the dataset the trial was sampled for, and its seed
     "data_C", "data_H", "data_W", "num_classes", "seed",
+    # bits the widest threshold needs on chip (18 behind an average pool)
+    "threshold_bits",
 ]
 
 
@@ -244,6 +246,8 @@ def make_streaming_callback(writer, target=0.975):
                 "deployed_tau": r.get("deployed_tau"),
                 "sim_val_accuracy": r.get("sim_val_accuracy"),
                 "sim_disagreements": r.get("sim_disagreements"),
+                "threshold_bits": r.get("threshold_bits"),
+                "deploy_warnings": r.get("deploy_warnings"),
                 "epochs_run": epochs_run, "epochs_requested": requested,
                 "stopped_early": stopped_early,
                 "violations": r.get("violations"), "config": flat})
@@ -274,6 +278,7 @@ def make_streaming_callback(writer, target=0.975):
                 "deployed_tau": r.get("deployed_tau"),
                 "sim_val_accuracy": r.get("sim_val_accuracy"),
                 "sim_disagreements": r.get("sim_disagreements"),
+                "threshold_bits": r.get("threshold_bits"),
                 **cost_of(flat), **per_layer_summary(flat), **flat,
             }, header_order=LEADERBOARD_COLS)
 

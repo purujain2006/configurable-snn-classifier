@@ -461,7 +461,7 @@ def run_single(cfg, ckpt="best.pth", from_best=None, epochs=None,
     print(f"\nfinished in {mins:.1f} min")
     for k in ("float_val_accuracy", "pre_export_val_accuracy", "hw_val_accuracy",
               "quant_gap", "end_to_end_gain", "synops_per_sample",
-              "deployable", "deploy_reasons"):
+              "deployable", "deploy_reasons", "threshold_bits"):
         if k in payload:
             print(f"  {k:<24} {payload[k]}")
     if payload.get("hw_test_accuracy") is not None:

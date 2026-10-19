@@ -38,7 +38,7 @@ SUMMARY_COLS = [
     "hw_val_accuracy", "hw_test_accuracy",
     "float_val_accuracy", "quant_gap",
     "synops_per_sample", "synops_over_dense", "weight_clip_frac",
-    "max_abs_weight", "deployable", "wall_minutes", "status",
+    "max_abs_weight", "deployable", "threshold_bits", "wall_minutes", "status",
 ]
 
 

@@ -246,6 +246,7 @@ The scores:
 | `sim_disagreements` | clips where the two predict differently; always 0 |
 | `deployable` | fits the chip and survived export |
 | `deployed_tau` | the leak each layer deploys with |
+| `threshold_bits` | bits the widest threshold needs on chip: 16 normally, 18 in a layer behind an average pool (the fold makes it 4 x theta + 3). The chip field is `limits.threshold_bits` |
 
 The leaders so far:
 
@@ -461,6 +462,7 @@ For a chip build with other limits. Empty by default, which uses the values in
 | `axon_fan_in` | 8191 | input axons that may feed one neuron |
 | `neuron_fan_out` | 4095 | neurons one neuron may feed |
 | `neuron_fan_in` | 8159 | neurons that may feed one neuron |
+| `threshold_bits` | 36 | bits in a neuron's threshold field, the same as its state word on the FPGA. Behind an average pool the chip threshold is 4 x theta + 3, up to 18 bits; a network past the limit deploys with a warning, and `threshold_bits` records what it needs |
 
 ### report
 
