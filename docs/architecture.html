@@ -5,7 +5,7 @@
 <meta charset="utf-8"/>
 <meta content="width=device-width, initial-scale=1.0" name="viewport"/>
 <title>The architecture</title>
-<meta content="How a network is described as configuration, how its layer sizes are worked out, how its size is measured, and which models the tool supports." name="description"/>
+<meta content="How a network is described by settings, how its layer sizes are worked out, how its size is measured, and which models the tool supports." name="description"/>
 <link href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'&gt;&lt;rect width='32' height='32' fill='%23000'/&gt;&lt;path d='M3 22h5l3-13 4 19 3-11h4l2 5h5' fill='none' stroke='%23e0a94f' stroke-width='2.4' stroke-linejoin='round'/&gt;&lt;/svg&gt;" rel="icon"/>
 <link href="https://fonts.googleapis.com" rel="preconnect"/>
 <link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
@@ -17,59 +17,35 @@
 <div class="hero-inner">
 <p class="kicker">Page 3</p>
 <h1>The architecture</h1>
-<p class="lede">The tool builds a network from a configuration instead of from code, so a search can try a different network in every trial. This page covers the configuration, how layer sizes are worked out, how big a network is, and which kinds of model the tool supports.</p>
+<p class="lede">The tool builds a network from a list of settings instead of from code, so a search can try a different network in every trial. This page covers how layer sizes are worked out, four ways to measure how big a network is, a builder that shows every layer's cost, and which kinds of model the tool supports.</p>
 </div>
 </header>
 <main class="with-toc">
 <div class="wrap">
 <section class="reveal" id="configs">
-<h2><span class="sec-num">3.1</span>A network written as configuration</h2>
-<p>A network here is a stack of convolution layers, which find patterns in the image, followed by a head, which turns those patterns into one score per class. If the layer sizes were written into a model class, trying a different network would mean editing code. Writing them as configuration lets the search propose a new network for every trial.</p>
+<h2><span class="sec-num">3.1</span>A network written as settings</h2>
+<p>A network here is a stack of convolution layers, which find patterns in the image, followed by a head, which turns those patterns into one score per class. <a href="basics.html#cnn">Page A</a> explains each of those pieces. If the layer sizes were written into the program, trying a different network would mean editing code. Writing them as settings lets the search propose a new network for every trial, and lets the chip check read a network's shape before anything is built.</p>
+<p>A few symbols come up on this page.</p>
 <dl class="kv">
 <dt>N, C, H, W, T</dt><dd>Batch size, input channels, image height, image width, and the number of timesteps per clip. The batch size groups clips for training and has no effect on the deployed network.</dd>
 <dt>kernel, stride, padding</dt><dd>A convolution slides a small window, the kernel, across the image. The stride is how far the window moves each time; a stride of 2 halves the image size. Padding adds a border so the window can reach the edges.</dd>
-<dt>pooling</dt><dd>A pooling layer shrinks the image by combining neighboring values. Here it averages each 2×2 block.</dd>
-<dt>encoder, head</dt><dd>The encoder is the stack of convolution layers (<code>EncoderSpec</code>). The head maps the encoder's output to class scores (<code>HeadSpec</code>).</dd>
-<dt>flatten, GAP</dt><dd>Two ways to hand the encoder's output to the head. Flatten keeps every position as a separate number. Global average pooling (GAP) averages each channel down to one number.</dd>
-<dt>layers_json</dt><dd>A list of per-layer settings written as JSON. When present, each layer gets its own kernel, channels and downsampling.</dd>
+<dt>flatten, GAP</dt><dd>Two ways to hand the last layer's maps to the head. Flatten keeps every position as a separate number. Global average pooling (GAP) averages each channel down to one number.</dd>
 </dl>
-<p>The settings are grouped into Python dataclasses, which are plain records of named fields with defaults. Every other module takes these records instead of loose arguments.</p>
-<div class="tbl-wrap">
-<table class="tbl">
-<thead><tr><th>Dataclass</th><th>Holds</th><th>Main fields</th></tr></thead>
-<tbody>
-<tr><td class="layer-name">InputSpec</td><td>the input</td><td>C = 2 polarity channels, H = W = 128, T = 16, <code>resize_to</code>, batch N</td></tr>
-<tr><td class="layer-name">ConvLayerSpec</td><td>one convolution</td><td>out_channels, kernel_size, stride, padding, pool, and optional per-layer τ and θ</td></tr>
-<tr><td class="layer-name">EncoderSpec</td><td>the convolution stack</td><td>depth, channels and kernel_size for identical layers, or <code>layers_json</code>; norm</td></tr>
-<tr><td class="layer-name">DownsampleSpec</td><td>how images shrink</td><td>stride or pool, pool type and size</td></tr>
-<tr><td class="layer-name">HeadSpec</td><td>the head</td><td>flatten or GAP, hidden layer widths, and dropout (silencing random units during training so the network cannot lean on any one of them)</td></tr>
-<tr><td class="layer-name">OutputSpec</td><td>the classes</td><td>num_classes = 11</td></tr>
-<tr><td class="layer-name">NeuronSpec</td><td>the neuron of page 2</td><td>τ (a power of two), θ, v_reset, whether τ and θ are learned</td></tr>
-<tr><td class="layer-name">TrainSpec</td><td>the training recipe</td><td>optimizer, learning rate, schedule, weight decay, training on the integer grid, where the bias goes</td></tr>
-</tbody>
-</table>
-</div>
-<p>Each group can also be set from the command line as <code>key=value</code> pairs. The parser reads the dataclass's own field list, so a new field gets a command-line option without extra code, and an unknown key fails immediately with the list of valid ones.</p>
-<details class="technical-details"><summary>Example</summary><div class="detail-body"><div class="code-block">
-<div class="code-head"><span class="file">terminal</span><span class="loc">a fully specified configuration</span></div>
-<pre><code class="language-bash">python main.py summary -c configs/dvs128.yaml \
-  --encoder depth=2 channels=32 kernel_size=7 stride=2 norm=bn \
-  --head    fc_widths= dropout_rate=0.28 \
-  --neuron  tau=2</code></pre>
-</div></div></details>
+<p>Every layer can have its own kernel, channel count and way of shrinking the map, and optionally its own τ and θ. Per-layer τ and θ cost nothing on the chip, which stores a neuron model for every neuron. A network can also repeat one kernel and channel count at every layer, which is the shorter way to write a simple stack. Both forms reduce to the same list of layers, so everything that reads a network handles one representation.</p>
 </section>
 <section class="reveal" id="planning">
 <h2><span class="sec-num">3.2</span>Working out layer sizes once</h2>
-<p>Three parts of the tool need the size of every layer: the code that builds the network, the check against the chip's limits, and the count of neurons and connections. Computing sizes separately in three places lets them drift apart, which motivates one planner, <code>plan_network()</code>, whose output all three read.</p>
+<p>Three parts of the tool need the size of every layer: the step that builds the network, the check against the chip's limits, and the count of neurons and connections. Computing sizes separately in three places lets them drift apart, which motivates one planner whose output all three read.</p>
 <p>Each layer's output size comes from the standard convolution formula:</p>
 <div class="formula">out = ⌊( in + 2·padding − (kernel − 1) − 1 ) / stride⌋ + 1</div>
 <p>For example, a 64×64 image through a 7×7 kernel at stride 2 with no padding gives ⌊(64 − 7)/2⌋ + 1 = 29, so 29×29.</p>
 <p>While walking the stack, the planner applies three rules.</p>
 <ol>
 <li><strong>Stop shrinking small images.</strong> Once an image is 3×3 or smaller, later layers keep its size instead of shrinking it further. A kernel larger than the image is rejected with the sizes involved.</li>
-<li><strong>Decide where shrinking happens.</strong> A layer that asks for pooling gets a stride-1 convolution followed by a pool. Otherwise the configuration chooses between a stride-2 convolution and a pool.</li>
+<li><strong>Decide where shrinking happens.</strong> A layer that asks for pooling gets a stride-1 convolution followed by a pool. Otherwise the settings choose between a stride-2 convolution and a pool.</li>
 <li><strong>Record three sizes per layer.</strong> The input size, the size after the convolution (where the neurons sit), and the size after pooling (what the next layer reads).</li>
 </ol>
+<p>The third rule matters for the chip. An average pool has no neurons of its own, so the chip check needs the size before the pool, where the neurons are, and the size after it, which sets how the next layer is wired (<a href="hardware.html#limits">section 4.1</a>).</p>
 </section>
 <section class="reveal" id="cost">
 <h2><span class="sec-num">3.3</span>Four ways to measure size</h2>
@@ -81,7 +57,7 @@
 <tr><td class="layer-name">neurons</td><td class="num">C<sub>out</sub> · H · W</td><td>Spiking neurons on the chip, one per output position per channel.</td></tr>
 <tr><td class="layer-name">connections</td><td class="num">neurons · k² · C<sub>in</sub></td><td>Synapses the chip stores. Every neuron gets its own copy of the filter.</td></tr>
 <tr><td class="layer-name">parameters</td><td class="num">k² · C<sub>in</sub> · C<sub>out</sub></td><td>Numbers that training learns. The filter is shared, so this is far smaller than the connection count.</td></tr>
-<tr><td class="layer-name">SynOps (synaptic operations)</td><td class="num">Σ spikes × fan-out</td><td>Additions actually performed on a real clip. Measured, not computed from the shape.</td></tr>
+<tr><td class="layer-name">SynOps (synaptic operations)</td><td class="num">Σ spikes × fan-out</td><td>Additions actually performed on a real clip. Measured, since it depends on the input as well as the shape.</td></tr>
 </tbody>
 </table>
 </div>
@@ -104,13 +80,13 @@
 </div></details>
 </section>
 <section class="reveal" id="builder">
-<h2><span class="sec-num">3.4</span>Build a network</h2>
-<p>The builder below runs the planner, the size counts and the chip check in your browser. It is a JavaScript copy of the Python code, and a test (<code>tests/test_snn_port.js</code>) compares the two on eight configurations. Change the channels, the head or the depth and watch the verdict at the bottom.</p>
+<h2><span class="sec-num">3.4</span>Build a network, layer by layer</h2>
+<p>The builder below runs the planner, the size counts and the chip check in your browser, with the same arithmetic as the tool; it is tested against the tool on eight configurations. It shows every layer's numbers, which makes it the place to see exactly where a network breaks a limit. <a href="settings.html#builder">Page D</a> has a more visual builder that also covers input bits, signed spikes and bias neurons.</p>
 <div class="demo">
 <div class="demo-head">
 <span class="demo-tag">INTERACTIVE</span>
-<span class="demo-title">Configuration builder</span>
-<span class="demo-sub">Equivalent to <code>summary</code> mode. The verdict at the bottom is the same check the search applies before allocating a GPU.</span>
+<span class="demo-title">Layer-by-layer builder</span>
+<span class="demo-sub">Change the channels, the head or the depth and watch the verdict at the bottom. It is the same check every trial passes before it is given a GPU.</span>
 </div>
 <div class="demo-body">
 <div class="controls">
@@ -119,7 +95,7 @@
 <select id="nb-preset">
 <option value="seed1">two layers, kernel 7, 32 channels</option>
 <option value="seed3">three layers, kernel 7, 32 channels</option>
-<option value="default">file defaults</option>
+<option value="default">the defaults</option>
 <option value="perlayer">per-layer geometry with pooling</option>
 <option value="gap">GAP head with a hidden layer</option>
 <option value="collapse">too deep for the input size</option>
@@ -173,59 +149,40 @@
 </table>
 </div>
 <div class="stats">
-<div class="stat"><div class="k">input axons</div><div class="val" id="nb-axons">—</div><div class="sub">limit 16,000</div></div>
-<div class="stat"><div class="k">neurons</div><div class="val" id="nb-neurons">—</div></div>
-<div class="stat"><div class="k">connections</div><div class="val" id="nb-conns">—</div></div>
-<div class="stat"><div class="k">parameters</div><div class="val" id="nb-params">—</div></div>
-<div class="stat"><div class="k">neuron updates per sample</div><div class="val" id="nb-updates">—</div></div>
-<div class="stat"><div class="k">flush steps</div><div class="val" id="nb-flush">—</div></div>
+<div class="stat"><div class="k">input axons</div><div class="val" id="nb-axons">-</div><div class="sub">limit 16,000</div></div>
+<div class="stat"><div class="k">neurons</div><div class="val" id="nb-neurons">-</div></div>
+<div class="stat"><div class="k">connections</div><div class="val" id="nb-conns">-</div></div>
+<div class="stat"><div class="k">parameters</div><div class="val" id="nb-params">-</div></div>
+<div class="stat"><div class="k">neuron updates per sample</div><div class="val" id="nb-updates">-</div></div>
+<div class="stat"><div class="k">flush steps</div><div class="val" id="nb-flush">-</div></div>
 </div>
 <div id="nb-verdict"></div>
-<h4>Equivalent command</h4>
-<div class="term-block"><div class="term-head">reproduce this configuration</div><pre id="nb-cli"></pre></div>
 </div>
 </div>
 </section>
 <section class="reveal" id="head">
-<h2><span class="sec-num">3.5</span>The head</h2>
-<p>After the convolution stack, an output of shape channels × height × width has to become 11 class scores.</p>
-<dl class="kv">
-<dt>flatten</dt><dd>Lays the output out as one long vector, so 32×12×12 becomes 4,608 numbers. Each class neuron connects to all of them, and the network keeps track of where in the image each pattern appeared.</dd>
-<dt>GAP</dt><dd>Averages each channel to one number, so 32×12×12 becomes 32. This cuts the head's parameters from 4,608 per class to 32 and throws away position.</dd>
-</dl>
+<h2><span class="sec-num">3.5</span>The head on the chip</h2>
+<p>After the convolution stack, an output of shape channels × height × width has to become 11 class scores. Flatten turns 32×12×12 into 4,608 numbers and connects each class neuron to all of them. GAP turns it into 32, which cuts the head's parameters from 4,608 per class to 32 and throws away position.</p>
 <p>On the chip, GAP does not reduce connections. An average has no neurons of its own, so it is folded into the head's connections, and each class neuron still connects to every neuron of the last convolution layer. Flatten and GAP therefore hit the same fan-in limit. GAP is still worth trying for the smaller parameter count, which can reduce overfitting: learning details of the training clips that do not carry over to new ones.</p>
-<p>Between the encoder and the classes the configuration can add one hidden layer of 128, 256 or 512 neurons. When the network deploys its bias through bias neurons (<a href="hardware.html#folding">section 4.3</a>), every head layer gets a bias too.</p>
-</section>
-<section class="reveal" id="perlayer">
-<h2><span class="sec-num">3.6</span>Identical layers or per-layer settings</h2>
-<p><code>EncoderSpec</code> accepts two forms. The simple form repeats one depth, channel count and kernel size. The per-layer form takes a JSON list and gives each layer its own kernel, channels, downsampling and, optionally, its own τ and θ.</p>
-<details class="technical-details"><summary>Example</summary><div class="detail-body"><div class="code-block">
-<div class="code-head"><span class="file">per-layer encoder</span><span class="loc">emitted by the per-layer search space</span></div>
-<pre><code class="language-python">--encoder layers_json='[
-  {"out_channels": 32, "kernel_size": 7, "stride": 2},
-  {"out_channels": 64, "kernel_size": 5, "stride": 1, "pool": true},
-  {"out_channels": 32, "kernel_size": 5, "stride": 2, "tau": 4, "v_threshold": 0.8}
-]'</code></pre>
-</div></div></details>
-<p>When <code>layers_json</code> is present it decides the shape and the simple fields are ignored. One function reduces both forms to the same list, so the planner, the checker, the counts and the builder each handle one representation. Per-layer τ and θ cost nothing on the chip, which stores a neuron model for every neuron.</p>
+<p>Between the last convolution and the classes the settings can add one hidden layer of 128, 256 or 512 neurons, with dropout (silencing random units during training so the network cannot lean on any one of them) on its input. When the network deploys its bias through bias neurons (<a href="hardware.html#folding">section 4.3</a>), every head layer gets a bias too.</p>
 </section>
 <section class="reveal" id="scope">
-<h2><span class="sec-num">3.7</span>Which models the tool supports</h2>
-<p>The goal is a tool that takes any convolutional network and finds a version of it that runs well on HiAER-Spike. Today it builds one family: a sequential stack of convolution layers with a classification head, described by configuration. Changing the dataset, the layer sizes or the neuron settings stays within that family.</p>
+<h2><span class="sec-num">3.6</span>Which models the tool supports</h2>
+<p>The goal is a tool that takes any convolutional network and finds a version of it that runs well on HiAER-Spike. Today it builds one family: a sequential stack of convolution layers with a classification head, described by settings. Changing the dataset, the layer sizes or the neuron settings stays within that family.</p>
 <div class="tbl-wrap">
 <table class="tbl">
 <thead><tr><th>You want to</th><th>Supported today</th><th>What it would take</th></tr></thead>
 <tbody>
 <tr><td class="layer-name">Change a convolutional classifier</td><td>Yes: depth, per-layer kernels and channels, pooling or strides, neuron settings, the head, bias neurons.</td><td>Pick settings the planner can express. The chip check and the simulator check run automatically.</td></tr>
-<tr><td class="layer-name">Use another image or event dataset</td><td>Yes: built-in loaders, or your own Python function that returns the datasets.</td><td>Return the train and test sets with the image size and class count, and pick an input coding (<a href="training.html#binarize">section 5.2</a>).</td></tr>
-<tr><td class="layer-name">Load an existing PyTorch model</td><td>No. The builder constructs its own model from configuration.</td><td>Describe the model as configuration, or add an importer that turns a PyTorch module into the planner's layer list.</td></tr>
+<tr><td class="layer-name">Use another image or event dataset</td><td>Yes: built-in loaders, or your own function that returns the datasets.</td><td>Return the train and test sets with the image size and class count, and pick an input coding (<a href="training.html#binarize">section 5.1</a>).</td></tr>
+<tr><td class="layer-name">Load an existing PyTorch model</td><td>No. The tool constructs its own model from settings.</td><td>Describe the model as settings, or add an importer that turns a PyTorch model into the planner's layer list.</td></tr>
 <tr><td class="layer-name">Use residual connections, attention or recurrence</td><td>No. The planner and the exporter handle a straight sequence of layers.</td><td>Extend the planner from a sequence to a graph, decide how branches line up in time (each layer adds one step of delay), and add each operation to the exporter and the simulator.</td></tr>
 <tr><td class="layer-name">Do detection, segmentation or regression</td><td>No. The head, the loss and the accuracy measure assume classification.</td><td>Add the task's outputs, loss and metrics.</td></tr>
 <tr><td class="layer-name">Target a different chip</td><td>No. The neuron, the number formats and the exporter are specific to HiAER-Spike.</td><td>Replace the limits, the neuron arithmetic and the exporter, and test against that chip's own simulator.</td></tr>
 </tbody>
 </table>
 </div>
-<p>Importing an existing PyTorch model is the most direct step toward "any CNN". A model that uses an operation the chip cannot run (max pooling, for example) would first need that operation replaced, and the result trained again.</p>
+<p>Importing an existing PyTorch model is the most direct step toward "any CNN". A model that uses an operation the chip cannot run, such as multiplying two activations together, would first need that operation replaced, and the result trained again.</p>
 </section>
 </div>
 <aside class="toc"></aside>
@@ -236,14 +193,10 @@
 </nav>
 <footer class="site-foot">
 <span>Documentation for <a href="https://github.com/purujain2006/configurable-snn-classifier">configurable-snn-classifier</a></span>
-<span>Interactive demonstrations use the same arithmetic as <code>snnsearch</code>, verified against it.</span>
+<span>Interactive demonstrations use the same arithmetic as the tool and are tested against it.</span>
 </footer>
 <script src="assets/snn.js?v=16000"></script>
 <script src="assets/site.js"></script>
-<script src="assets/fileview.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-python.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-bash.min.js"></script>
 <script src="assets/demo-architecture.js"></script>
 </body>
 </html>

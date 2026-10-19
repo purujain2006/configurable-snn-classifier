@@ -201,7 +201,7 @@
     };
     function draw() {
       // The chip leaks by a shift, V -= V >> k, so tau = 2^k. A learned tau is
-      // rounded in log2 space, as HardwareLIFNode.hw_tau does.
+      // rounded in log2 space, as the training neuron does.
       const tauF = parseInt(els.tau.value, 10) / 100;
       const leak = Math.pow(2, Math.min(7, Math.max(1, Math.round(Math.log2(tauF)))));
       const T = 24;
@@ -236,9 +236,9 @@
       const xs = [], ys = [];
       for (let r = -6; r <= 6.001; r += 0.1) { xs.push(r); ys.push(SNN.sigmoid(r)); }
       const plt = window.Site.linePlot(cv, [
-        { xs, ys, color: "#ece7de", width: 2, label: "θ = sigmoid(raw_threshold)" }
+        { xs, ys, color: "#ece7de", width: 2, label: "θ = sigmoid(raw)" }
       ], {
-        height: 305, xlabel: "raw_threshold (unconstrained parameter)", ylabel: "θ",
+        height: 305, xlabel: "raw parameter (unconstrained)", ylabel: "θ",
         ymin: 0, ymax: 1.08,
         hlines: [{ y: 1.0, color: "#cf6b58", label: "θ=1.0 → int 32767 (ceiling)" }]
       });

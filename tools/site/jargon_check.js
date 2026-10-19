@@ -29,7 +29,7 @@ const TERMS = [
   ['dropout',            'architecture.html', 'dropout (silencing random units during training'],
   ['overfitting',        'architecture.html', 'overfitting: learning details of the training clips'],
   ['SynOp',              'architecture.html', 'SynOps (synaptic operations)'],
-  ['w_alpha',            'hardware.html',     'The scale <code>w_alpha</code> says'],
+  ['weight scale',       'hardware.html',     'The weight scale α says'],
   ['flush',              'training.html',     'called flush steps'],
   ['hyperparameter',     'search.html',       'class="term">hyperparameter<'],
 ];

@@ -121,7 +121,7 @@
       let warn = "";
       if (thp <= 0) {
         $("f-thp").className = "val bad";
-        warn = `<div class="verdict fail">BLOCKING &nbsp;·&nbsp; folded threshold θ′ = ${thp.toFixed(3)} ≤ 0. This is outside the supported range. deployment_report rejects the configuration.</div>`;
+        warn = `<div class="verdict fail">BLOCKING &nbsp;·&nbsp; folded threshold θ′ = ${thp.toFixed(3)} ≤ 0. The chip cannot store it, so the deployment check rejects the network.</div>`;
       } else if (thp > 1) {
         $("f-thp").className = "val warn";
         warn = `<div class="verdict pass" style="border-color:rgba(224,169,79,.4);color:var(--warn);">NOTE &nbsp;·&nbsp; θ′ > 1. This exceeds the supported threshold grid. Check the value before clamping.</div>`;
@@ -205,7 +205,7 @@
     function update() {
       const epochs = +$("qt-ep").value;
       const frac = (+$("qt-fr").value) / 100;
-      // exact formula from run_training (inline mode)
+      // the same warm-up formula training uses
       let warmup = Math.max(1, Math.round(epochs * frac));
       warmup = epochs > 1 ? Math.min(warmup, epochs - 1) : 1;
       const grid = epochs - warmup;

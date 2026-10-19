@@ -5,7 +5,7 @@
 <meta charset="utf-8"/>
 <meta content="width=device-width, initial-scale=1.0" name="viewport"/>
 <title>The search</title>
-<meta content="How the tool tries hundreds of network configurations on a fixed compute budget, what it samples, and what it records." name="description"/>
+<meta content="The tools behind the search, the checks it runs before it starts, early stopping and sampling in detail, and what a search records." name="description"/>
 <link href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'&gt;&lt;rect width='32' height='32' fill='%23000'/&gt;&lt;path d='M3 22h5l3-13 4 19 3-11h4l2 5h5' fill='none' stroke='%23e0a94f' stroke-width='2.4' stroke-linejoin='round'/&gt;&lt;/svg&gt;" rel="icon"/>
 <link href="https://fonts.googleapis.com" rel="preconnect"/>
 <link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
@@ -17,7 +17,7 @@
 <div class="hero-inner">
 <p class="kicker">Page 6</p>
 <h1>The search</h1>
-<p class="lede">A search tries hundreds of network configurations on a fixed compute budget. This page covers the tools it uses, how it avoids spending GPU time on networks that cannot run or cannot win, what it samples, and what it writes down.</p>
+<p class="lede">A search tries hundreds of network configurations on a fixed compute budget. <a href="pipeline.html#why-search">Page C</a> walks through its stages. This page covers the tools it uses, the checks it runs before it starts, how it decides which trials to stop and which settings to sample, and what it writes down.</p>
 </div>
 </header>
 <main class="with-toc">
@@ -26,38 +26,42 @@
 <h2><span class="sec-num">6.1</span>The parts</h2>
 <p>Each <span class="term">trial</span> trains and scores one configuration. A <span class="term">hyperparameter</span> is a choice made before training, such as a layer's width or the learning rate (how large each training update is). Searching means running many trials to find hyperparameters that score well.</p>
 <dl class="kv">
-<dt><a href="https://optuna.org/">Optuna</a></dt><dd>Proposes the next configuration to try. It looks at the scores of finished trials and proposes values near the good ones more often.</dd>
-<dt>Ray Tune</dt><dd>Runs many trials at once across the available GPUs, collects their reports and saves the search's progress. See <a href="https://docs.ray.io/en/latest/tune/key-concepts.html">Ray's concepts guide</a>.</dd>
+<dt><a href="https://optuna.org/">Optuna</a></dt><dd>Proposes the next configuration to try. It looks at the scores of finished trials and proposes values near the good ones more often (<a href="pipeline.html#tpe">page C</a> shows how).</dd>
+<dt>Ray Tune</dt><dd>Runs many trials at once across the available GPUs, two to a GPU here, collects their reports and saves the search's progress. See <a href="https://docs.ray.io/en/latest/tune/key-concepts.html">Ray's concepts guide</a>.</dd>
 <dt>ASHA</dt><dd>An early-stopping rule that comes with Ray Tune. It compares trials at set points in training and stops the weaker ones, so their GPU time goes to better ones.</dd>
 </dl>
-<p>This project's part is connecting those tools to its own planner, chip check, training procedure and simulator check.</p>
-<h3>Checking a search before it runs</h3>
-<p>A search runs for a day or more, and a mistake in its setup used to show up hours in: a missing package, a dataset path that only existed on another machine, a trial too large for its share of the GPU, or a bug in the steps after the trials finish. So before a search starts, a preflight runs every stage of one in miniature on the same machine: it checks the settings against each other, loads the data, measures the largest network on the GPU, trains two small networks and checks them against the simulator, and runs a six-trial search through Ray to the end. The search refuses to start until a preflight has passed for the same settings and the same code. The <a href="https://github.com/purujain2006/configurable-snn-classifier/blob/main/GUIDE.md">user guide</a> covers how to run both.</p>
+<p>This project's part is connecting those tools to its own planner, chip check, training procedure and simulator check, in that order, so each trial stops at the first stage that rules it out.</p>
 </section>
-<section class="reveal" id="funnel">
-<h2><span class="sec-num">6.2</span>Four stages per trial</h2>
-<p>Each stage is far more expensive than the one before, so cheap stages run first and stop a trial as early as possible.</p>
+<section class="reveal" id="preflight">
+<h2><span class="sec-num">6.2</span>Checking a search before it runs</h2>
+<p>A search runs for a day or more. A mistake in its setup, such as a missing package, a dataset path that exists only on another machine, a trial too large for its share of the GPU, or a bug in the steps after the trials finish, would otherwise surface hours in. That motivates a preflight, which runs every stage of a search in miniature on the machine the search will use.</p>
 <ol>
-<li><strong>Chip check, microseconds.</strong> The connection limits from <a href="hardware.html#limits">section 4.1</a>. A network that cannot fit scores zero and never reaches a GPU.</li>
-<li><strong>Training, minutes to hours.</strong> The schedule from <a href="training.html#phases">section 5.6</a>, reporting validation accuracy every epoch so ASHA can stop weak trials.</li>
-<li><strong>Export, one evaluation.</strong> Fold, round and score the deployable network. A network with an illegal threshold scores zero.</li>
-<li><strong>Simulator check, seconds.</strong> The validation clips run through IntegerSim. A network the simulator cannot run is marked not deployable.</li>
+<li>Check the settings against each other.</li>
+<li>Load the data.</li>
+<li>Build the largest network the search could propose and measure its memory on the GPU.</li>
+<li>Train two small networks and check them against the simulator.</li>
+<li>Run a six-trial search through Ray to the very end, including the steps after the trials.</li>
 </ol>
+<p>The search refuses to start until a preflight has passed for the same settings and the same code, so a setup mistake costs minutes instead of a day.</p>
 </section>
 <section class="reveal" id="metrics">
 <h2><span class="sec-num">6.3</span>Different scores for different jobs</h2>
 <p>During training, the question is whether a trial deserves more time. At the end, the question is how well its deployable network does. These need separate scores.</p>
 <dl class="kv">
-<dt>float_val_accuracy</dt><dd>Validation accuracy reported every epoch during training. ASHA reads this to decide which trials to stop.</dd>
-<dt>val_accuracy</dt><dd>The score Optuna optimizes: the deployable network's validation accuracy, or zero if the network cannot be deployed.</dd>
-<dt>sim_val_accuracy, sim_disagreements</dt><dd>The simulator's accuracy on the same clips, and how many clips it classifies differently from PyTorch.</dd>
+<dt>epoch score</dt><dd>Validation accuracy reported every epoch while the trial trains, before export. ASHA reads this to decide which trials to stop.</dd>
+<dt>deployed score</dt><dd>The score Optuna optimizes: the deployable network's validation accuracy, or zero if the network cannot be deployed.</dd>
+<dt>simulator check</dt><dd>The chip simulator's accuracy on the same clips, and how many clips it classifies differently from the PyTorch model.</dd>
 </dl>
 <p>Keeping these apart means a good training curve is never mistaken for a good deployed network, and a trial that ASHA stopped is recorded as stopped instead of as a score of zero.</p>
 </section>
 <section class="reveal" id="asha">
 <h2><span class="sec-num">6.4</span>Early stopping</h2>
-<p>ASHA lets every trial train for a grace period, then compares it with the others at checkpoints spaced by a reduction factor. With a grace period of 30 epochs and a factor of 3, as in the current DVS128 configuration, the first checkpoint falls at epoch 30 of an 80-epoch budget, and roughly the best third of trials continue to the end. Trials start and finish at different times, so each is compared with whichever trials have reached the same checkpoint.</p>
-<p>Two rules come from a search where early stopping judged the wrong thing. Its first checkpoint was at epoch 20, the last epoch of the floating-point warm-up, so trials were cut before they had trained at all on the chip's integer weights. It also stopped 77 of the 96 trials in the balanced block, and the options that learn slowly at first, such as augmentation and GAP, lost the most: augmentation kept 5 of 48 trials. So the first checkpoint must now come after the warm-up, and early stopping never cuts a balanced-block trial. Every option is then judged on full runs.</p>
+<p>ASHA lets every trial train for a grace period, then compares it with the others at checkpoints spaced by a reduction factor. With a grace period of 30 epochs and a factor of 3, the first checkpoint falls at epoch 30 of an 80-epoch budget, and roughly the best third of trials continue to the end. Trials start and finish at different times, so each is compared with whichever trials have reached the same checkpoint.</p>
+<p>Two rules decide what the checkpoint is allowed to judge.</p>
+<ul>
+<li><strong>The first checkpoint comes after the switch to integer weights.</strong> The switch happens at epoch 20, and accuracy dips for a few epochs while the network adjusts. A checkpoint at or just after the switch would cut trials before they had trained on the weights they deploy with.</li>
+<li><strong>Trials in the balanced block are never stopped.</strong> Some options, such as augmentation and GAP heads, learn slowly at first and catch up later. The block exists to compare every option fairly (section 6.6), so every option there is judged on full runs.</li>
+</ul>
 <p>Some learning-rate schedules improve most toward the end of training, so a grace period that is too short stops promising trials early. The demo shows the effect: set the grace period to 1 and the late-improving curves are cut.</p>
 <div class="demo">
 <div class="demo-head">
@@ -75,25 +79,25 @@
 <canvas height="280" id="as-canvas"></canvas>
 <div class="stats">
 <div class="stat"><div class="k">checkpoints</div><div class="val" id="as-rungs" style="font-size:18px;">8, 24</div></div>
-<div class="stat"><div class="k">trials completing</div><div class="val" id="as-fin">—</div></div>
-<div class="stat"><div class="k">GPU-epochs spent</div><div class="val acc" id="as-cost">—</div><div class="sub" id="as-save"></div></div>
+<div class="stat"><div class="k">trials completing</div><div class="val" id="as-fin">-</div></div>
+<div class="stat"><div class="k">GPU-epochs spent</div><div class="val acc" id="as-cost">-</div><div class="sub" id="as-save"></div></div>
 </div>
 </div>
 <div class="demo-note">
       Setting the grace period to 1 stops the late-improving trials before their schedule has taken
-      effect, which is the behavior the default guards against.
+      effect, which is the behavior a longer grace period guards against.
     </div>
 </div>
 </section>
 <section class="reveal" id="dbr">
 <h2><span class="sec-num">6.5</span>Sampling only what applies</h2>
 <p>Some settings exist only for some networks. A four-layer network has a kernel size for its fourth layer, and a two-layer network does not. Optuna's "define-by-run" mode builds each trial's settings step by step, so a trial only has the settings it actually used.</p>
-<p>The order of those steps matters. The search samples the network's shape first, checks it against the chip, and only then samples training settings such as the learning rate. Previously, a shape that failed the chip check scored zero together with training settings it never used, so Optuna learned that those training settings were bad. Sampling the shape first and stopping there on failure means a rejected network only counts against its shape.</p>
+<p>The order of those steps matters. The search samples the network's shape first, checks it against the chip, and only then samples training settings such as the learning rate. A rejected shape that was scored together with training settings it never used would teach Optuna that those training settings were bad. Stopping at the shape on failure means a rejected network only counts against its shape.</p>
 <div class="demo">
 <div class="demo-head">
 <span class="demo-tag">INTERACTIVE</span>
-<span class="demo-title">Parameters sampled along one path</span>
-<span class="demo-sub">The branches of <code>DefineByRunSpace.__call__</code>. Changing a structural choice changes which parameters exist for that trial.</span>
+<span class="demo-title">Settings sampled along one path</span>
+<span class="demo-sub">Changing a structural choice changes which settings exist for that trial. "Per layer" gives every layer its own kernel, channels and shrinking; "uniform" uses one of each for the whole stack.</span>
 </div>
 <div class="demo-body">
 <div class="controls">
@@ -107,63 +111,48 @@
 </div>
 <div class="pill-row" id="db-params"></div>
 <div class="stats">
-<div class="stat"><div class="k">parameters sampled this trial</div><div class="val acc" id="db-count">—</div></div>
+<div class="stat"><div class="k">settings sampled this trial</div><div class="val acc" id="db-count">-</div></div>
 </div>
 </div>
 </div>
 </section>
 <section class="reveal" id="narrow">
 <h2><span class="sec-num">6.6</span>What the search samples</h2>
-<div class="tbl-wrap">
-<table class="tbl">
-<thead><tr><th>Setting</th><th>Range</th><th>Per layer</th></tr></thead>
-<tbody>
-<tr><td class="layer-name">depth</td><td>2 to 4 convolution layers</td><td></td></tr>
-<tr><td class="layer-name">channels</td><td>8 to 128, sampled on a log scale</td><td>yes</td></tr>
-<tr><td class="layer-name">kernel</td><td>3, 5, 7 or 9</td><td>yes</td></tr>
-<tr><td class="layer-name">shrinking</td><td>stride-2 convolution, 2×2 pool, or none</td><td>yes</td></tr>
-<tr><td class="layer-name">pool type</td><td>average (folded) or max (OR neurons); only when a layer pools</td><td></td></tr>
-<tr><td class="layer-name">input size</td><td>from the dataset and the 16,000 axons; 24×24 to 88×88 in steps of 8 for DVS128 Gesture</td><td></td></tr>
-<tr><td class="layer-name">bits per pixel</td><td>1 to 4, for codings that can send them</td><td></td></tr>
-<tr><td class="layer-name">frames per clip</td><td>set in the config file; 8, 16, 24 or 32 for DVS128 Gesture</td><td></td></tr>
-<tr><td class="layer-name">head</td><td>flatten or GAP, then 0 or 1 hidden layer of 128, 256 or 512</td><td></td></tr>
-<tr><td class="layer-name">bias</td><td>threshold or bias neurons (<a href="hardware.html#folding">section 4.3</a>)</td><td></td></tr>
-<tr><td class="layer-name">signed spikes</td><td>on or off (<a href="hardware.html#limits">section 4.1</a>)</td><td></td></tr>
-<tr><td class="layer-name">τ</td><td>starts at 2, 4, 8 or 16; fixed, learned per layer, or learned per channel</td><td>learned per layer or channel</td></tr>
-<tr><td class="layer-name">θ</td><td>learned or fixed</td><td>learned per layer</td></tr>
-<tr><td class="layer-name">normalization</td><td>batch normalization, or a version that normalizes over time as well</td><td></td></tr>
-<tr><td class="layer-name">regularization</td><td>head dropout 0.1 to 0.45; dropout inside the convolution layers; a penalty on firing rate; label smoothing 0 to 0.2; gradient clipping</td><td></td></tr>
-<tr><td class="layer-name">augmentation</td><td>on or off; then shift up to 20% of the image, a blank square up to 40% of its side, dropping up to 30% of input values, and mirroring where the dataset allows it</td><td></td></tr>
-<tr><td class="layer-name">loss</td><td>spike rate over the clip, or TET (<a href="training.html#loop">section 5.5</a>)</td><td></td></tr>
-<tr><td class="layer-name">optimizer</td><td>Adam or AdamW; learning rate 0.0005 to 0.005; weight decay; four learning-rate schedules</td><td></td></tr>
-</tbody>
-</table>
-</div>
-<p>The shape settings come first and are checked against the chip before anything else is sampled.</p>
-<h3>A balanced start</h3>
-<p>Optuna favors whatever has scored well so far, so an option that starts badly can end up barely tried. In an earlier 400-trial search, 32 trials used GAP and 26 used the firing-rate penalty, too few to judge either. The search therefore begins with a balanced block covering ten choices: pooling (none, average, max), bias (threshold, bias neurons), head (flatten, GAP), signed spikes, bits per pixel (one, more), τ (fixed, per layer, per channel), loss (rate, TET), augmentation, convolution dropout and the firing-rate penalty. Every combination of all ten would take 2,304 trials. Instead, each option appears equally often across the block, and every pair of choices is spread as evenly as possible, so no option is mostly tried alongside one setting of another. Each trial in the block gets a random network shape that fits the chip, and Optuna samples the rest. <code>tools/analysis/factor_effects.py</code> compares the options level by level, and Optuna steers only after the block.</p>
+<p>Every setting, the values the search tries and how each one moved accuracy are on <a href="settings.html">page D</a>, one card per setting. The shape settings come first and are checked against the chip before anything else is sampled.</p>
+<h3>The balanced block</h3>
+<p>Optuna favors whatever has scored well so far, so an option that starts badly can end up barely tried, and too few trials remain to judge it. The search therefore begins with a block of 96 designed trials covering ten choices:</p>
+<ul>
+<li>pooling: none, average or max</li>
+<li>bias: in the threshold, or bias neurons</li>
+<li>head: flatten or GAP</li>
+<li>signed spikes: off or on</li>
+<li>bits per pixel: one, or more than one</li>
+<li>τ: fixed, learned per layer, or learned per channel</li>
+<li>loss: rate or TET</li>
+<li>augmentation, dropout between layers and the firing-rate penalty: each off or on</li>
+</ul>
+<p>Every combination of all ten would take 2,304 trials. Instead, each option appears equally often across the block, and every pair of choices is spread as evenly as possible, so no option is mostly tried alongside one setting of another. Each trial in the block gets a random network shape that fits the chip, and Optuna samples the remaining settings. Optuna starts steering only after the block (<a href="pipeline.html#block">page C</a> draws it).</p>
 <h3>Retraining the finalists</h3>
-<p>The best score in a search is partly luck: each trial is one training run, and the highest of hundreds of noisy scores sits above the network's true level. So when the search ends, its top few networks are trained again from scratch with three new seeds each, with no early stopping, and the winner is the network with the best average validation score. The test set is still not used.</p>
+<p>The best score in a search is partly luck: each trial is one training run, and the highest of hundreds of noisy scores sits above the network's true level. So when the search ends, its five best configurations are trained again from scratch with three new seeds each, with no early stopping, and the winner is the configuration with the best average validation score (<a href="pipeline.html#finalists">page C</a>). The test set is still not used.</p>
 </section>
 <section class="reveal" id="results">
 <h2><span class="sec-num">6.7</span>What the search writes down</h2>
-<p>A search can run for days, and one that crashes near the end should not lose its results, so every result is written to disk the moment it arrives. Only one process writes, which keeps parallel trials from interleaving their lines.</p>
+<p>A search can run for days, and one that crashes near the end should not lose its results, so every result is written to disk the moment it arrives. Only one process writes, which keeps parallel trials from interleaving their records.</p>
 <div class="tbl-wrap">
 <table class="tbl">
-<thead><tr><th>File</th><th>Written</th><th>Contents</th></tr></thead>
+<thead><tr><th>Record</th><th>Written</th><th>Contents</th></tr></thead>
 <tbody>
-<tr><td class="layer-name">leaderboard.csv</td><td>per trial</td><td>One row per trial: its settings, its scores, the simulator check and the τ it deployed with. A stopped trial is marked as stopped, not scored zero.</td></tr>
-<tr><td class="layer-name">trials.jsonl</td><td>per trial</td><td>The same, with every setting, in a format that never loses a column.</td></tr>
-<tr><td class="layer-name">trial_progress.jsonl</td><td>every epoch</td><td>Epoch, training and validation accuracy, loss and learning rate.</td></tr>
-<tr><td class="layer-name">best.json</td><td>on improvement</td><td>The best configuration so far.</td></tr>
-<tr><td class="layer-name">infeasible.jsonl</td><td>on rejection</td><td>Configurations that broke a chip limit, and which limits.</td></tr>
-<tr><td class="layer-name">trial_records.csv</td><td>at the end</td><td>Settings, scores and size counts for every trial, including those that never trained.</td></tr>
-<tr><td class="layer-name">finalists.csv</td><td>after retraining</td><td>Each finalist's validation score for every new seed.</td></tr>
-<tr><td class="layer-name">best_finalist.json</td><td>after retraining</td><td>The finalist with the best average, ready to replay with <code>single --from-best</code>.</td></tr>
+<tr><td class="layer-name">leaderboard</td><td>per trial</td><td>One row per trial: its settings, its scores, the simulator check and the τ it deployed with. A stopped trial is marked as stopped, not scored zero.</td></tr>
+<tr><td class="layer-name">full trial log</td><td>per trial</td><td>The same, with every setting, in a form that never loses a column when trials have different settings.</td></tr>
+<tr><td class="layer-name">training curves</td><td>every epoch</td><td>Epoch, training and validation accuracy, loss and learning rate for every trial.</td></tr>
+<tr><td class="layer-name">best so far</td><td>on improvement</td><td>The best configuration so far.</td></tr>
+<tr><td class="layer-name">rejected shapes</td><td>on rejection</td><td>Configurations that broke a chip limit, and which limits.</td></tr>
+<tr><td class="layer-name">every trial with its size</td><td>at the end</td><td>Settings, scores and size counts for every trial, including those that never trained.</td></tr>
+<tr><td class="layer-name">finalists</td><td>after retraining</td><td>Each finalist's validation score for every new seed, and the winner, ready to be trained again exactly.</td></tr>
 </tbody>
 </table>
 </div>
-<p>The search ends early if a deployable network reaches the target accuracy, judged on the deployed score and never on a training-time one.</p>
+<p>The search ends early if a deployable network reaches the target accuracy, 97.5% for DVS128 Gesture, judged on the deployed score and never on a training-time one.</p>
 </section>
 </div>
 <aside class="toc"></aside>
@@ -174,12 +163,10 @@
 </nav>
 <footer class="site-foot">
 <span>Documentation for <a href="https://github.com/purujain2006/configurable-snn-classifier">configurable-snn-classifier</a></span>
-<span>Interactive demonstrations use the same arithmetic as <code>snnsearch</code>, verified against it.</span>
+<span>Interactive demonstrations use the same arithmetic as the tool and are tested against it.</span>
 </footer>
 <script src="assets/snn.js?v=16000"></script>
 <script src="assets/site.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-python.min.js"></script>
 <script src="assets/demo-search.js"></script>
 </body>
 </html>

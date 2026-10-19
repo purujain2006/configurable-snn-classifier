@@ -72,7 +72,7 @@
       const nOut = mode === "or" ? avg.filter(a => a > 0).length : avg.filter(a => a > 0).length;
       $("bz-in").textContent = nIn;
       $("bz-ind").textContent = Math.round(nIn / (SRC * SRC) * 100) + "% density";
-      $("bz-out").textContent = mode === "or" ? avg.filter(a => a > 0).length : "—";
+      $("bz-out").textContent = mode === "or" ? avg.filter(a => a > 0).length : "-";
       $("bz-outd").textContent = mode === "or"
         ? Math.round(avg.filter(a => a > 0).length / (DST * DST) * 100) + "% density (rises!)"
         : "fractional values require binarization";

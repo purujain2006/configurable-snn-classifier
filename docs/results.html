@@ -5,7 +5,7 @@
 <meta charset="utf-8"/>
 <meta content="width=device-width, initial-scale=1.0" name="viewport"/>
 <title>Results</title>
-<meta content="The best spiking networks found so far for DVS128 Gesture on HiAER-Spike, how they were measured, and what comes next." name="description"/>
+<meta content="The most accurate spiking networks so far for DVS128 Gesture on HiAER-Spike, which of them fit the chip, how they were measured, and what comes next." name="description"/>
 <link href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'&gt;&lt;rect width='32' height='32' fill='%23000'/&gt;&lt;path d='M3 22h5l3-13 4 19 3-11h4l2 5h5' fill='none' stroke='%23e0a94f' stroke-width='2.4' stroke-linejoin='round'/&gt;&lt;/svg&gt;" rel="icon"/>
 <link href="https://fonts.googleapis.com" rel="preconnect"/>
 <link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
@@ -17,109 +17,81 @@
 <div class="hero-inner">
 <p class="kicker">Page 7</p>
 <h1>Results</h1>
-<p class="lede">What the tool has produced so far on DVS128 Gesture, how it was measured, and what is still open.</p>
+<p class="lede">What the tool has produced so far on DVS128 Gesture, which networks fit the chip, how the numbers were measured, how far to trust them, and what is still open.</p>
 </div>
 </header>
 <main class="with-toc">
 <div class="wrap">
 <section class="reveal" id="headline">
-<h2><span class="sec-num">7.1</span>The best network so far</h2>
+<h2><span class="sec-num">7.1</span>The headline numbers</h2>
 <div class="result-grid">
-<div><div class="r-k">Test accuracy, chip simulator</div><div class="r-v accent">83.3%</div><div class="r-s">240 of 288 test clips.</div></div>
+<div><div class="r-k">Most accurate, chip simulator</div><div class="r-v accent">83.3%</div><div class="r-s">240 of 288 test clips. Does not fit the physical chip.</div></div>
+<div><div class="r-k">Most accurate that fits</div><div class="r-v">79.2%</div><div class="r-s">228 of 288 test clips, within every chip limit.</div></div>
 <div><div class="r-k">HiAER-Spike paper</div><div class="r-v">68.75%</div><div class="r-s"><a href="https://www.nature.com/articles/s44335-026-00062-8">Same task, same test set.</a></div></div>
-<div><div class="r-k">Fits the physical chip</div><div class="r-v">No</div><div class="r-s">Its output neurons need 32,256 connections each; the limit is 8,159.</div></div>
+<div><div class="r-k">Goal</div><div class="r-v">90%</div><div class="r-s">On the test set, with a network that fits the chip.</div></div>
 </div>
-<p>The best network has two convolution layers: 81 channels with a 3×3 kernel, then 56 channels with a 5×5 kernel, each followed by a 2×2 average pool, on 48×48 frames with 16 frames per clip. On the simulator it classifies 240 of the 288 test clips correctly. Its PyTorch model and the simulator predict the same gesture on every one of the 464 validation and test clips.</p>
-<p>Two things had to change before that match. The network had learned τ = 3 in every layer, which the chip cannot run (<a href="neurons.html#leak">section 2.3</a>), so it runs at τ = 4, which leaves test accuracy at 83.3%. And it does not fit the chip's fan-in limit, because the search that found it counted fan-in after pooling (<a href="hardware.html#limits">section 4.1</a>). The best network that does fit is 79.9% (section 7.3).</p>
+<p>The most accurate network has two convolution layers: 81 channels with a 3×3 kernel, then 56 channels with a 5×5 kernel, each followed by a 2×2 average pool, on 48×48 frames with 16 frames per clip. On the simulator it classifies 240 of the 288 test clips correctly. Its PyTorch model and the simulator predict the same gesture on every one of the 464 validation and test clips.</p>
+<p>It learned τ = 3 in every layer, which the chip cannot run (<a href="neurons.html#leak">section 2.3</a>). At τ = 4, the nearest power of two, its test accuracy stays at 83.3%. It still does not fit the chip: its two average pools fold into the output layer, so each of its 11 output neurons needs 32,256 connections against a limit of 8,159 (<a href="hardware.html#limits">section 4.1</a>).</p>
 <p>The paper's models use different input sizes and were measured on the FPGA, so the 14.6-point gap compares two different setups, not two equivalent ones.</p>
-<details class="technical-details"><summary>How these numbers were measured</summary><div class="detail-body">
-<p>Training data fits the weights. Validation data (176 clips for these runs) chooses between networks and checkpoints. Test data is 288 clips from six people who never appear in training, and it is the only number comparable to published work.</p>
-<p>For these runs, validation clips were drawn at random from the training people, so validation shared people with training and ran high: 0.92 on validation against 0.83 on test for the best network. Validation now holds out whole people (<a href="training.html#dataset">section 5.1</a>). The five networks below and the weight-decay runs were each scored on test, so test results have also guided which experiments came next.</p>
-</div></details>
-</section>
-<section class="reveal" id="search">
-<h2><span class="sec-num">7.2</span>The search that found it</h2>
-<p>The search tried 400 configurations, sampling each layer's settings separately and training each for up to 60 epochs. It ranked finished trials by validation accuracy after export to 16-bit integers.</p>
-<div class="tbl-wrap">
-<table class="tbl">
-<thead><tr><th>Outcome</th><th class="num">Trials</th><th class="num">Share</th><th>Meaning</th></tr></thead>
-<tbody>
-<tr><td class="layer-name">rejected before training</td><td class="num">82</td><td class="num">20.5%</td><td>Broke a connection limit, as counted at the time.</td></tr>
-<tr><td class="layer-name">stopped early</td><td class="num">207</td><td class="num">51.75%</td><td>Behind the others at an early-stopping checkpoint (10 or 30 epochs).</td></tr>
-<tr><td class="layer-name">finished and scored</td><td class="num">111</td><td class="num">27.75%</td><td>Trained 60 epochs, exported and evaluated.</td></tr>
-</tbody>
-</table>
-</div>
-<p>The search ran before three fixes: fan-in behind pools, τ limited to powers of two, and validation by held-out people. Its ranking is therefore a starting point for the next search.</p>
 </section>
 <section class="reveal" id="topfive">
-<h2><span class="sec-num">7.3</span>The top five, trained longer</h2>
-<p>The five networks with the best validation scores were trained again for 300 epochs, with weight decay 0.001. All five use two convolution layers (3×3, then 5×5), 48×48 input, 16 frames, no hidden head layer, and an average pool after the first layer. They differ in channel counts and in how the second layer shrinks the image. Rows are in order of test accuracy, and the first column keeps each network's rank in the search.</p>
-<p class="table-note">Accuracies are fractions (0.8333 = 83.33%). M means million. SynOps are spike-triggered additions per clip; dense MACs are the multiply-adds a conventional network of the same shape would do.</p>
+<h2><span class="sec-num">7.2</span>Five networks, trained long</h2>
+<p>The five networks below share one design: two convolution layers (3×3, then 5×5), 48×48 input, 16 frames, no hidden head layer, and an average pool after the first layer. Each was trained for 300 epochs with weight decay 0.001. They differ in channel counts and in how the second layer shrinks the map. Rows are in order of test accuracy.</p>
+<p class="table-note">Accuracies are fractions (0.8333 = 83.33%), measured on the chip simulator at the τ each network learned. M means million. SynOps are spike-triggered additions per clip; dense MACs are the multiply-adds a conventional network of the same shape would do.</p>
 <div class="tbl-wrap">
 <table class="tbl">
-<thead><tr><th>Search rank</th><th>Layer 2 shrinks by</th><th class="num">Channels</th><th class="num">Validation (search)</th><th class="num">Validation (300 ep.)</th><th class="num">Test</th><th class="num">SynOps</th><th class="num">SynOps / dense MACs</th><th>Fits chip</th></tr></thead>
+<thead><tr><th>Network</th><th>Layer 2 shrinks by</th><th class="num">Channels</th><th class="num">Test</th><th class="num">SynOps</th><th class="num">SynOps / dense MACs</th><th>Fits chip</th></tr></thead>
 <tbody>
-<tr class="best"><td class="layer-name">1</td><td>pool</td><td class="num">81→56</td><td class="num">0.9091</td><td class="num">0.9205</td><td class="num good">0.8333</td><td class="num">50.1M</td><td class="num">0.73×</td><td class="bad">no (head fan-in 32,256)</td></tr>
-<tr><td class="layer-name">3</td><td>stride 2</td><td class="num">84→72</td><td class="num">0.9034</td><td class="num">0.9034</td><td class="num">0.8056</td><td class="num">20.3M</td><td class="num">1.07×</td><td class="bad">no (layer 2 fan-in 8,400)</td></tr>
-<tr><td class="layer-name">4</td><td>stride 2</td><td class="num">57→70</td><td class="num">0.8977</td><td class="num">0.9034</td><td class="num">0.7986</td><td class="num">19.2M</td><td class="num">1.53×</td><td class="good">yes</td></tr>
-<tr><td class="layer-name">5</td><td>stride 2</td><td class="num">91→79</td><td class="num">0.8977</td><td class="num">0.8977</td><td class="num">0.7986</td><td class="num">22.6M</td><td class="num">1.02×</td><td class="bad">no (layer 2 fan-in 9,100)</td></tr>
-<tr><td class="layer-name">2</td><td>stride 2</td><td class="num">79→71</td><td class="num">0.9034</td><td class="num">0.8977</td><td class="num">0.7882</td><td class="num">18.5M</td><td class="num">1.06×</td><td class="good">yes</td></tr>
+<tr class="best"><td class="layer-name">1</td><td>pool</td><td class="num">81→56</td><td class="num good">0.8333</td><td class="num">50.1M</td><td class="num">0.73×</td><td class="bad">no (head fan-in 32,256)</td></tr>
+<tr><td class="layer-name">2</td><td>stride 2</td><td class="num">84→72</td><td class="num">0.8056</td><td class="num">20.3M</td><td class="num">1.07×</td><td class="bad">no (layer 2 fan-in 8,400)</td></tr>
+<tr><td class="layer-name">3</td><td>stride 2</td><td class="num">57→70</td><td class="num">0.7986</td><td class="num">19.2M</td><td class="num">1.53×</td><td class="good">yes</td></tr>
+<tr><td class="layer-name">4</td><td>stride 2</td><td class="num">91→79</td><td class="num">0.7986</td><td class="num">22.6M</td><td class="num">1.02×</td><td class="bad">no (layer 2 fan-in 9,100)</td></tr>
+<tr><td class="layer-name">5</td><td>stride 2</td><td class="num">79→71</td><td class="num">0.7882</td><td class="num">18.5M</td><td class="num">1.06×</td><td class="good">yes</td></tr>
 </tbody>
 </table>
 </div>
-<p>Two of the five fit the chip: ranks 4 and 2, at 79.9% and 78.8% test. Both pool once and stride the second layer. They trained before τ was limited to powers of two, so their τ still needs checking.</p>
-<p>Rank 1 is the most accurate and also the most active: 50.1 million SynOps per clip, against 18 to 23 million for the others. Its 0.73× ratio only says it does fewer operations than a conventional network of its own shape; each row's ratio has a different denominator, so the ratios cannot rank the networks against each other. If operation count matters, rank 3 classifies 232 clips correctly with 20.3 million SynOps, eight fewer clips than rank 1 for 40% of the work.</p>
-<p>Each row is one training run of one network. Repeating each with different random starting weights would show how much of the gap between rows is chance.</p>
+<p>The pool after the first layer is what decides which networks fit. It multiplies the second layer's fan-in by four, to 5 × 5 × C × 4 for C first-layer channels, which stays under 8,159 only up to 81 channels. Networks 2 and 4 have 84 and 91. Network 1 passes that check with exactly 81 and then fails at the head, behind its second pool.</p>
+<p>Networks 3 and 5 fit. On the chip they run at the nearest power of two to the τ they learned: network 3 at τ = 32 scores 79.2% (228 clips), and network 5 at τ = 4 scores 78.8%, with its PyTorch model and the simulator agreeing on every clip.</p>
+<p>Network 1 is the most accurate and also the most active: 50.1 million SynOps per clip, against 18 to 23 million for the others. Its 0.73× ratio only says it does fewer operations than a conventional network of its own shape; each row's ratio has a different denominator, so the ratios cannot rank the networks against each other. If operation count matters, network 2 classifies 232 clips correctly with 20.3 million SynOps, eight fewer clips than network 1 for 40% of the work.</p>
 </section>
 <section class="reveal" id="decay">
-<h2><span class="sec-num">7.4</span>What weight decay did</h2>
-<p>Weight decay pulls parameters toward zero during training, which can reduce overfitting and, in a spiking network, lower firing. The rank-1 network was trained three times for 300 epochs, changing only the weight decay. At the time, weight decay also applied to τ, so the last column shows the τ each layer learned, starting from 8.</p>
+<h2><span class="sec-num">7.3</span>What weight decay did</h2>
+<p>Weight decay pulls parameters toward zero during training, which can reduce overfitting and, in a spiking network, lower firing. Network 1 was trained three times for 300 epochs, changing only the weight decay. In these runs weight decay also applied to τ, so the last column shows the τ each layer learned, starting from 8.</p>
 <div class="tbl-wrap">
 <table class="tbl">
 <thead><tr><th>Weight decay</th><th class="num">Training accuracy</th><th class="num">Test</th><th class="num">SynOps</th><th class="num">Spikes per clip</th><th class="num">Learned τ (3 layers)</th></tr></thead>
 <tbody>
-<tr><td class="layer-name">0.000096 (as sampled)</td><td class="num">0.998</td><td class="num">0.8229</td><td class="num">80.1M</td><td class="num">263,034</td><td class="num">5.7, 5.3, 5.5</td></tr>
+<tr><td class="layer-name">0.000096</td><td class="num">0.998</td><td class="num">0.8229</td><td class="num">80.1M</td><td class="num">263,034</td><td class="num">5.7, 5.3, 5.5</td></tr>
 <tr class="best"><td class="layer-name">0.001</td><td class="num">0.987</td><td class="num good">0.8333</td><td class="num">50.1M</td><td class="num">141,940</td><td class="num">2.5, 3.0, 2.9</td></tr>
 <tr><td class="layer-name">0.01</td><td class="num">0.80</td><td class="num bad">0.6840</td><td class="num">28.9M</td><td class="num">61,635</td><td class="num">0, 0, 0</td></tr>
 </tbody>
 </table>
 </div>
-<p>Raising weight decay from 0.000096 to 0.001 cut SynOps by 37% and gained three test clips. At 0.01 the network stopped fitting its training data (80% training accuracy) and test accuracy fell below the paper's.</p>
-<p>The τ column complicates the reading. As weight decay rose it drove τ down, and a smaller τ makes neurons forget faster and fire less, so part of the drop in SynOps may come from τ and not from the weights. Weight decay no longer touches τ, so repeating this sweep would separate the two effects.</p>
-<p>No run showed a late jump in test accuracy after training accuracy had flattened (sometimes called grokking) within 300 epochs. Training accuracy levelled off near epoch 80.</p>
+<p>Raising weight decay from 0.000096 to 0.001 cut SynOps by 37% and gained three test clips. At 0.01 the network stopped fitting its training data (80% training accuracy), and test accuracy fell to 68.4%, just below the paper's 68.75%.</p>
+<p>The τ column complicates the reading. As weight decay rose it drove τ down, and a smaller τ makes neurons forget faster and fire less, so part of the drop in SynOps may come from τ and not from the weights. Weight decay applies only to connection weights in the tool's training (<a href="neurons.html#leak">section 2.3</a>), so repeating this sweep would separate the two effects.</p>
+<p>No run showed a late jump in test accuracy after training accuracy had flattened (delayed generalization, sometimes called grokking) within 300 epochs. Training accuracy leveled off near epoch 80.</p>
 </section>
-<section class="reveal" id="negatives">
-<h2><span class="sec-num">7.5</span>Settings the search could not judge</h2>
-<p>Optuna samples settings that look promising more often, so a setting that started badly can end up barely tested. In the search above:</p>
+<section class="reveal" id="trust">
+<h2><span class="sec-num">7.4</span>How far to trust these numbers</h2>
 <ul>
-<li><strong>GAP heads.</strong> 32 of the 400 configurations used GAP, and none finished: every one was stopped early. Early stopping judges trials at 10 epochs, and GAP networks may simply learn more slowly, so the search gives no verdict on GAP.</li>
-<li><strong>Dropout inside the convolution layers.</strong> Used in 44 of the 318 networks that fit, and only 12 of those finished.</li>
-<li><strong>A penalty on firing rate.</strong> Used in 24, of which 1 finished. The penalty also applied to the output layer, whose spikes are the prediction, which worked against the classification loss. It now skips the output layer.</li>
-</ul>
-<p>The next search starts with a balanced block that runs each of these on and off in equal numbers (<a href="search.html#dbr">section 6.5</a>), so each gets a fair test.</p>
-</section>
-<section class="reveal" id="licenses">
-<h2><span class="sec-num">7.6</span>How far to trust these numbers</h2>
-<ul>
-<li>Each network was trained once. Without repeated runs there is no measure of how much a score moves by chance, and the five networks above sit within a few points of each other.</li>
-<li>Validation shared people with training, so validation scores ran about 9 points above test.</li>
+<li>Each network was trained once. Without repeated runs there is no measure of how much a score moves by chance, and the five networks above sit within a few points of each other (<a href="data.html#noise">page B</a> shows how much one score can move).</li>
+<li>These networks were chosen and checkpointed with a validation set that shared people with training. That validation ran about 9 points above test, so only test accuracy is quoted here.</li>
 <li>Test results have guided which experiments came next, so test accuracy has partly been used for selection.</li>
 <li>Scores come from the simulator. Energy, timing and accuracy on the physical FPGA have not been measured.</li>
 </ul>
-<p><code>tools/hpo_analysis.py</code> measures which settings moved accuracy across the search, with corrections for testing many settings at once. Optuna's adaptive sampling makes settings move together, so those associations suggest experiments without proving causes.</p>
+<p>Which settings matter for accuracy is measured separately, on a balanced comparison of 96 networks, each trained for 80 epochs and scored on the simulator on held-out people. <a href="settings.html#ranked">Page D</a> shows the results setting by setting.</p>
 </section>
 <section class="reveal" id="next">
-<h2><span class="sec-num">7.7</span>Next</h2>
+<h2><span class="sec-num">7.5</span>Next</h2>
 <div class="tbl-wrap">
 <table class="tbl">
 <thead><tr><th>Question</th><th>Experiment</th></tr></thead>
 <tbody>
-<tr><td class="layer-name">What is the best network that fits the chip?</td><td>A new search with the corrected fan-in rule, power-of-two τ, bias neurons as an option, validation on held-out people, and every trial checked on the simulator.</td></tr>
-<tr><td class="layer-name">Does the tool's training still match the simulator?</td><td><code>tools/checks/train_and_verify.py</code>: short training runs of each head and bias mode, each checked clip by clip. Run before the search.</td></tr>
-<tr><td class="layer-name">How much do scores vary by chance?</td><td>Five runs of the best fitting network with different random seeds.</td></tr>
-<tr><td class="layer-name">Do weight decay and τ act separately?</td><td>Repeat the three-point weight decay sweep now that weight decay no longer moves τ.</td></tr>
-<tr><td class="layer-name">Does it run on the FPGA?</td><td>Export the best fitting network to the FPGA once the negative-leak fix is in the bitstream.</td></tr>
+<tr><td class="layer-name">What is the best network that fits the chip?</td><td>The search on <a href="pipeline.html">page C</a>: every trial fits the chip by construction, uses a power-of-two τ, is validated on held-out people and is scored on the simulator.</td></tr>
+<tr><td class="layer-name">Does max pooling keep network 1's accuracy?</td><td>Train network 1's design with max pooling as OR neurons, which needs 8,064 connections per output neuron and fits.</td></tr>
+<tr><td class="layer-name">How much do scores vary by chance?</td><td>Several runs of the best fitting network with different random seeds.</td></tr>
+<tr><td class="layer-name">Do weight decay and τ act separately?</td><td>Repeat the three-point weight decay sweep with weight decay on the connection weights only.</td></tr>
+<tr><td class="layer-name">Does it run on the FPGA?</td><td>Export the best fitting network to the FPGA once the negative-leak fix is in the FPGA build.</td></tr>
 <tr><td class="layer-name">Can a larger network reach 90%?</td><td>A network spread across 16 cores, with higher input resolution than one core allows.</td></tr>
 </tbody>
 </table>
@@ -130,8 +102,11 @@
 </main>
 <nav class="foot-nav">
 <a class="prev" href="search.html"><span class="dir">Previous</span><span class="pg">06 · The search</span></a>
-<a class="next" href="reference.html"><span class="dir">Next</span><span class="pg">08 · Reference</span></a>
+<a class="next" href="index.html"><span class="dir">Return to</span><span class="pg">01 · The problem</span></a>
 </nav>
+<footer class="site-foot">
+<span>Documentation for <a href="https://github.com/purujain2006/configurable-snn-classifier">configurable-snn-classifier</a></span>
+</footer>
 <script src="assets/site.js"></script>
 </body>
 </html>

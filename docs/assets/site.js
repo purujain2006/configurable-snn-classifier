@@ -16,9 +16,9 @@
     ["hardware.html", "04", "Fitting the chip"],
     ["training.html", "05", "Training"],
     ["search.html", "06", "The search"],
-    ["results.html", "07", "Results"],
-    ["reference.html", "08", "Reference"]
+    ["results.html", "07", "Results"]
   ];
+  // The code reference stays reachable from the home page footer, outside the reading path.
 
   function currentPage() {
     const p = location.pathname.split("/").pop();

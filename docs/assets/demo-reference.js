@@ -8,7 +8,7 @@ const R = [
 {n:"ConvLayerSpec", k:"dataclass", s:"out_channels, kernel_size, stride, padding, dilation, pool, tau, v_threshold", o:"One convolution layer, with optional per-layer τ and θ.",
  b:"tau and v_threshold default to None, which means the global NeuronSpec applies."},
 {n:"EncoderSpec", k:"dataclass", s:"depth, channels, kernel_size, stride, layers_json, bias, norm, tdbn_alpha, dropout_rate", o:"The convolution stack, as identical layers or as a per-layer JSON list.",
- b:"norm is bn or tdbn. dropout_rate here is dropout inside the convolution layers; the head's dropout lives in HeadSpec. See <a href='architecture.html#perlayer'>3.6</a>."},
+ b:"norm is bn or tdbn. dropout_rate here is dropout inside the convolution layers; the head's dropout lives in HeadSpec. See <a href='architecture.html#configs'>3.1</a>."},
 {n:"resolve_conv_layers", k:"function", s:"resolve_conv_layers(encoder_cfg) -> list[ConvLayerSpec]", o:"Turns either encoder form into one list of layers.",
  b:"Rejects unknown keys in layers_json with the list of valid ones."},
 {n:"DownsampleSpec", k:"dataclass", s:"mode='stride'|'pool', pool_type, pool_kernel_size=2, pool_stride=2", o:"How images shrink between layers.",
@@ -68,21 +68,21 @@ const R = [
 {n:"build_model", k:"function", s:"build_model(cfg) -> DVSGesturePuru", o:"Builds the network from a spec dictionary.", b:"Reads the bias mode from the TrainSpec."},
 
 {g:"snnsearch/encoders.py and data/: from recordings to spikes"},
-{n:"build_encoder", k:"function", s:"build_encoder(coding, T, resize_to=None)", o:"Picks the input coding: direct, poisson, temporal or passthrough.", b:"See <a href='training.html#binarize'>5.2</a>."},
+{n:"build_encoder", k:"function", s:"build_encoder(coding, T, resize_to=None)", o:"Picks the input coding: direct, poisson, temporal or passthrough.", b:"See <a href='training.html#binarize'>5.1</a>."},
 {n:"PassthroughEncoder", k:"class", s:"PassthroughEncoder(T, size=None, binarize=True)", o:"For event data: shrink each frame, then turn any nonzero pixel into a spike.", b:"No event disappears when frames shrink."},
 {n:"build_dataloaders", k:"function", s:"build_dataloaders(bundle, batch_size, encoder=None, val_fraction=0.15, num_workers=0, seed=1, val_split='subject') -> (train, val, test)", o:"The three loaders.",
- b:"val_split='subject' holds out whole people for validation, like the test set. 'clip' reproduces the old random-clip split. See <a href='training.html#dataset'>5.1</a>."},
+ b:"val_split='subject' holds out whole people for validation, like the test set. 'clip' reproduces the old random-clip split. See <a href='data.html#split'>page B</a>."},
 {n:"split_indices / subject_ids", k:"function", s:"split_indices(dataset, val_fraction=0.15, seed=1, val_split='subject')", o:"Chooses the validation clips.", b:"Reads each clip's person from its file name."},
 {n:"dvs128_gesture / warmup_frame_cache", k:"function", s:"dvs128_gesture(root, T=16) · warmup_frame_cache(root, T_values)", o:"Loads DVS128 Gesture, and builds its frame cache before a search starts.", b:"Two trials building the same cache at once can corrupt it."},
-{n:"build_dataset / register / load_from_file", k:"function", s:"build_dataset(spec)", o:"How a dataset plugs in: by built-in name, or by pointing at your own Python function.", b:"See <a href='architecture.html#scope'>3.7</a>."},
+{n:"build_dataset / register / load_from_file", k:"function", s:"build_dataset(spec)", o:"How a dataset plugs in: by built-in name, or by pointing at your own Python function.", b:"See <a href='architecture.html#scope'>3.6</a>."},
 
 {g:"snnsearch/train.py: training"},
-{n:"forward_over_time", k:"function", s:"forward_over_time(net, x, flush_steps=None) -> rates", o:"Runs T input steps plus one flush step per spiking layer and returns spike rates.", b:"Every accuracy number comes from this. See <a href='training.html#flush'>5.4</a>."},
-{n:"hardware_flush_steps", k:"function", s:"hardware_flush_steps(net) -> int", o:"The number of flush steps: one per spiking layer.", b:"See <a href='training.html#flush'>5.4</a>."},
+{n:"forward_over_time", k:"function", s:"forward_over_time(net, x, flush_steps=None) -> rates", o:"Runs T input steps plus one flush step per spiking layer and returns spike rates.", b:"Every accuracy number comes from this. See <a href='training.html#flush'>5.3</a>."},
+{n:"hardware_flush_steps", k:"function", s:"hardware_flush_steps(net) -> int", o:"The number of flush steps: one per spiking layer.", b:"See <a href='training.html#flush'>5.3</a>."},
 {n:"param_groups / build_optimizer", k:"function", s:"build_optimizer(net, train_cfg) -> Adam | AdamW | SGD", o:"Builds the optimizer, with weight decay on convolution and linear weights only.", b:"Decay on τ used to pull it toward zero. See <a href='neurons.html#leak'>2.3</a>."},
-{n:"build_scheduler", k:"function", s:"build_scheduler(optimizer, train_cfg, steps_per_epoch)", o:"Cosine, step, onecycle or constant learning rate, with optional warm-up.", b:"See <a href='training.html#loop'>5.5</a>."},
+{n:"build_scheduler", k:"function", s:"build_scheduler(optimizer, train_cfg, steps_per_epoch)", o:"Cosine, step, onecycle or constant learning rate, with optional warm-up.", b:"See <a href='training.html#loop'>5.4</a>."},
 {n:"train_one_epoch / evaluate", k:"function", s:"train_one_epoch(net, loader, optimizer, device, ...) · evaluate(net, loader, device)", o:"One epoch of training, and accuracy over a loader.", b:"Both use forward_over_time."},
-{n:"run_training", k:"function", s:"run_training(cfg, data_dir=None, device=None, report_fn=None, ckpt_path=None, loaders=None) -> metrics", o:"One full run: warm-up, fold, training on the grid, export, then the simulator check.", b:"Used by both <code>single</code> and every search trial. See <a href='training.html#phases'>5.6</a>."},
+{n:"run_training", k:"function", s:"run_training(cfg, data_dir=None, device=None, report_fn=None, ckpt_path=None, loaders=None) -> metrics", o:"One full run: warm-up, fold, training on the grid, export, then the simulator check.", b:"Used by both <code>single</code> and every search trial. See <a href='training.html#phases'>5.5</a>."},
 
 {g:"snnsearch/folding.py and quantize.py: the deployable network"},
 {n:"fold_bn", k:"function", s:"fold_bn(net, bias_mode='conv') -> folded copy", o:"Removes batch normalization by folding it into the weights.", b:"Refuses a network in training mode. See <a href='hardware.html#folding'>4.3</a>."},
@@ -117,7 +117,7 @@ const R = [
 {g:"snnsearch/pipeline.py and cli.py: running it"},
 {n:"resolve_specs / make_loaders / prepare", k:"function", s:"prepare(cfg, flat_config=None) -> (bundle, encoder, loaders, spec)", o:"From a run configuration to datasets, loaders and specs.", b:"single and search share this path."},
 {n:"run_single", k:"function", s:"run_single(cfg, ckpt='best.pth', from_best=None, epochs=None, ...)", o:"Trains one configuration and scores it on test once.", b:"The only place a test score is computed."},
-{n:"main", k:"function", s:"python main.py check | summary | single | search | report", o:"The command line.", b:"See <a href='index.html#map'>1.8</a>."}
+{n:"main", k:"function", s:"python main.py check | summary | single | search | report", o:"The command line.", b:"The five modes are described in the user guide in the repository."}
 ];
 
 const list = document.getElementById("ref-list");

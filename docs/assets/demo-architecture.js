@@ -115,7 +115,7 @@
       $("nb-flush").textContent = SNN.flushSteps(counts.plan);
     } else {
       tb.innerHTML = `<tr><td colspan="5" style="color:var(--bad);font-family:var(--mono);font-size:12.5px;">${planErr}</td></tr>`;
-      ["nb-axons", "nb-neurons", "nb-conns", "nb-params", "nb-updates", "nb-flush"].forEach(id => { $(id).textContent = "—"; $(id).className = "val"; });
+      ["nb-axons", "nb-neurons", "nb-conns", "nb-params", "nb-updates", "nb-flush"].forEach(id => { $(id).textContent = "-"; $(id).className = "val"; });
     }
 
     // ---- verdict ----
@@ -123,17 +123,6 @@
       ? `<div class="verdict pass">PASS &nbsp;·&nbsp; HiAER-Spike feasibility <span class="why">every layer fits the chip's wiring budgets</span></div>`
       : `<div class="verdict fail">FAIL &nbsp;·&nbsp; HiAER-Spike feasibility</div>
          <ul class="violations">${violations.map(v => `<li>${v}</li>`).join("")}</ul>`;
-
-    // ---- CLI ----
-    const enc = layers.every(L => L.ch === layers[0].ch && L.k === layers[0].k && L.s === layers[0].s && !L.pool)
-      ? `--encoder depth=${layers.length} channels=${layers[0].ch} kernel_size=${layers[0].k} stride=${layers[0].s} norm=${$("nb-norm").value}`
-      : `--encoder norm=${$("nb-norm").value} layers_json='${JSON.stringify(layers.map(L => {
-          const d = { out_channels: L.ch, kernel_size: L.k, stride: L.s };
-          if (L.pool) d.pool = true;
-          return d;
-        }))}'`;
-    $("nb-cli").textContent =
-      `python Practice.py summary \\\n  --input resize_to=${$("nb-resize").value} T=${$("nb-T").value} \\\n  ${enc} \\\n  --downsample mode=${$("nb-ds").value} \\\n  --head final_reduction=${$("nb-red").value} fc_widths=${$("nb-fc").value || ""}`;
   }
 
   function loadPreset(name) {

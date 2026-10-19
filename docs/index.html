@@ -18,79 +18,25 @@
 <div class="hero-inner">
 <p class="kicker">Configurable SNN classifier</p>
 <h1>Spiking networks for HiAER-Spike</h1>
-<p class="lede">This tool searches for spiking neural networks that can run on HiAER-Spike, a neuromorphic computer built at UC San Diego. You describe a family of networks in a configuration file. The tool rejects the ones the chip cannot hold, trains the rest with the chip's own arithmetic, and checks every result on a simulator of the chip.</p>
+<p class="lede">This tool searches for spiking neural networks that can run on HiAER-Spike, a neuromorphic computer built at UC San Diego. You describe a family of networks with a few dozen settings. The tool rejects the ones the chip cannot hold, trains the rest with the chip's own arithmetic, and checks every result on a simulator of the chip.</p>
 </div>
 </header>
 <main class="overview-main">
 <div class="wrap">
-<div class="project-overview"><p>The example task is recognizing 11 hand gestures filmed with an event camera. So far, the best network classifies 240 of 288 test clips (83.3%) on the chip simulator, against 68.75% in the HiAER-Spike paper. That network breaks one of the chip's connection limits, so the next search looks for one that fits.</p><p style="margin:18px 0 6px"><strong>New to neural networks?</strong> Start with the five walkthrough pages; each idea comes with a picture to play with.</p><nav aria-label="Walkthrough" class="reading-links"><a href="basics.html">A · Neural networks</a><a href="data.html">B · Data and testing</a><a href="pipeline.html">C · The whole pipeline</a><a href="settings.html">D · Every setting</a><a href="bits.html">E · Bit encoding</a></nav><nav aria-label="Project documentation" class="reading-links"><a href="neurons.html">The neuron</a><a href="architecture.html">Architecture builder</a><a href="hardware.html">Fitting the chip</a><a href="training.html">Training</a><a href="search.html">The search</a><a href="results.html">Results</a><a href="reference.html">Code reference</a></nav></div>
+<div class="project-overview"><p>The example task is recognizing 11 hand gestures filmed with an event camera. The most accurate network so far classifies 240 of 288 test clips (83.3%) on the chip simulator, against 68.75% in the HiAER-Spike paper. It needs more connections per neuron than the physical chip allows. The most accurate network that fits scores 79.2%.</p><p style="margin:18px 0 6px"><strong>New to neural networks?</strong> Start with the five walkthrough pages; each idea comes with a picture to play with. The numbered pages after them go deeper into each part.</p><nav aria-label="Walkthrough" class="reading-links"><a href="basics.html">A · Neural networks</a><a href="data.html">B · Data and testing</a><a href="pipeline.html">C · The whole pipeline</a><a href="settings.html">D · Every setting</a><a href="bits.html">E · Bit encoding</a></nav><nav aria-label="In depth" class="reading-links"><a href="neurons.html">2 · The neuron</a><a href="architecture.html">3 · The architecture</a><a href="hardware.html">4 · Fitting the chip</a><a href="training.html">5 · Training</a><a href="search.html">6 · The search</a><a href="results.html">7 · Results</a></nav></div>
 <section class="reveal" id="hardware">
 <h2><span class="sec-num">1.1</span>What HiAER-Spike is</h2>
-<p>HiAER-Spike is a neuromorphic computer, meaning one built to compute the way neurons in a brain communicate, with brief electrical pulses. It was developed at UC San Diego. It runs on FPGAs, chips whose circuits can be reprogrammed after they are made, and is programmed from Python through a package called <code>hs_api</code>. A GPU runs a neural network by multiplying large matrices. HiAER-Spike instead stores every neuron and every connection between neurons individually, and it does work only when a neuron sends a spike. A spike is a single event: one neuron signalling to the neurons it connects to that it has fired.</p>
-<p>The chip runs one specific kind of neuron, keeps its connections in tables of fixed size, and stores every number as a 16-bit integer. Each of these rules limits which networks can run on it, and together they are why a network trained the usual way cannot simply be copied onto the chip. Section 1.4 lists the rules.</p>
+<p>HiAER-Spike is a neuromorphic computer, meaning one built to compute the way neurons in a brain communicate, with brief electrical pulses. It was developed at UC San Diego, runs on FPGAs, chips whose circuits can be reprogrammed after they are made, and is programmed from Python. A GPU runs a neural network by multiplying large matrices. HiAER-Spike instead stores every neuron and every connection between neurons individually, and it does work only when a neuron sends a spike. A spike is a single event: one neuron signaling to the neurons it connects to that it has fired.</p>
+<p>The chip runs one specific kind of neuron, keeps its connections in tables of fixed size, and stores every number as a 16-bit integer. Each of these rules limits which networks can run on it. Together they are why a network trained the usual way cannot simply be copied onto the chip, and section 1.3 lists them.</p>
 </section>
 <section class="reveal" id="snn">
-<h2><span class="sec-num">1.2</span>What a spiking neuron does</h2>
-<p>A spiking neuron keeps one number, its <span class="term">membrane potential</span>. Time moves in discrete steps. At each step, incoming spikes add their connection weights to the potential, the potential leaks a little toward zero, and if the potential is above a threshold the neuron fires a spike and resets to zero.</p>
-<p>Two constants set the neuron's behavior. The leak constant τ (tau) controls how fast the potential fades: each step the neuron loses 1/τ of its potential, so a larger τ remembers input for longer. The threshold θ (theta) is the potential needed to fire. This model is called <strong>leaky integrate-and-fire</strong>, or LIF, and it is the one HiAER-Spike implements.</p>
-<p>Try it below. Inject input spikes, then change the weight and the threshold to see how many inputs it takes to make the neuron fire.</p>
-<div class="demo" id="demo-poke">
-<div class="demo-head">
-<span class="demo-tag">INTERACTIVE</span>
-<span class="demo-title">One leaky integrate-and-fire neuron (LIF)</span>
-<span class="demo-sub">Amber bars show input current. The pale line shows membrane potential. Green marks show output spikes. Pause to inject input and advance one timestep at a time.</span>
-</div>
-<div class="demo-body">
-<div class="controls">
-<button class="btn primary" id="poke-btn">Inject input spike</button>
-<div class="ctl">
-<label for="poke-tau">leak τ <output id="poke-tau-out">4</output></label>
-<input id="poke-tau" max="7" min="0" step="1" type="range" value="2"/>
-</div>
-<label class="toggle"><input id="poke-auto" type="checkbox"/> random background input</label>
-<div class="ctl"><label for="poke-weight">input weight <output id="poke-weight-out">0.45</output></label><input id="poke-weight" max="150" min="5" step="5" type="range" value="45"/></div><div class="ctl"><label for="poke-threshold">threshold <output id="poke-threshold-out">1.00</output></label><input id="poke-threshold" max="100" min="10" step="5" type="range" value="100"/></div><button class="btn" id="poke-pause" type="button">Pause</button><button class="btn" id="poke-step" type="button">Advance one timestep</button><button class="btn" id="poke-reset" type="button">Clear history</button></div>
-<canvas height="230" id="poke-canvas"></canvas>
-<div class="stats"><div class="stat"><div class="k">Membrane potential</div><output class="val" id="poke-potential">0.000</output></div><div class="stat"><div class="k">Output spikes</div><output class="val" id="poke-spikes">0</output></div><div class="stat"><div class="k">Timesteps</div><output class="val" id="poke-time">0</output></div></div></div>
-<div class="demo-note"><p>Start with weight 0.45 and threshold 1. With τ = 4 it takes several inputs close together to make the neuron fire, and a larger weight or a lower threshold needs fewer of them. Clear history before comparing settings so earlier input does not affect the comparison.</p></div>
-</div>
-<details class="technical-details"><summary>The order the chip uses</summary><div class="detail-body">
-<p>HiAER-Spike fires before it integrates. At each step the neuron first compares the potential it carried in from the previous step against θ, resets if it fired, leaks, and only then adds the new input. Input that arrives at step <code>t</code> can therefore cause a spike no earlier than step <code>t+1</code>, and a stack of five layers answers five steps after its input. Most spiking-network libraries add the input first, and <a href="neurons.html#order">page 2</a> explains why training has to use the chip's order instead.</p>
-</div></details>
-</section>
-<section class="reveal" id="difference">
-<h2><span class="sec-num">1.3</span>Why spikes can save work</h2>
-<p>A conventional network, called an artificial neural network or ANN, multiplies every input by its weight at every step, whether or not the input changed. A spiking network does work only where a spike arrives: one addition per spike per connection. When most inputs are silent, most of the work disappears.</p>
-<p>The demo counts operations for one neuron with six inputs over 16 steps. Lower the input activity and the two counts move apart.</p>
-<div class="demo" id="demo-ann-vs-snn">
-<div class="demo-head">
-<span class="demo-tag">INTERACTIVE</span>
-<span class="demo-title">Operation count, dense against event-driven</span>
-<span class="demo-sub">The left panel shades every input the ANN processes. The right panel shades only the inputs that spiked, which are the only ones the SNN touches. Below the right panel, the <span style="color:var(--muted);">v</span> row is the membrane potential tested at the start of each timestep and the <span style="color:var(--good);">out</span> row is the resulting output spike. Lower the input activity to see the operation gap widen.</span>
-</div>
-<div class="demo-body">
-<div class="controls">
-<div class="ctl" style="flex:1;min-width:200px;">
-<label for="avs-sparsity">input activity <output id="avs-sparsity-out">20%</output></label>
-<input id="avs-sparsity" max="60" min="2" type="range" value="20"/>
-</div>
-<button class="btn primary" id="avs-run">Run 16 timesteps</button>
-</div>
-<canvas height="355" id="avs-canvas"></canvas>
-<div class="stats">
-<div class="stat"><div class="k">ANN operations</div><div class="val" id="avs-ann-ops">0</div><div class="sub">6 multiply-adds per timestep</div></div>
-<div class="stat"><div class="k">SNN operations</div><div class="val acc" id="avs-snn-ops">0</div><div class="sub">one addition per arriving spike</div></div>
-<div class="stat"><div class="k">work avoided</div><div class="val good" id="avs-saved">—</div><div class="sub">this run</div></div>
-</div>
-</div>
-<div class="demo-note">
-<p> Reading the output row: the neuron holds a weight of 0.45 per input, a threshold of 1.0 and a leak of 4. Each arriving spike raises the membrane bar, and the bar decays between timesteps. A column turns green once the bar entering that timestep stands above the dashed threshold line, which happens one timestep after the input that pushed it there. The marker drawn on the most recent spike shows that offset. </p>
-<p>A full network’s operation count depends on activity in every layer and on the number of timesteps. The single-neuron example does not predict that count directly.</p>
-</div>
-</div>
-<p>Counting operations stands in for energy. Real energy use also depends on memory traffic and on the power the hardware draws while idle, which this project does not measure.</p>
+<h2><span class="sec-num">1.2</span>Spiking neurons, briefly</h2>
+<p>A spiking neuron keeps one number, its <span class="term">membrane potential</span>. Time moves in discrete steps. At each step the neuron fires a spike if the potential is above a threshold θ (theta) and resets to zero, the potential leaks a little toward zero, and incoming spikes add their connection weights to it. The leak constant τ (tau) sets how fast the potential fades: each step it loses 1/τ of itself. This model is called <strong>leaky integrate-and-fire</strong>, or LIF, and it is the one HiAER-Spike implements.</p>
+<p>A conventional network multiplies every input by its weight at every step, whether or not the input changed. A spiking network does work only where a spike arrives, one addition per spike per connection, so the work grows with activity. Counting those additions stands in for energy. Real energy use also depends on memory traffic and on the power the hardware draws while idle, which this project does not measure.</p>
+<p><a href="basics.html#snn">Page A</a> builds both ideas up from a single artificial neuron, with animations. <a href="neurons.html">Page 2</a> rebuilds the chip's exact neuron for training.</p>
 </section>
 <section class="reveal" id="fixed">
-<h2><span class="sec-num">1.4</span>The chip's rules</h2>
+<h2><span class="sec-num">1.3</span>The chip's rules</h2>
 <p>Five terms come up throughout the rest of the site.</p>
 <dl class="kv">
 <dt>synapse</dt><dd>One connection from one neuron to another, holding one weight.</dd>
@@ -117,81 +63,48 @@
 </table>
 </div>
 <p>The input limit is the first one a network meets. Pick a frame size to see whether it fits.</p>
-<div class="demo" id="demo-input-budget"><div class="demo-head"><span class="demo-title">Can the input fit?</span><span class="demo-sub">Each pixel has two channels for increasing and decreasing brightness. Each channel needs one input axon, the connection that carries an external input into the chip.</span></div><div class="demo-body"><div class="controls"><div class="ctl"><label for="budget-resolution">Square frame size</label><select id="budget-resolution"><option value="128">128 × 128 (the camera)</option><option value="90">90 × 90</option><option value="89">89 × 89</option><option value="48">48 × 48 (the best network so far)</option></select></div></div><p id="budget-equation">128 × 128 × 2 = 32,768 input axons</p><p id="budget-verdict" role="status">Exceeds the 16,000-axon limit. Resize before training.</p><p class="source-note">Every layer still has to pass its own fan-in and fan-out checks, which <a href="hardware.html#limits">page 4</a> covers.</p></div></div>
+<div class="demo" id="demo-input-budget"><div class="demo-head"><span class="demo-title">Can the input fit?</span><span class="demo-sub">Each pixel has two channels for increasing and decreasing brightness. Each channel needs one input axon, the connection that carries an external input into the chip.</span></div><div class="demo-body"><div class="controls"><div class="ctl"><label for="budget-resolution">Square frame size</label><select id="budget-resolution"><option value="128">128 × 128 (the camera)</option><option value="90">90 × 90</option><option value="89">89 × 89</option><option value="48">48 × 48 (the most accurate network so far)</option></select></div></div><p id="budget-equation">128 × 128 × 2 = 32,768 input axons</p><p id="budget-verdict" role="status">Exceeds the 16,000-axon limit. Resize before training.</p><p class="source-note">Every layer still has to pass its own fan-in and fan-out checks, which <a href="hardware.html#limits">page 4</a> covers.</p></div></div>
 </section>
 <section class="reveal" id="task">
-<h2><span class="sec-num">1.5</span>The example task: DVS128 Gesture</h2>
-<p>DVS128 Gesture is a dataset IBM published in 2017. It contains 29 people performing 11 gestures, including hand waves, arm rotations, air drums and air guitar, under three lighting conditions.</p>
-<p>Like most machine-learning data it is split three ways. Training data teaches the network. A validation set, held back from training, is used to choose between networks. The test set is used once, at the end, and is the only score comparable to published results. Here the test set is six people, none of whom appear in training.</p>
-<p>The recordings come from a dynamic vision sensor, a camera whose 128×128 pixels each report when their own brightness changes, instead of sending whole frames. Moving edges produce events and a still background produces almost none, which suits a spiking network. Brightness increases and decreases form two input channels.</p>
-<p>The tool groups each recording's events into <code>T</code> frames (16 by default), each holding the same number of events, and shrinks the frames to fit the axon limit.</p>
+<h2><span class="sec-num">1.4</span>The example task: DVS128 Gesture</h2>
+<p>DVS128 Gesture is a dataset IBM published in 2017: 29 people performing 11 gestures, such as hand waves, arm rotations, air drums and air guitar, in front of an event camera. Each of the camera's 128×128 pixels reports when its own brightness changes, so moving edges produce events and a still background produces almost none, which suits a spiking network.</p>
+<p>The data is split three ways. Training data teaches the network. A validation set, held back from training, is used to choose between networks. The test set is six people who never appear in training, scored once at the end, and it is the only score comparable to published results. <a href="data.html">Page B</a> shows how recordings become frames and why the split is made by person.</p>
 </section>
 <section class="reveal" id="lab-workflow">
-<h2><span class="sec-num">1.6</span>What the tool does</h2>
+<h2><span class="sec-num">1.5</span>What the tool does</h2>
 <ol>
-<li><strong>Describe.</strong> A configuration file lists the layers, the neuron settings and the training settings. For a search it lists ranges, and the tool samples a network from them.</li>
+<li><strong>Describe.</strong> A network is a list of settings: the layers, the neuron and the training recipe. For a search, each setting gets a range, and the tool samples a network from the ranges.</li>
 <li><strong>Check.</strong> Before any training, the tool works out every layer's size and compares fan-in, fan-out and axon count against the chip's limits. This is arithmetic, so a network that cannot fit is rejected in microseconds.</li>
 <li><strong>Train with the chip's arithmetic.</strong> Training uses a neuron that follows the chip's update order, integer weights, a power-of-two leak, and batch normalization folded in. The network that trains is the network that deploys.</li>
-<li><strong>Check on the simulator.</strong> Every trained network runs through IntegerSim, a fast copy of the chip simulator's arithmetic, clip by clip. IntegerSim is itself checked against the simulator in <code>hs_api</code>.</li>
-<li><strong>Search.</strong> Optuna proposes configurations, Ray runs many of them at once, and weak ones stop early. The search keeps the network with the best validation accuracy.</li>
+<li><strong>Check on the simulator.</strong> Every trained network runs clip by clip through a fast simulator that does the chip simulator's exact integer arithmetic, and is scored by what that simulator answers.</li>
+<li><strong>Search.</strong> A sampler proposes configurations, many run at once, and weak ones stop early. The search keeps the network with the best deployed validation accuracy.</li>
 </ol>
-<p>The tool builds convolutional classifiers, networks that slide small learned filters across an image, which is the standard design for image tasks. It builds them from a configuration. <a href="architecture.html#scope">Page 3</a> lists what it can take in today and what extending it would involve.</p>
+<p>The tool builds convolutional classifiers, networks that slide small learned filters across an image, which is the standard design for image tasks. <a href="pipeline.html">Page C</a> follows one trial through every stage, and <a href="architecture.html#scope">page 3</a> lists what the tool can build today and what extending it would involve.</p>
 </section>
 <section class="reveal" id="goal">
-<h2><span class="sec-num">1.7</span>Where the project stands</h2>
+<h2><span class="sec-num">1.6</span>Where the project stands</h2>
 <div class="result-grid">
-<div><div class="r-k">Best test accuracy so far</div><div class="r-v accent">83.3%</div><div class="r-s">240 of 288 test clips, on the chip simulator.</div></div>
+<div><div class="r-k">Most accurate so far</div><div class="r-v accent">83.3%</div><div class="r-s">240 of 288 test clips on the chip simulator. Too many connections per neuron for the chip.</div></div>
+<div><div class="r-k">Most accurate that fits</div><div class="r-v">79.2%</div><div class="r-s">228 of 288 test clips, within every chip limit.</div></div>
 <div><div class="r-k">HiAER-Spike paper</div><div class="r-v">68.75%</div><div class="r-s">The published result on the same test set.</div></div>
 <div><div class="r-k">Goal</div><div class="r-v">90%</div><div class="r-s">On the test set, with a network that fits the chip.</div></div>
 </div>
-<p>The best network so far has two convolution layers and reads 48×48 frames. Its PyTorch version and the simulator predict the same gesture on every one of 464 validation and test clips. It does not yet fit the physical chip: each of its output neurons needs 32,256 incoming connections against a limit of 8,159. The search that found it counted fan-in after average pooling instead of before, which hid the problem. The check now counts it correctly, so the next search only proposes networks that fit. <a href="results.html">Page 7</a> has the details.</p>
-</section>
-<section class="reveal" id="map">
-<h2><span class="sec-num">1.8</span>How the code is organized</h2>
-<p>The code is a Python package, <code>snnsearch</code>, started from <code>main.py</code>. The parts that plan a network and check it against the chip import no deep-learning library, so they run on any machine.</p>
-<div class="tbl-wrap">
-<table class="tbl">
-<thead><tr><th>Job</th><th>Modules</th><th>Covered on</th></tr></thead>
-<tbody>
-<tr><td class="layer-name">describe a network</td><td><code>config.py</code>, <code>runconfig.py</code>, <code>spaces.py</code></td><td><a href="architecture.html">page 3</a></td></tr>
-<tr><td class="layer-name">check it fits</td><td><code>planning.py</code>, <code>hardware.py</code>, <code>cost.py</code></td><td><a href="architecture.html">page 3</a>, <a href="hardware.html">page 4</a></td></tr>
-<tr><td class="layer-name">build and train it</td><td><code>neuron.py</code>, <code>quantgrid.py</code>, <code>model.py</code>, <code>encoders.py</code>, <code>data/</code>, <code>train.py</code></td><td><a href="neurons.html">page 2</a>, <a href="training.html">page 5</a></td></tr>
-<tr><td class="layer-name">deploy and verify it</td><td><code>folding.py</code>, <code>quantize.py</code>, <code>hs_export.py</code>, <code>synops.py</code></td><td><a href="hardware.html">page 4</a></td></tr>
-<tr><td class="layer-name">search many</td><td><code>pipeline.py</code>, <code>search.py</code>, <code>streaming.py</code>, <code>results.py</code>, <code>report.py</code>, <code>cli.py</code></td><td><a href="search.html">page 6</a></td></tr>
-</tbody>
-</table>
-</div>
-<details class="technical-details"><summary>Example</summary><div class="detail-body"><div class="code-block">
-<div class="code-head"><span class="file">terminal</span><span class="loc">five modes</span></div>
-<pre><code class="language-bash">python main.py check                              # what this machine is missing
-python main.py summary -c configs/dvs128.yaml     # no torch, no dataset needed
-python main.py single  -c configs/dvs128.yaml     # train one configuration
-python main.py search  -c configs/cifar10.yaml    # the automated search
-python main.py report  results/dvs128             # rebuild report.html</code></pre>
-</div></div></details>
-<ul>
-<li><code>check</code> reports which packages, GPU and dataset files are present, and what each missing one blocks.</li>
-<li><code>summary</code> prints the layer table, the counts and whether the network fits the chip. It needs no deep-learning library.</li>
-<li><code>single</code> trains one configuration and reports its accuracy before and after conversion.</li>
-<li><code>search</code> runs the search and writes each result as soon as it finishes.</li>
-<li><code>report</code> rebuilds the HTML report of a finished search.</li>
-</ul>
+<p>The most accurate network has two convolution layers and reads 48×48 frames. Its PyTorch version and the simulator predict the same gesture on every one of 464 validation and test clips. Its average pools are folded into the output layer, so each of its output neurons needs 32,256 incoming connections against a limit of 8,159. The chip check counts fan-in in front of every pool, so every network a search proposes fits the chip. <a href="results.html">Page 7</a> has the details.</p>
 </section>
 <section class="reveal" id="pages">
-<h2><span class="sec-num">1.9</span>The rest of this site</h2>
+<h2><span class="sec-num">1.7</span>The rest of this site</h2>
 <div class="cards">
 <a class="card" href="basics.html"><div class="c-num">START HERE · A</div><div class="c-title">Neural networks, from the ground up</div><div class="c-desc">One neuron, layers, learning, convolutions, spiking neurons and how they are trained, each with an interactive picture.</div><div class="c-tags"><span>ANN</span><span>CNN</span><span>SNN</span></div></a>
 <a class="card" href="data.html"><div class="c-num">START HERE · B</div><div class="c-title">Data, testing and augmentation</div><div class="c-desc">An event camera, events into frames, training, validation and test sets split by person, overfitting, noise and augmentation.</div><div class="c-tags"><span>event camera</span><span>validation</span><span>augmentation</span></div></a>
 <a class="card" href="pipeline.html"><div class="c-num">START HERE · C</div><div class="c-title">The whole pipeline</div><div class="c-desc">Every stage a trial goes through, step by step, and how the search decides what to try and which network wins.</div><div class="c-tags"><span>pipeline</span><span>search</span><span>early stopping</span></div></a>
 <a class="card" href="settings.html"><div class="c-num">START HERE · D</div><div class="c-title">Every setting, visualized</div><div class="c-desc">Build a network and watch it change, then one card per setting: what it does, what is tried, and how it moved accuracy.</div><div class="c-tags"><span>builder</span><span>hyperparameters</span><span>effects</span></div></a>
 <a class="card" href="bits.html"><div class="c-num">START HERE · E</div><div class="c-title">Bit encoding</div><div class="c-desc">How a pixel's event count reaches the chip one bit per axon, animated, and what each extra bit costs.</div><div class="c-tags"><span>axons</span><span>binary</span><span>SynOps</span></div></a>
-<a class="card" href="neurons.html"><div class="c-num">PAGE 02</div><div class="c-title">The neuron</div><div class="c-desc">The chip's neuron rebuilt in PyTorch: its update order, its power-of-two leak, its threshold range, and how a network of on-or-off spikes can still be trained.</div><div class="c-tags"><span>update order</span><span>leak</span><span>surrogate gradient</span></div></a>
-<a class="card" href="architecture.html"><div class="c-num">PAGE 03</div><div class="c-title">The architecture</div><div class="c-desc">A network written as configuration, its layer sizes worked out once, and an interactive builder that tells you whether it fits the chip.</div><div class="c-tags"><span>configuration</span><span>layer sizes</span><span>builder</span></div></a>
+<a class="card" href="neurons.html"><div class="c-num">PAGE 02</div><div class="c-title">The neuron</div><div class="c-desc">The chip's neuron rebuilt for training: its update order, its power-of-two leak, its threshold range, and how a network of on-or-off spikes can still learn.</div><div class="c-tags"><span>update order</span><span>leak</span><span>surrogate gradient</span></div></a>
+<a class="card" href="architecture.html"><div class="c-num">PAGE 03</div><div class="c-title">The architecture</div><div class="c-desc">How layer sizes are worked out, four ways to measure how big a network is, and a builder that shows every layer's cost and whether it fits.</div><div class="c-tags"><span>layer sizes</span><span>cost</span><span>builder</span></div></a>
 <a class="card" href="hardware.html"><div class="c-num">PAGE 04</div><div class="c-title">Fitting the chip</div><div class="c-desc">Connection limits, 16-bit weights, removing batch normalization, and checking the finished network on a simulator.</div><div class="c-tags"><span>fan-in</span><span>INT16</span><span>simulator</span></div></a>
-<a class="card" href="training.html"><div class="c-num">PAGE 05</div><div class="c-title">Training</div><div class="c-desc">From camera events to training data, from output spikes to a prediction, and what one training run produces.</div><div class="c-tags"><span>data</span><span>prediction</span><span>training run</span></div></a>
-<a class="card" href="search.html"><div class="c-num">PAGE 06</div><div class="c-title">The search</div><div class="c-desc">How hundreds of configurations are tried on a fixed budget, what the search samples, and what it writes down.</div><div class="c-tags"><span>Optuna</span><span>early stopping</span><span>search space</span></div></a>
-<a class="card" href="results.html"><div class="c-num">PAGE 07</div><div class="c-title">Results</div><div class="c-desc">The best networks found so far, how they were measured, what weight decay did to them, and what comes next.</div><div class="c-tags"><span>accuracy</span><span>SynOps</span><span>next experiments</span></div></a>
-<a class="card" href="reference.html"><div class="c-num">PAGE 08</div><div class="c-title">Reference</div><div class="c-desc">Every class and function in the package, searchable, with what each one is for.</div><div class="c-tags"><span>API</span></div></a>
+<a class="card" href="training.html"><div class="c-num">PAGE 05</div><div class="c-title">Training</div><div class="c-desc">Turning input into spikes, reading a prediction from output spikes, one training step in detail, and what a run reports.</div><div class="c-tags"><span>input coding</span><span>prediction</span><span>training run</span></div></a>
+<a class="card" href="search.html"><div class="c-num">PAGE 06</div><div class="c-title">The search</div><div class="c-desc">The tools behind the search, the checks before it starts, early stopping and sampling in detail, and what it records.</div><div class="c-tags"><span>Optuna</span><span>early stopping</span><span>balanced block</span></div></a>
+<a class="card" href="results.html"><div class="c-num">PAGE 07</div><div class="c-title">Results</div><div class="c-desc">The most accurate networks so far, which of them fit the chip, how much work they do, how far to trust the numbers, and what comes next.</div><div class="c-tags"><span>accuracy</span><span>SynOps</span><span>next experiments</span></div></a>
 </div>
 </section>
 </div></main>
@@ -200,13 +113,10 @@ python main.py report  results/dvs128             # rebuild report.html</code></
 </nav>
 <footer class="site-foot">
 <span>Documentation for <a href="https://github.com/purujain2006/configurable-snn-classifier">configurable-snn-classifier</a></span>
-<span>Interactive demonstrations use the same arithmetic as <code>snnsearch</code>, verified against it.</span>
+<span>Interactive demonstrations use the same arithmetic as the tool and are tested against it. For developers: <a href="reference.html">code reference</a>.</span>
 </footer>
 <script src="assets/snn.js?v=16000"></script>
 <script src="assets/site.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-python.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-bash.min.js"></script>
 <script src="assets/demo-index.js"></script>
 <script src="assets/demo-input-budget.js"></script></body>
 </html>

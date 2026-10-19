@@ -101,7 +101,7 @@
     draw();
   })();
 
-  /* ---------- 6.4 define-by-run ---------- */
+  /* ---------- 6.5 settings that exist only for some networks ---------- */
   (function dbr() {
     if (!$("db-params")) return;
     const state = { space: "per_layer", norm: "bn", opt: "adam", sch: "cosine", aug: "off" };
@@ -120,33 +120,33 @@
       const depth = +$("db-d").value, nfc = +$("db-fc").value;
       $("db-d-out").textContent = depth;
       $("db-fc-out").textContent = nfc;
-      const params = [["depth", "2–4"]];
+      const params = [["layers", "2 to 4"]];
       if (state.space === "per_layer") {
         for (let i = 0; i < depth; i++) {
-          params.push([`k_${i}`, "3–9 odd"], [`ch_${i}`, "8–128 log"], [`ds_${i}`, "{stride,pool,none}"]);
+          params.push([`kernel ${i + 1}`, "3 to 9, odd"], [`channels ${i + 1}`, "8 to 128, log scale"], [`shrink ${i + 1}`, "stride, pool or none"]);
         }
       } else {
-        params.push(["channels", "8–128 log"], ["kernel_size", "3–9 odd"], ["downsample_mode", "{stride,pool}"]);
+        params.push(["channels", "8 to 128, log scale"], ["kernel", "3 to 9, odd"], ["shrink", "stride or pool"]);
       }
-      params.push(["input_bits", "1–4"], ["resize_to", "from dataset"], ["T", "from config"],
-                  ["fc_layers", "0–1"]);
-      for (let i = 0; i < nfc; i++) params.push([`fc_width_${i}`, "{128,256,512}"]);
-      params.push(["final_reduction", "{flatten,gap}"], ["bias_mode", "{threshold,neuron}"],
-                  ["signed_spikes", "{F,T}"], ["pool_type", "{avg,max} if a layer pools"]);
-      params.push(["tau", "{2,4,8,16}"], ["tau_mode", "{fixed,layer,channel}"],
-                  ["trainable_threshold", "{F,T}"], ["dropout_rate", "0.1–0.45"],
-                  ["use_conv_dropout", "{F,T}"], ["norm", "{bn,tdbn}"]);
-      if (state.norm === "tdbn") params.push(["tdbn_alpha", "0.5–2.0"]);
-      params.push(["label_smoothing", "0–0.2"], ["grad_clip", "{0,1,5}"],
-                  ["use_rate_penalty", "{F,T}"], ["use_augment", "{F,T}"]);
+      params.push(["bits per pixel", "1 to 4"], ["frame size", "from the dataset"], ["frames T", "16, 24, 32, 48"],
+                  ["hidden layers", "0 or 1"]);
+      for (let i = 0; i < nfc; i++) params.push([`hidden width ${i + 1}`, "128, 256, 512"]);
+      params.push(["head", "flatten or GAP"], ["bias", "threshold or bias neurons"],
+                  ["signed spikes", "off, on"], ["pool type", "average or max, if a layer pools"]);
+      params.push(["starting τ", "2, 4, 8, 16"], ["how τ is set", "fixed, per layer, per channel"],
+                  ["learned threshold", "off, on"], ["head dropout", "0.1 to 0.45"],
+                  ["dropout between layers", "off, on"], ["normalization", "BN or tdBN"]);
+      if (state.norm === "tdbn") params.push(["tdBN scale", "0.5 to 2"]);
+      params.push(["label smoothing", "0 to 0.2"], ["gradient clipping", "off, 1, 5"],
+                  ["firing-rate penalty", "off, on"], ["augmentation", "off, on"]);
       if (state.aug === "on") {
-        params.push(["aug_shift", "0–0.2"], ["aug_cutout", "0–0.4"], ["aug_drop", "0–0.3"],
-                    ["aug_flip", "{F,T} if allowed"]);
+        params.push(["shift", "0 to 0.2"], ["cutout", "0 to 0.4"], ["event drop", "0 to 0.3"],
+                    ["mirror", "only if the dataset allows"]);
       }
-      params.push(["loss", "{rate,tet}"], ["optimizer", "{adam,adamw}"]);
-      params.push(state.opt === "adamw" ? ["weight_decay", "1e-5–1e-2 log"] : ["weight_decay", "1e-7–1e-3 log"]);
-      params.push(["lr", "5e-4–5e-3 log"], ["scheduler", "{cos,1cyc,step,none}"]);
-      if (state.sch === "cosine" || state.sch === "step") params.push(["warmup_epochs", "0–3"]);
+      params.push(["loss", "rate or TET"], ["optimizer", "Adam or AdamW"]);
+      params.push(state.opt === "adamw" ? ["weight decay", "0.00001 to 0.01, log scale"] : ["weight decay", "0.0000001 to 0.001, log scale"]);
+      params.push(["learning rate", "0.0005 to 0.005, log scale"], ["schedule", "cosine, one-cycle, step, none"]);
+      if (state.sch === "cosine" || state.sch === "step") params.push(["warm-up epochs", "0 to 3"]);
       $("db-params").innerHTML = params.map(([n, r]) => `<span class="pill"><b>${n}</b> ${r}</span>`).join("");
       $("db-count").textContent = params.length;
     }
