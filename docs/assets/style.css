@@ -999,6 +999,9 @@ p code, li code, dd code { white-space: normal; overflow-wrap: anywhere; }
 .gl-pop.on { display: block; }
 .gl-pop .gl-t { font-weight: 650; color: var(--text); margin-bottom: 4px; }
 .gl-pop .gl-links { display: flex; gap: 14px; margin-top: 8px; font-size: 13px; }
+.gl-pop .gl-w { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--line); color: var(--text-dim); }
+.gl-wk { display: block; font-family: var(--mono); font-size: 10.5px; letter-spacing: .08em; text-transform: uppercase; color: var(--accent); margin-bottom: 2px; }
+.glossary-list .gl-why { display: block; margin-top: 6px; padding-left: 12px; border-left: 2px solid var(--accent-dim); color: var(--text-dim); }
 .glossary-list dt { scroll-margin-top: 90px; }
 .glossary-list dt:target { color: var(--accent); }
 .gl-letter { font-family: var(--mono); color: var(--accent); margin: 34px 0 6px; font-size: 14px; letter-spacing: .14em; }

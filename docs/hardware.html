@@ -113,6 +113,7 @@
 </section>
 <section class="reveal" id="int16">
 <h2><span class="sec-num">G.4</span>16-bit weights</h2>
+<div class="why"><span class="why-k">Why this exists</span><p>Every connection on the chip stores its own weight, and a large network has millions of connections. Sixteen bits per weight takes half the memory of the 32-bit decimals training normally uses, and whole numbers need only small adding circuits, so one chip holds more neurons and spends less energy per spike. The price is that every weight gets rounded.</p></div>
 <p>The chip stores weights as 16-bit integers from −32,767 to 32,767, so a trained weight such as 0.7 has to become one of them. The weight scale α says what real value the largest integer stands for:</p>
 <div class="formula">stored = round( w / α × 32767 )      read back = stored × α / 32767</div>
 <p>This project uses α = 1, as the HiAER-Spike conversion does. The grid then covers [−1, 1] in steps of about 0.00003, so rounding a weight inside that range barely changes it. A weight outside the range is clipped: 1.3 becomes 1.0. Clipping is where accuracy is lost, and G.5 shows where large weights come from.</p>
@@ -142,6 +143,7 @@
 </section>
 <section class="reveal" id="folding">
 <h2><span class="sec-num">G.5</span>Removing batch normalization</h2>
+<div class="why"><span class="why-k">Why this exists</span><p>A chip neuron only adds up the weights its incoming spikes deliver. Batch normalization would make every neuron multiply and shift its total on every step as well, which costs circuit area and energy. Folding builds that scaling into the weights and threshold once, before the network goes on the chip, so the neuron gets the same effect with nothing extra to compute.</p></div>
 <div class="prereq"><span class="pq-k">Before this section</span><ul><li><a href="basics.html#neuron">A.1 One artificial neuron</a>: what a bias is.</li></ul></div>
 
 <p>Batch normalization rescales and shifts each channel during training, which makes deep networks train much more reliably. The chip has no such layer. Because a convolution followed by batch normalization is just two linear steps, the pair can be merged into one convolution with new weights W′ and a new bias b′, per output channel c:</p>

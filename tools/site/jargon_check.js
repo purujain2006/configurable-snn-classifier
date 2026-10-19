@@ -23,7 +23,7 @@ const TERMS = [
   ['validation',         'index.html',        'A validation set, held back from training'],
   ['convolutional',      'index.html',        'which slide small learned filters'],
   ['epoch',              'index.html',        'epochs, passes over the training data'],
-  ['surrogate',          'basics.html',       'class="term">surrogate gradient<'],
+  ['surrogate',          'why.html',          '<strong>surrogate gradient</strong>'],
   ['straight-through',   'basics.html',       '<em>straight-through estimator</em>'],
   ['global average pool','basics.html',       'class="term">Global average pooling<'],
   ['dropout',            'data.html',         'dropout, which silences random units during training'],
@@ -32,6 +32,9 @@ const TERMS = [
   ['weight scale',       'hardware.html',     'The weight scale α says'],
   ['flush',              'basics.html',       'class="term">flush steps<'],
   ['hyperparameter',     'why.html',          '(often called settings on this site)'],
+  ['simulator',          'index.html',        'a simulator, a program that computes exactly what the chip would'],
+  ['export',             'why.html',          '<strong>exported</strong>, written out'],
+  [' trial',             'index.html',        'the search builds and trains is called a trial'],
 ];
 
 // Words that must never appear in prose at all.

@@ -6,7 +6,7 @@ const window = {};
 eval(fs.readFileSync(path.join(DOCS, 'assets', 'glossary-data.js'), 'utf8'));
 const G = window.GLOSSARY.slice().sort((a, b) => a.t.localeCompare(b.t, 'en', { sensitivity: 'base' }));
 const PAGE = {
-  'index.html': 'Home', 'basics.html': 'A', 'data.html': 'B', 'pipeline.html': 'C', 'settings.html': 'D',
+  'index.html': 'Home', 'why.html': '0', 'basics.html': 'A', 'data.html': 'B', 'pipeline.html': 'C', 'settings.html': 'D',
   'bits.html': 'E', 'neurons.html': 'F', 'hardware.html': 'G', 'results.html': 'H'
 };
 let html = '', letter = '';
@@ -14,7 +14,8 @@ for (const g of G) {
   const L = g.t[0].toUpperCase();
   if (L !== letter) { if (letter) html += '</dl>\n'; letter = L; html += `<p class="gl-letter">${L}</p>\n<dl class="kv glossary-list">\n`; }
   const page = PAGE[g.see.split('#')[0]] || 'this site';
-  html += `<dt id="${g.id}">${g.t}</dt><dd>${g.d} <a href="${g.see}">Page ${page}</a></dd>\n`;
+  const why = g.w ? `<span class="gl-why"><span class="gl-wk">Why it exists</span>${g.w}</span>` : '';
+  html += `<dt id="${g.id}">${g.t}</dt><dd>${g.d} <a href="${g.see}">Page ${page}</a>${why}</dd>\n`;
 }
 html += '</dl>\n';
 const page = `<!DOCTYPE html>
@@ -24,7 +25,7 @@ const page = `<!DOCTYPE html>
 <meta charset="utf-8"/>
 <meta content="width=device-width, initial-scale=1.0" name="viewport"/>
 <title>Glossary</title>
-<meta content="Every term on this site that needs a background in machine learning or chips, in plain words, with a link to where it is explained." name="description"/>
+<meta content="Every term on this site that needs a background in machine learning or chips, in plain words, why it exists, and a link to where it is explained." name="description"/>
 <link href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'&gt;&lt;rect width='32' height='32' fill='%23000'/&gt;&lt;path d='M3 22h5l3-13 4 19 3-11h4l2 5h5' fill='none' stroke='%23e0a94f' stroke-width='2.4' stroke-linejoin='round'/&gt;&lt;/svg&gt;" rel="icon"/>
 <link href="https://fonts.googleapis.com" rel="preconnect"/>
 <link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
@@ -36,7 +37,7 @@ const page = `<!DOCTYPE html>
 <div class="hero-inner">
 <p class="kicker">Glossary</p>
 <h1>Every term, in plain words</h1>
-<p class="lede">Each term below is underlined with dots the first time it appears on a page; point at it there to see this definition. The link after each one goes to where the site explains it in full.</p>
+<p class="lede">Each term below is underlined with dots the first time it appears on a page; point at it there to see this definition. Most also say why the thing exists: the problem that led someone to invent it. The link after each one goes to where the site explains it in full.</p>
 </div>
 </header>
 <main>

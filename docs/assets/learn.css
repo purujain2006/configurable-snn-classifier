@@ -185,5 +185,6 @@ button.aka-name.on, button.aka-name:hover { background: var(--accent); color: #1
 .chain .ch-p { color: var(--bad); }
 .chain .ch-i { color: var(--good); margin-left: 6px; }
 /* "why this exists" boxes inside sections */
-.why { margin: 14px 0 20px; padding: 10px 14px; border-left: 3px solid var(--good); background: rgba(155,177,122,.06); font-size: 15.5px; color: var(--text-dim); line-height: 1.6; }
+.why { max-width: 79ch; box-sizing: border-box; margin: 14px 0 20px; padding: 10px 14px; border-left: 3px solid var(--good); background: rgba(155,177,122,.06); font-size: 15.5px; color: var(--text-dim); line-height: 1.6; }
 .why .why-k { font-family: var(--mono); font-size: 11px; letter-spacing: .12em; text-transform: uppercase; color: var(--good); display: block; margin-bottom: 2px; }
+.why p { margin: 0; }

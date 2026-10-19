@@ -93,6 +93,7 @@
     const here = location.pathname.split("/").pop() || "index.html";
     const seeHere = g.see.split("#")[0] === here;
     pop.innerHTML = `<div class="gl-t">${g.t}</div><div class="gl-d">${g.d}</div>` +
+      (g.w ? `<div class="gl-w"><span class="gl-wk">Why it exists</span>${g.w}</div>` : "") +
       `<div class="gl-links">${seeHere ? "" : `<a href="${g.see}">Where it is explained</a>`}<a href="glossary.html#${g.id}">Glossary</a></div>`;
     current = span;
     pop.classList.add("on");

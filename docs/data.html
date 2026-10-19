@@ -28,6 +28,7 @@
 
 <section class="reveal" id="camera">
 <h2><span class="sec-num">B.1</span>An event camera</h2>
+<div class="why"><span class="why-k">Why this exists</span><p>An ordinary camera sends every pixel of every frame, even when nothing in the scene moves, which wastes data and power, and fast motion between frames blurs or goes missing. The eye's retina mostly reports change. Event cameras copy that idea, and their output already looks like spikes, which suits a spiking chip.</p></div>
 <p>An ordinary camera takes whole pictures at a fixed rate. An <span class="term">event camera</span>, also called a dynamic vision sensor or DVS, has no frames at all. Each pixel watches its own brightness and reports an <span class="term">event</span> the moment the brightness changes enough: where it happened, when (to the microsecond), and which way it went, brighter or darker. A still scene produces almost nothing, and a moving hand produces a stream of events along its edges.</p>
 <p>That makes event cameras a natural partner for spiking networks: the data already arrives as spikes, and it costs nothing where nothing moves.</p>
 <div class="demo" id="demo-dvs">
@@ -127,6 +128,7 @@
 
 <section class="reveal" id="split">
 <h2><span class="sec-num">B.3</span>Training, validation and test</h2>
+<div class="why"><span class="why-k">Why this exists</span><p>A network graded on the clips it trained on can score close to 100% by memorizing them, which says nothing about new people. A fair score needs clips the network never saw. Choosing among many networks by their scores also bends the choice toward the clips used to choose, so the final grade needs one more set, kept untouched until the end.</p></div>
 <p>The data is split three ways, and each part has one job.</p>
 <dl class="kv">
 <dt>Training set</dt><dd>The examples the network learns from. Its weights are adjusted to fit these.</dd>

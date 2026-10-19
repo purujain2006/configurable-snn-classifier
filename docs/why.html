@@ -64,7 +64,7 @@
 <div class="demo-note"><p>Each packet is one weight. Moving it from main memory costs about 640 picojoules (a picojoule is a millionth of a millionth of a joule); multiplying and adding it costs about 4.6. After a few weights the "moving" meter dwarfs the "computing" one, whatever the network does with the numbers.</p></div>
 </div>
 <figure class="figure"><div class="figure-scroll lv" id="energy-vis"></div><figcaption>Energy per operation in a typical chip process, on a log scale: each gridline is ten times the one before. Figures from Mark Horowitz's survey of computing energy (ISSCC 2014, 45 nm). Reading from main memory (DRAM) dwarfs everything else; even a small on-chip memory (SRAM) next to the arithmetic is about a hundred times cheaper.</figcaption></figure>
-<div class="callout"><span class="callout-title">The new problem</span><p>Faster processors do not fix this, because the cost is in the trip, not the arithmetic. Fixing it means changing where the numbers live.</p></div>
+<div class="callout"><span class="callout-title">The new problem</span><p>The cost sits in the trip between memory and processor, so a faster processor leaves it untouched. Fixing it means changing where the numbers live.</p></div>
 </section>
 
 <section class="reveal" id="brain">

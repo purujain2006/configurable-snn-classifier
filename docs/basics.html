@@ -26,6 +26,7 @@
 
 <section class="reveal" id="neuron">
 <h2><span class="sec-num">A.1</span>One artificial neuron</h2>
+<div class="why"><span class="why-k">Why this exists</span><p>Some tasks are easy for people and nearly impossible to write down as rules. Exactly which pixels make a hand wave? Hands, distances and speeds all differ from one person to the next. A neural network gets around this: it is built from many small adjustable calculations and learns the rule by tuning them on recorded examples. Each calculation is kept simple so that huge numbers of them can be combined and tuned automatically.</p></div>
 <p>An artificial neuron is a small calculation. It takes a few numbers in, multiplies each by its own <span class="term">weight</span>, adds the results together with one more number called the <span class="term">bias</span>, and passes the total through an <span class="term">activation function</span>. The most common activation, ReLU, keeps a positive total and turns a negative one into zero.</p>
 <p>The weights are what a network learns. A large positive weight means "this input pushes me to respond", a negative one means "this input argues against it", and a weight near zero means "ignore this input".</p>
 <div class="demo" id="demo-neuron">
@@ -53,6 +54,7 @@
 
 <section class="reveal" id="layers">
 <h2><span class="sec-num">A.2</span>Layers, and one pass through a network</h2>
+<div class="why"><span class="why-k">Why this exists</span><p>One neuron can only split its inputs along a single straight line: more of this, less of that. Hard tasks need more. Stacked layers let later neurons combine the simple patterns earlier ones found, edges into strokes and strokes into a hand, which is where a network's power comes from.</p></div>
 <p>Neurons are arranged in layers. Each neuron in a layer reads every output of the layer before it, so information flows from the input, through the <span class="term">hidden layers</span>, to the output layer, which has one neuron per class. Running one input through the network is called a <span class="term">forward pass</span>.</p>
 <p>The output layer gives one score per class. A function called softmax turns the scores into probabilities that add up to 100%, and the network's answer is the class with the highest probability.</p>
 <div class="demo" id="demo-forward">
@@ -71,6 +73,7 @@
 
 <section class="reveal" id="learning">
 <h2><span class="sec-num">A.3</span>How a network learns</h2>
+<div class="why"><span class="why-k">Why this exists</span><p>Even a small network has thousands of weights, and the networks here have far more, so nobody could set them by hand. Training sets them automatically, from examples whose right answers are known.</p></div>
 <p>Learning means adjusting the weights until the answers come out right. Three ideas do the work.</p>
 <dl class="kv">
 <dt>Loss</dt><dd>One number that says how wrong the network was on an example. The usual choice for classification, cross-entropy, is small when the right class got a high probability and large when it did not.</dd>
@@ -149,6 +152,7 @@
 
 <section class="reveal" id="snn">
 <h2><span class="sec-num">A.5</span>Spiking neurons</h2>
+<div class="why"><span class="why-k">Why this exists</span><p>Page 0 told the story. On an ordinary computer most of a network's energy goes into moving numbers around, and a chip whose neurons send brief spikes only when something happens avoids most of that traffic. The cost is that a value can no longer travel in one message. It has to be spread over time as a pattern of spikes, so a spiking network runs step by step.</p></div>
 <p>The neurons above pass around numbers like 0.73. Neurons in a brain, and on a neuromorphic chip such as HiAER-Spike, pass around <span class="term">spikes</span>: at each moment a neuron either fires or it does not. So a spiking network runs through time. The input arrives as a sequence of T frames, every layer updates once per frame, and the answer comes from counting spikes.</p>
 <p>The spiking neuron used here is the <span class="term">leaky integrate-and-fire</span> neuron. It keeps one number, its <span class="term">membrane potential</span>, and at every timestep it does four things, in this order:</p>
 <ol class="steps">

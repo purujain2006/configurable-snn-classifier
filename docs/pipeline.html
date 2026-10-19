@@ -28,6 +28,7 @@
 
 <section class="reveal" id="overview">
 <h2><span class="sec-num">C.1</span>The pipeline in one picture</h2>
+<div class="why"><span class="why-k">Why this exists</span><p>Hundreds of candidates are compared, so every one has to be built, trained and judged the same way, or the comparison means nothing. Training also takes a long time on expensive GPUs, so a candidate that cannot win should be found out as cheaply as possible.</p></div>
 <p>The search tries a few hundred candidate networks. Each candidate is a <span class="term">trial</span>, and every trial goes through the same stages. Cheap stages come first, so a candidate that cannot win is dropped before it costs much.</p>
 <div class="demo" id="demo-pipe">
 <div class="demo-head">
@@ -103,6 +104,7 @@
 
 <section class="reveal" id="sim">
 <h2><span class="sec-num">C.4</span>Export, and the simulator check</h2>
+<div class="why"><span class="why-k">Why this exists</span><p>The training software and the chip describe a network differently. The software thinks in layers of decimal numbers; the chip thinks in single neurons, connections and whole numbers. Export translates one into the other. The simulator exists because that translation has to be exact: if the chip and the trained network disagree on even a few clips, the accuracy measured after training is not the accuracy the chip delivers.</p></div>
 <div class="prereq"><span class="pq-k">Before this section</span><ul><li><a href="basics.html#snn">A.5 Spiking neurons</a>: the arithmetic the simulator must reproduce.</li></ul></div>
 
 <p>After training, each layer is written out in the chip's own format: tables of neurons, the connections between them, integer weights, integer thresholds and leak settings. Then every validation clip runs through a simulator that uses the chip's exact integer arithmetic, and its answer on each clip is compared with the trained network's. A network whose numbers do not fit the chip, or that the simulator cannot run, is marked as not deployable and scores zero; any clip where the two answers differ is counted and reported.</p>
