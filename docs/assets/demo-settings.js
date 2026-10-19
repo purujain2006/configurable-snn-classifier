@@ -511,7 +511,7 @@
       what: "Batch normalization rescales each channel using statistics from the current batch, one timestep at a time. tdBN uses statistics across all timesteps together and starts its scale relative to the threshold, which suits spiking networks. Both fold into the weights and thresholds at deployment.",
       eff: { rows: [["BN", .511, 51], ["tdBN", .555, 45]], verdict: "moderate", note: "tdBN did better, and within tdBN, a larger starting scale did better." } },
     { g: "reg", v: "augment", name: "Augmentation", tried: "off or on; shift up to 0.2, cutout up to 0.4, event drop up to 0.3", link: "data.html#augment",
-      what: "Random shifts, blanked squares and dropped events applied to training clips only, so the network cannot memorise exact clips.",
+      what: "Random shifts, blanked squares and dropped events applied to training clips only, so the network cannot memorize exact clips.",
       eff: { rows: [["off", .563, 48], ["on", .500, 48]], verdict: "moderate", note: "At 80 epochs it hurt, more so at higher strengths: cutout above 0.27 averaged 44%. It makes training harder, so it may need longer runs to pay off." } },
     { g: "reg", v: "convDrop", name: "Dropout between layers", tried: "off, or 5% to 30%",
       what: "Silences a random set of units on the spikes leaving each layer, the same units for a whole clip, so no layer can rely on any single unit.",
@@ -547,6 +547,47 @@
       eff: { rows: [["rate", .526, 48], ["TET", .537, 48]], verdict: "unclear" } }
   ];
 
+
+  /* each card's names in the search records, and the example network's values
+     (the best of the balanced block, page C). net: draw where it lives. */
+  const NAMES = {
+    T: { n: ["T"], ex: "48", net: 1 },
+    size: { n: ["resize_to"], ex: "40", net: 1 },
+    bits: { n: ["input_bits"], ex: "1", net: 1 },
+    depth: { n: ["depth"], ex: "3", net: 1 },
+    channels: { n: ["ch_0", "ch_1", "ch_2"], ex: "71, 18, 41", net: 1 },
+    kernel: { n: ["k_0", "k_1", "k_2"], ex: "5, 5, 3", net: 1 },
+    shrink: { n: ["ds_0", "ds_1", "ds_2"], ex: "stride, none, stride", net: 1 },
+    poolType: { n: ["pool_type"], ex: "empty (no layer pools)", net: 1 },
+    head: { n: ["final_reduction"], ex: "flatten", net: 1 },
+    fc: { n: ["fc_layers", "fc_width_0"], ex: "1, 128", net: 1 },
+    tau: { n: ["tau"], ex: "4", net: 1 },
+    tauMode: { n: ["tau_mode"], ex: "fixed", net: 1 },
+    threshold: { n: ["trainable_threshold"], ex: "False", net: 1 },
+    signed: { n: ["signed_spikes"], ex: "True", net: 1 },
+    bias: { n: ["bias_mode"], ex: "threshold", net: 1 },
+    norm: { n: ["norm", "tdbn_alpha"], ex: "bn (tdbn_alpha only applies to tdBN)", net: 1 },
+    augment: { n: ["use_augment", "aug_shift", "aug_cutout", "aug_drop"], ex: "False" },
+    convDrop: { n: ["use_conv_dropout", "conv_dropout"], ex: "False", net: 1 },
+    headDrop: { n: ["dropout_rate"], ex: "0.153", net: 1 },
+    rate: { n: ["use_rate_penalty", "rate_penalty"], ex: "True, 0.0036" },
+    wd: { n: ["weight_decay"], ex: "0.00031" },
+    ls: { n: ["label_smoothing"], ex: "0.131" },
+    clip: { n: ["grad_clip"], ex: "1" },
+    opt: { n: ["optimizer"], ex: "adam" },
+    lr: { n: ["lr"], ex: "0.00106" },
+    sched: { n: ["scheduler"], ex: "none" },
+    warm: { n: ["warmup_epochs"], ex: "unused with a constant rate" },
+    loss: { n: ["loss"], ex: "tet" }
+  };
+  function namesHTML(v) {
+    const e = NAMES[v];
+    if (!e) return "";
+    const net = !!e.net;
+    const chips = e.n.map(n => net ? `<button class="aka-name" data-hl="${n}" type="button">${n}</button>` : `<code class="aka-name">${n}</code>`).join("");
+    return `<aside class="aka"${net ? ` data-viz="net" data-hl="${e.n[0]}"` : ""}><div class="aka-head"><span class="aka-k">In the search records</span>${chips}</div><p class="aka-sub">example network: ${e.ex}</p>${net ? `<div class="aka-viz"></div>` : ""}</aside>`;
+  }
+
   function effectHTML(e) {
     if (!e) return `<div class="sc-effect">Not measured separately.</div>`;
     const lo = 0.40, hi = 0.62, best = Math.max(...e.rows.map(r => r[1]));
@@ -559,10 +600,11 @@
       if (!grid) return;
       const el = document.createElement("div");
       el.className = "set-card";
-      el.innerHTML = `<h4>${cd.name}</h4><div class="sc-range">tried: ${cd.tried}</div><div class="sc-vis"></div><p>${cd.what}${cd.link ? ` <a href="${cd.link}">More</a>.` : ""}</p>${effectHTML(cd.eff)}`;
+      el.innerHTML = `<h4>${cd.name}</h4><div class="sc-range">tried: ${cd.tried}</div>${namesHTML(cd.v)}<div class="sc-vis"></div><p>${cd.what}${cd.link ? ` <a href="${cd.link}">More</a>.` : ""}</p>${effectHTML(cd.eff)}`;
       grid.appendChild(el);
       const s = L.svg(el.querySelector(".sc-vis"), W, Hm, cd.name);
       try { V[cd.v](s); } catch (e) { console.error(cd.v, e); }
+      if (window.Aka) window.Aka.init(el);
     });
   }
 

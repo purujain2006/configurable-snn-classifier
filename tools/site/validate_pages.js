@@ -62,11 +62,11 @@ for (const p of pages) {
 const headings = new Set();
 for (const p of pages) {
   const html = fs.readFileSync(path.join(DOCS, p), 'utf8');
-  for (const m of html.matchAll(/<span class="sec-num">([\d.]+)<\/span>/g)) headings.add(m[1]);
+  for (const m of html.matchAll(/<span class="sec-num">((?:[A-H]\.)?[\d.]+)<\/span>/g)) headings.add(m[1]);
 }
 for (const p of pages) {
   const html = fs.readFileSync(path.join(DOCS, p), 'utf8');
-  for (const m of html.matchAll(/[Ss]ections?\s+(\d+\.\d+)(?:\s+and\s+(\d+\.\d+))?/g)) {
+  for (const m of html.matchAll(/[Ss]ections?\s+((?:[A-H]\.)?\d+(?:\.\d+)?)(?:\s+and\s+((?:[A-H]\.)?\d+(?:\.\d+)?))?/g)) {
     for (const ref of [m[1], m[2]]) {
       if (ref && !headings.has(ref)) bad(`${p}: reference to section ${ref}, which does not exist`);
     }

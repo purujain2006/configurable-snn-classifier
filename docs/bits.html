@@ -23,6 +23,8 @@
 </header>
 <main class="with-toc">
 <div class="wrap">
+<div class="prereq"><span class="pq-k">Before this page</span><ul><li><a href="index.html#rules">Home: the chip's rules</a>: input axons and the 16,000 limit.</li><li><a href="data.html#frames">B.2 From events to frames</a>: how events become frames.</li><li><a href="basics.html#work">A.9 Why spikes can save work</a>: what a SynOp is.</li></ul></div>
+
 
 <section class="reveal" id="one-bit">
 <h2><span class="sec-num">E.1</span>One axon, one bit</h2>
@@ -49,7 +51,7 @@
 <div class="lv lv-scroll" id="bits-vis"></div>
 <div class="stats"><div class="stat"><div class="k">Neuron receives</div><output class="val" id="bits-recv" style="font-size:17px">-</output></div><div class="stat"><div class="k">Axon spikes, this frame</div><output class="val" id="bits-ops">0</output></div><div class="stat"><div class="k">Axon spikes, so far</div><output class="val" id="bits-total">0</output></div></div>
 </div>
-<div class="demo-note"><p>Switch to 1 bit: every busy frame arrives as the same single spike, and the neuron can no longer tell a grazing touch from a full sweep. Switch to 4 bits: the counts arrive in full, using up to four axon spikes per frame. Counts above the cap are clipped, as the frame with 9 events shows at 3 bits.</p></div>
+<div class="demo-note"><p>Switch to 1 bit: every busy frame arrives as the same single spike, and the neuron can no longer tell a grazing touch from a full sweep. Now try 4 bits: the counts arrive in full, using up to four axon spikes per frame. Counts above the cap are clipped, as the frame with 9 events shows at 3 bits.</p></div>
 </div>
 </section>
 
@@ -83,7 +85,7 @@
 </main>
 <nav class="foot-nav">
 <a class="prev" href="settings.html"><span class="dir">Previous</span><span class="pg">D · Every setting, visualized</span></a>
-<a class="next" href="neurons.html"><span class="dir">Next</span><span class="pg">02 · The neuron</span></a>
+<a class="next" href="neurons.html"><span class="dir">Next</span><span class="pg">F · The chip's neuron</span></a>
 </nav>
 <footer class="site-foot">
 <span>Documentation for <a href="https://github.com/purujain2006/configurable-snn-classifier">configurable-snn-classifier</a></span>
@@ -91,5 +93,7 @@
 <script src="assets/site.js"></script>
 <script src="assets/learn.js"></script>
 <script src="assets/demo-bits.js"></script>
+<script src="assets/glossary-data.js"></script>
+<script src="assets/gloss.js"></script>
 </body>
 </html>

@@ -11,20 +11,71 @@
 <link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&amp;family=JetBrains+Mono:ital,wght@0,400;0,600;0,700;1,400&amp;display=swap" rel="stylesheet"/>
 <link href="assets/style.css" rel="stylesheet"/>
+<link href="assets/learn.css" rel="stylesheet"/>
 </head>
 <body>
 <header class="hero">
 <div class="hero-inner">
-<p class="kicker">Page 4</p>
+<p class="kicker">In depth · G</p>
 <h1>Fitting the chip</h1>
-<p class="lede">A trained network has to pass three tests before it can run on HiAER-Spike. It must fit the connection limits, its numbers must fit 16-bit integers, and its batch normalization must be removed. This page covers each test, and how the tool then checks the finished network on a simulator of the chip.</p>
+<p class="lede">A network has to pass three tests before it can run on HiAER-Spike. It must fit the connection limits, its numbers must fit 16-bit integers, and its batch normalization must be removed. This page works out a network's size, then covers each test and what it costs.</p>
 </div>
 </header>
 <main class="with-toc">
 <div class="wrap">
+<div class="prereq"><span class="pq-k">Before this page</span><ul><li><a href="basics.html#cnn">A.4 Convolutional networks</a>: kernels, channels, stride and pooling.</li><li><a href="index.html#rules">Home: the chip's rules</a>: fan-in, fan-out and the 16-bit grid.</li><li><a href="pipeline.html#phases">C.3 Two training phases</a>: when the weights move onto the grid.</li></ul></div>
+
+<section class="reveal" id="planning">
+<h2><span class="sec-num">G.1</span>Working out layer sizes once</h2>
+<p>Before anything is trained, the tool works out the size of every layer from the network's settings. Three parts of the tool need those sizes: the step that builds the network, the check against the chip's limits, and the count of neurons and connections. Computing sizes separately in three places lets them drift apart, which motivates one planner whose output all three read.</p>
+<p>Each layer's output size comes from the standard convolution formula:</p>
+<div class="formula">out = ⌊( in + 2·padding − (kernel − 1) − 1 ) / stride⌋ + 1</div>
+<p>For example, a 64×64 image through a 7×7 kernel at stride 2 with no padding gives ⌊(64 − 7)/2⌋ + 1 = 29, so 29×29.</p>
+<p>While walking the stack, the planner applies three rules.</p>
+<ol>
+<li><strong>Stop shrinking small images.</strong> Once an image is 3×3 or smaller, later layers keep its size instead of shrinking it further. A kernel larger than the image is rejected with the sizes involved.</li>
+<li><strong>Decide where shrinking happens.</strong> A layer that asks for pooling gets a stride-1 convolution followed by a pool. Otherwise the settings choose between a stride-2 convolution and a pool.</li>
+<li><strong>Record three sizes per layer.</strong> The input size, the size after the convolution (where the neurons sit), and the size after pooling (what the next layer reads).</li>
+</ol>
+<p>The third rule matters for the chip. An average pool has no neurons of its own, so the chip check needs the size before the pool, where the neurons are, and the size after it, which sets how the next layer is wired (G.3).</p>
+</section>
+<section class="reveal" id="cost">
+<h2><span class="sec-num">G.2</span>Four ways to measure size</h2>
+<p>"How big is this network" has four different answers, because a convolution reuses one small filter at every position of the image. For a layer with a k×k kernel, C<sub>in</sub> input channels, C<sub>out</sub> output channels and an H×W output:</p>
+<div class="tbl-wrap">
+<table class="tbl">
+<thead><tr><th>Measure</th><th>Formula</th><th>What it counts</th></tr></thead>
+<tbody>
+<tr><td class="layer-name">neurons</td><td class="num">C<sub>out</sub> · H · W</td><td>Spiking neurons on the chip, one per output position per channel.</td></tr>
+<tr><td class="layer-name">connections</td><td class="num">neurons · k² · C<sub>in</sub></td><td>Synapses the chip stores. Every neuron gets its own copy of the filter.</td></tr>
+<tr><td class="layer-name">parameters</td><td class="num">k² · C<sub>in</sub> · C<sub>out</sub></td><td>Numbers that training learns. The filter is shared, so this is far smaller than the connection count.</td></tr>
+<tr><td class="layer-name">SynOps (synaptic operations)</td><td class="num">Σ spikes × fan-out</td><td>Additions actually performed on a real clip. Measured, since it depends on the input as well as the shape.</td></tr>
+</tbody>
+</table>
+</div>
+<p>A synaptic operation, or SynOp, is one addition at a neuron caused by an arriving spike. Neuromorphic papers report SynOps per input as a stand-in for energy, so every run measures it. A conventional network of the same shape would do one multiply-add per connection per step regardless of activity, which gives a fair comparison point.</p>
+<p>The search can use SynOps four ways when choosing between networks:</p>
+<div class="tbl-wrap">
+<table class="tbl">
+<thead><tr><th>Mode</th><th>What it optimizes</th><th>When to use it</th></tr></thead>
+<tbody>
+<tr><td class="layer-name">accuracy</td><td>Accuracy only. SynOps are recorded.</td><td>The default.</td></tr>
+<tr><td class="layer-name">constrained</td><td>Accuracy, scoring zero above a SynOps budget.</td><td>When there is a fixed power budget.</td></tr>
+<tr><td class="layer-name">weighted</td><td>accuracy − weight × SynOps / reference</td><td>When you can say how much accuracy a halving of SynOps is worth.</td></tr>
+<tr><td class="layer-name">pareto</td><td>Both, keeping every network that no other network beats on both.</td><td>When the trade-off is not decided yet.</td></tr>
+</tbody>
+</table>
+</div>
+<details class="technical-details"><summary>A worked example</summary><div class="detail-body">
+<p>A convolution with 32 input channels, 32 output channels and a 7×7 kernel has 32 × 32 × 7 × 7 = 50,176 parameters. With a 12×12 output it has 32 × 12 × 12 = 4,608 neurons. Each neuron reads its own 7×7×32 window, so the chip stores 4,608 × 1,568 = 7,225,344 connections.</p>
+<p>Neither count says how many additions happen during a clip. A neuron that never fires causes none, and one that fires on every step causes one per connection per step. SynOps depend on both the wiring and the input.</p>
+</div></details>
+</section>
 <section class="reveal" id="limits">
-<h2><span class="sec-num">4.1</span>Connection limits</h2>
-<p>The chip keeps its connections in tables of fixed size, so a network with too many connections into or out of one neuron cannot be stored. The layer sizes from <a href="architecture.html#planning">section 3.2</a> are enough to check this before training, which saves the GPU time a doomed network would waste. Every trial runs this chip check first, and it lists every limit a network breaks.</p>
+<h2><span class="sec-num">G.3</span>Connection limits</h2>
+<div class="prereq"><span class="pq-k">Before this section</span><ul><li><a href="basics.html#signed">A.11 Signed spikes</a>: each signed unit is two chip neurons.</li></ul></div>
+
+<p>The chip keeps its connections in tables of fixed size, so a network with too many connections into or out of one neuron cannot be stored. The layer sizes from G.1 are enough to check this before training, which saves the GPU time a doomed network would waste. Every trial runs this chip check first, and it lists every limit a network breaks.</p>
 <p>For a convolution layer with a k×k kernel, stride s, C<sub>in</sub> input channels and C<sub>out</sub> output channels:</p>
 <ul>
 <li><strong>Fan-in</strong> of one neuron is k² · C<sub>in</sub>, the window it reads.</li>
@@ -38,7 +89,7 @@
 <h3>Max pooling as OR neurons</h3>
 <p>A max pool of spikes asks whether any input in the window fired. One chip neuron answers that exactly: give it weight 1 from each input and a threshold of 0, so it fires whenever its total is at least 1. Each window gets one such OR neuron, and the next layer reads the pooled values, so its fan-in stays at the pooled size. The OR neuron fires one step after its input, like every chip neuron, and training includes that step. With max pooling, the two-pool network above needs 8,064 connections per output neuron and fits.</p>
 <h3>Signed spikes</h3>
-<p>A chip neuron can only send a positive spike, so a unit that sends +1 or −1 (<a href="basics.html#signed">page A</a>) is two chip neurons: one adds up the unit's input and the other adds up its negative, each with its own threshold. The second neuron's outgoing connections carry negated weights, so the next layer receives +w or −w. Every neuron of a signed unit connects to both neurons of each unit in the next layer, so fan-in and fan-out double, and the chip check counts them that way. A max pool stays exact with one OR neuron per sign.</p>
+<p>A signed unit (<a href="basics.html#signed">page A</a>) is two chip neurons, and each connects to both neurons of every unit it feeds, so the check doubles fan-in and fan-out for signed layers.</p>
 <div class="demo">
 <div class="demo-head">
 <span class="demo-tag">INTERACTIVE</span>
@@ -58,12 +109,13 @@
 <div class="demo-note" id="fb-note"></div>
 </div>
 </div>
+<aside class="aka" data-viz="none"><div class="aka-head"><span class="aka-k">In the search records</span><code class="aka-name">feasible</code></div><p>A trial that breaks any limit is recorded with <b><code>feasible</code> = False</b> and the limits it broke, for example <i>neuron_fan_in 8343 &gt; 8159</i>: neurons in that layer would need 8,343 incoming connections. It scores zero and never trains.</p></aside>
 </section>
 <section class="reveal" id="int16">
-<h2><span class="sec-num">4.2</span>16-bit weights</h2>
+<h2><span class="sec-num">G.4</span>16-bit weights</h2>
 <p>The chip stores weights as 16-bit integers from −32,767 to 32,767, so a trained weight such as 0.7 has to become one of them. The weight scale α says what real value the largest integer stands for:</p>
 <div class="formula">stored = round( w / α × 32767 )      read back = stored × α / 32767</div>
-<p>This project uses α = 1, as the HiAER-Spike conversion does. The grid then covers [−1, 1] in steps of about 0.00003, so rounding a weight inside that range barely changes it. A weight outside the range is clipped: 1.3 becomes 1.0. Clipping is where accuracy is lost, and section 4.3 shows where large weights come from.</p>
+<p>This project uses α = 1, as the HiAER-Spike conversion does. The grid then covers [−1, 1] in steps of about 0.00003, so rounding a weight inside that range barely changes it. A weight outside the range is clipped: 1.3 becomes 1.0. Clipping is where accuracy is lost, and G.5 shows where large weights come from.</p>
 <p>Thresholds use the same scale. A neuron compares its potential, which is a sum of weights, against θ, so both sides must be in the same units. That is why θ must lie in (0, 1].</p>
 <div class="demo">
 <div class="demo-head">
@@ -89,12 +141,16 @@
 </div>
 </section>
 <section class="reveal" id="folding">
-<h2><span class="sec-num">4.3</span>Removing batch normalization</h2>
+<h2><span class="sec-num">G.5</span>Removing batch normalization</h2>
+<div class="prereq"><span class="pq-k">Before this section</span><ul><li><a href="basics.html#neuron">A.1 One artificial neuron</a>: what a bias is.</li></ul></div>
+
 <p>Batch normalization rescales and shifts each channel during training, which makes deep networks train much more reliably. The chip has no such layer. Because a convolution followed by batch normalization is just two linear steps, the pair can be merged into one convolution with new weights W′ and a new bias b′, per output channel c:</p>
 <div class="formula">W′<sub>c</sub> = W<sub>c</sub> · γ<sub>c</sub> / √(σ²<sub>c</sub> + ε)      b′<sub>c</sub> = β<sub>c</sub> − μ<sub>c</sub> · γ<sub>c</sub> / √(σ²<sub>c</sub> + ε)</div>
-<p>Here μ and σ² are the channel's average and variance seen during training, and γ and β are the scale and shift batch normalization learned. This is called folding, and <a href="pipeline.html#phases">page C</a> shows where it happens during training. Folding causes two problems on the chip.</p>
+<p>Here μ and σ² are the channel's average and variance seen during training, and γ and β are the scale and shift batch normalization learned. This is called folding. It happens at the switch to integer weights a quarter of the way through training (<a href="pipeline.html#phases">page C</a>), once batch normalization has collected real averages, and it leaves no normalization step on the chip.</p>
+<figure class="figure"><div class="figure-scroll lv" id="fold-vis"></div><figcaption>Top: what is trained. Bottom: what is deployed. The scale folds into the weights; the shift becomes a threshold change or a bias neuron.</figcaption></figure>
+<p>Folding causes two problems on the chip.</p>
 <h3>Weights grow</h3>
-<p>The factor γ/√(σ² + ε) is often greater than 1, so folding can push weights past 1.0, where section 4.2 clips them. A weight of 0.6 in a channel with a factor of 2.1 becomes 1.26 and is stored as 1.0. Clipping after training would change the network without warning, which motivates folding during training (section 4.5), so training sees the clipped weights and adapts to them.</p>
+<p>The factor γ/√(σ² + ε) is often greater than 1, so folding can push weights past 1.0, where G.4 clips them. A weight of 0.6 in a channel with a factor of 2.1 becomes 1.26 and is stored as 1.0. Clipping after training would change the network without warning, which motivates folding during training (at the switch, <a href="pipeline.html#phases">page C</a>), so training sees the clipped weights and adapts to them.</p>
 <div class="demo">
 <div class="demo-head">
 <span class="demo-tag">INTERACTIVE</span>
@@ -192,60 +248,23 @@
       At τ = 2 the two agree almost everywhere. The gap grows with τ, which is why training uses whichever form the network will deploy with.
     </div>
 </div>
+<aside class="aka" data-viz="net" data-hl="bias_mode"><div class="aka-head"><span class="aka-k">In the search records</span><button class="aka-name" data-hl="bias_mode" type="button">bias_mode</button><button class="aka-name" data-hl="norm" type="button">norm</button></div><p><b><code>bias_mode</code> = threshold</b> in the example network: each channel's folded bias went into its threshold. With <code>neuron</code> it would be delivered by bias neurons instead. <b><code>norm</code> = bn</b> is the normalization that was folded away; <code>tdbn</code> folds the same way.</p><div class="aka-viz"></div></aside>
 </section>
 <section class="reveal" id="ste">
-<h2><span class="sec-num">4.4</span>Training on the integer grid</h2>
+<h2><span class="sec-num">G.6</span>Training on the integer grid</h2>
+<div class="prereq"><span class="pq-k">Before this section</span><ul><li><a href="basics.html#learning">A.3</a> and <a href="basics.html#surrogate">A.10</a>: gradients, and passing them through a step.</li></ul></div>
+
 <p>Rounding to the grid has a slope of zero almost everywhere, so ordinary backpropagation would stop at every rounded weight. The tool uses the straight-through estimator: the forward pass uses the rounded, clipped weight, and the backward pass treats the rounding as if it were not there, passing the gradient on unchanged.</p>
 <p>So each weight exists twice. The stored value is an ordinary floating-point number that the optimizer updates. The used value is that number clipped and rounded, and it is what the network computes with. If the stored value is 1.3, the network uses 1.0, and small updates keep accumulating on the stored value until it moves back inside the range. At export, the used value is what gets saved.</p>
 <p>One consequence for measurement: the share of weights being clipped has to be read from the stored values. Reading the used values always reports zero, because they have already been clipped.</p>
-</section>
-<section class="reveal" id="qat">
-<h2><span class="sec-num">4.5</span>When to fold</h2>
-<p>Folding needs batch normalization's running averages, which mean little until the network has seen some data. Folding too late leaves no time to adapt to clipping. The tool offers three schedules.</p>
-<div class="tbl-wrap">
-<table class="tbl">
-<thead><tr><th>Schedule</th><th>What happens</th><th>Use</th></tr></thead>
-<tbody>
-<tr><td class="layer-name">after training</td><td>Train normally, then fold and round once.</td><td>A baseline: how much conversion costs a network that never saw it.</td></tr>
-<tr><td class="layer-name">after training, then repair</td><td>Train normally, fold and round, then train a few more epochs.</td><td>Conversion as a repair at the end.</td></tr>
-<tr><td class="layer-name">part way through</td><td>Train normally for about a quarter of the epochs, then fold in place and train the rest on the folded, rounded network.</td><td>The default. Most of training happens on the network that will deploy.</td></tr>
-</tbody>
-</table>
-</div>
-<div class="demo">
-<div class="demo-head">
-<span class="demo-tag">INTERACTIVE</span>
-<span class="demo-title">How the epoch budget divides</span>
-<span class="demo-sub">For the default schedule: warm-up is round(epochs × fraction), clamped so both phases exist.</span>
-</div>
-<div class="demo-body">
-<div class="controls">
-<div class="ctl"><label for="qt-ep">total epochs <output id="qt-ep-out">40</output></label><input id="qt-ep" max="80" min="4" type="range" value="40"/></div>
-<div class="ctl"><label for="qt-fr">warm-up fraction <output id="qt-fr-out">0.25</output></label><input id="qt-fr" max="60" min="5" type="range" value="25"/></div>
-</div>
-<div id="qt-bar" style="display:flex;height:52px;border:1px solid var(--line);overflow:hidden;font-family:var(--mono);font-size:13px;"></div>
-<div class="legend" style="margin-top:12px;">
-<span><i style="background:#ece7de;"></i> floating point, batch normalization active</span>
-<span><i style="background:#e0a94f;"></i> folded and quantized, learning rate halved</span>
-</div>
-</div>
-</div>
-<p>At the end of training, each folded layer becomes a plain convolution holding its final integer weights, and each bias goes where its mode says: into the thresholds, or onto bias neurons. A deployment check then confirms that every threshold is legal and reports how many weights were clipped, and the exporter writes each layer's integer weights, thresholds, τ and leak shift in the chip's own format.</p>
-</section>
-<section class="reveal" id="verify">
-<h2><span class="sec-num">4.6</span>Checking the finished network on a simulator</h2>
-<p>A mistake in any step above lowers accuracy without raising an error, so the tool checks the finished network instead of trusting the steps.</p>
-<p>The reference is the simulator the HiAER-Spike team ships with the chip's software. It is the target, rather than the FPGA itself, because according to that team's own tests the current FPGA build handles the leak of negative potentials incorrectly. The reference simulator stores every connection as a separate object. The most accurate network so far has 239 million connections, which would take about 150 GB of memory and over an hour to load before simulating a single clip.</p>
-<p>That cost motivates a second, fast simulator inside the tool. It performs the reference simulator's exact arithmetic, step by step, but keeps each convolution as a convolution instead of listing its connections. Every value is an integer, held exactly. It runs all 464 validation and test clips of that network in about 20 seconds on a laptop GPU.</p>
-<p>The fast simulator earns its place through a self-test. The test builds 18 small networks covering every layer type the tool deploys: convolutions, average pooling, GAP and bias neurons. It runs each one through both simulators and compares every neuron's potential and spike at every step. All 18 match exactly, and the test also catches deliberate one-unit errors in the threshold, the bias and the leak. On a machine with enough memory, the full network has also run through the reference simulator, and on the test clip compared the two simulators matched spike for spike.</p>
-<p>Every trial in a search runs its validation clips through the fast simulator and records two numbers: the simulator's accuracy, and how many clips the simulator and the PyTorch model classify differently. That second number should be zero. For the most accurate network so far it is zero on all 464 clips.</p>
+<aside class="aka" data-viz="none"><div class="aka-head"><span class="aka-k">In the search records</span><code class="aka-name">weight_clip_frac</code></div><p>The share of weights that ended up outside [−1, 1] and were clipped, read from the stored values. <b>0.0</b> for the example network: folding pushed no weight past the grid.</p></aside>
 </section>
 </div>
 <aside class="toc"></aside>
 </main>
 <nav class="foot-nav">
-<a class="prev" href="architecture.html"><span class="dir">Previous</span><span class="pg">03 · The architecture</span></a>
-<a class="next" href="training.html"><span class="dir">Next</span><span class="pg">05 · Training</span></a>
+<a class="prev" href="neurons.html"><span class="dir">Previous</span><span class="pg">F · The chip's neuron</span></a>
+<a class="next" href="results.html"><span class="dir">Next</span><span class="pg">H · Results</span></a>
 </nav>
 <footer class="site-foot">
 <span>Documentation for <a href="https://github.com/purujain2006/configurable-snn-classifier">configurable-snn-classifier</a></span>
@@ -253,6 +272,11 @@
 </footer>
 <script src="assets/snn.js?v=16000"></script>
 <script src="assets/site.js"></script>
+<script src="assets/learn.js"></script>
 <script src="assets/demo-hardware.js"></script>
+<script src="assets/demo-fold.js"></script>
+<script src="assets/aka.js"></script>
+<script src="assets/glossary-data.js"></script>
+<script src="assets/gloss.js"></script>
 </body>
 </html>

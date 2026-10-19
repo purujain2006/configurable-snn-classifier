@@ -4,7 +4,7 @@
 <head>
 <meta charset="utf-8"/>
 <meta content="width=device-width, initial-scale=1.0" name="viewport"/>
-<title>The whole pipeline</title>
+<title>The pipeline and the search</title>
 <meta content="Every stage a candidate network goes through, from camera events to a network checked on a simulator of the chip, and how the search decides which candidates to try." name="description"/>
 <link href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'&gt;&lt;rect width='32' height='32' fill='%23000'/&gt;&lt;path d='M3 22h5l3-13 4 19 3-11h4l2 5h5' fill='none' stroke='%23e0a94f' stroke-width='2.4' stroke-linejoin='round'/&gt;&lt;/svg&gt;" rel="icon"/>
 <link href="https://fonts.googleapis.com" rel="preconnect"/>
@@ -17,12 +17,14 @@
 <header class="hero">
 <div class="hero-inner">
 <p class="kicker">Start here · C</p>
-<h1>The whole pipeline</h1>
+<h1>The whole pipeline, and the search</h1>
 <p class="lede">From a gesture in front of a camera to a network running on the chip: every stage a candidate network goes through, and the search that decides which candidates to try and which one wins. Step through it in one picture first, then read each stage in detail.</p>
 </div>
 </header>
 <main class="with-toc">
 <div class="wrap">
+<div class="prereq"><span class="pq-k">Before this page</span><ul><li><a href="basics.html#learning">A.3 How a network learns</a>: loss, gradients, batches and epochs.</li><li><a href="basics.html#snn-net">A.7 A spiking network, step by step</a>: timesteps, output counts and flush steps.</li><li><a href="data.html#split">B.3 Training, validation and test</a>: which clips are used for what.</li></ul></div>
+
 
 <section class="reveal" id="overview">
 <h2><span class="sec-num">C.1</span>The pipeline in one picture</h2>
@@ -52,7 +54,16 @@
 <div class="flow-box"><div class="fb-kind">backward</div><div class="fb-shape">gradients</div><div class="fb-meta">through the surrogate</div></div><div class="flow-arrow">→</div>
 <div class="flow-box"><div class="fb-kind">update</div><div class="fb-shape">weights</div><div class="fb-meta">one small step</div></div>
 </div>
-<p>The loss can be computed two ways, and the search tries both. The <strong>rate</strong> loss scores the spike counts over the whole clip, which is exactly the chip's answer. The <strong>TET</strong> loss scores the output at every timestep and averages, so every step is pushed to be right on its own, which can make the counts more reliable.</p>
+<ol>
+<li><strong>Forward.</strong> The batch runs through the network step by step, giving one spike count per class for each clip. The neurons' potentials are then reset, so one clip cannot affect the next.</li>
+<li><strong>Loss.</strong> The counts are turned into a loss, one number that says how wrong the answers were (<a href="basics.html#learning">page A</a>).</li>
+<li><strong>Backward.</strong> Gradients flow back through every step, through each spike by the surrogate gradient (<a href="basics.html#surrogate">page A</a>) and through each rounded weight by the straight-through estimator (<a href="hardware.html#ste">page G</a>).</li>
+<li><strong>Update.</strong> Very large gradients can be capped first (gradient clipping), then the optimizer moves every weight one small step.</li>
+</ol>
+<p>There are two ways to compute the loss, and the search tries both. The <strong>rate</strong> loss scores the spike counts over the whole clip, which is exactly the chip's answer. <strong>TET</strong> (temporal efficient training) scores the output at every timestep and averages, so every step is pushed to be right on its own, which can make the counts more reliable. Either way, the answer is read from the counts.</p>
+<p>The optimizer is Adam or AdamW, two common rules that give every weight its own step size based on its recent gradients. Weight decay, a pull of every weight toward zero that discourages memorizing, applies only to connection weights. Applied to the leak τ or the threshold θ, it would quietly change how the neurons behave on the chip.</p>
+<aside class="aka" data-viz="none"><div class="aka-head"><span class="aka-k">In the search records</span><code class="aka-name">loss</code><code class="aka-name">optimizer</code></div><p>The example network (the best of the search's first 96, <a href="#so-far">section C.12</a>) trained with <b><code>loss</code> = tet</b> and <b><code>optimizer</code> = adam</b>. Every training setting and the values the search tries are on <a href="settings.html#optimization">page D</a>.</p></aside>
+
 </section>
 
 <section class="reveal" id="phases">
@@ -68,43 +79,112 @@
 <div class="lv" id="phases-vis"></div>
 <div class="play-row"><button class="btn primary" id="phases-play" type="button">Play</button><button class="btn" id="phases-restart" type="button">Restart</button><span class="readout" id="phases-readout"></span></div>
 </div>
-<div class="demo-note"><p>Before the switch the weights drift freely. After it, every weight sits exactly on a storable value, and a weight can only move by jumping to a neighbouring one. What the network computes from here on is exactly what the chip will compute.</p></div>
+<div class="demo-note"><p>Before the switch the weights drift freely. After it, every weight sits exactly on a storable value, and a weight can only move by jumping to a neighboring one. What the network computes from here on is exactly what the chip will compute.</p></div>
 </div>
-<h3>Folding batch normalization</h3>
-<p><span class="term">Batch normalization</span> rescales each channel's activity so training stays stable. The chip has no such operation, but it does not need one: at deployment, normalization is just a fixed scale and a fixed shift per channel. The scale is multiplied into the convolution's weights. The shift becomes either a change to that channel's firing threshold, which is free, or a real bias delivered by an always-on <span class="term">bias neuron</span>, which costs one connection per neuron. That choice is one of the settings the search tries. A variant called tdBN normalizes over time as well as over the batch, and folds the same way.</p>
-<figure class="figure"><div class="figure-scroll lv" id="fold-vis"></div><figcaption>Top: what is trained. Bottom: what is deployed. The two compute the same thing once normalization stops changing, which is why the fold happens at the switch, after the warm-up has given normalization real statistics.</figcaption></figure>
+<p>At the switch, batch normalization (a training aid that rescales each channel) is also folded into the weights and thresholds, because the chip has no such operation. Folding needs the averages batch normalization collected during the first phase, which is why it happens at the switch and not at the start. <a href="hardware.html#folding">Page G</a> shows the fold and what it costs.</p>
+<div class="tbl-wrap">
+<table class="tbl">
+<thead><tr><th>Phase</th><th>What happens</th></tr></thead>
+<tbody>
+<tr><td class="layer-name">warm-up</td><td>The first quarter of the epochs train with ordinary weights and batch normalization, so its averages settle.</td></tr>
+<tr><td class="layer-name">on the grid</td><td>The best warm-up weights are reloaded, batch normalization is folded in, and the remaining epochs train on integer weights at half the learning rate.</td></tr>
+<tr><td class="layer-name">export</td><td>The network is frozen into the chip's format and scored on validation.</td></tr>
+<tr><td class="layer-name">simulator check</td><td>The validation clips run through the chip simulator, and every answer is compared with the trained network's (C.4).</td></tr>
+</tbody>
+</table>
+</div>
+<p>After each epoch the network is scored on validation. With only 216 validation clips, one epoch's score can swing by a couple of points by chance, so picking the single best epoch tends to pick a lucky one. The tool keeps the weights from the end of the best five-epoch stretch instead, judged by its average.</p>
+<details class="technical-details"><summary>Other schedules for the switch</summary><div class="detail-body">
+<p>Switching a quarter of the way through is the default. The tool can also train entirely with ordinary weights and round once at the end, which shows how much conversion costs a network that never saw it, or round at the end and then train a few more epochs as a repair. Both lose more accuracy than training most of the run on the grid.</p>
+</div></details>
+<aside class="aka" data-viz="curve" data-mark="deployed"><div class="aka-head"><span class="aka-k">In the search records</span><code class="aka-name">epochs</code><code class="aka-name">epochs_run</code></div><p>The example network's real training run: <b><code>epochs</code> = 80</b>, the first 20 on ordinary weights. <code>epochs_run</code> = 80 says it was not stopped early. Training accuracy (pale) climbs to 99.7% while validation accuracy (amber) levels off near 74%, the gap <a href="data.html#overfit">page B</a> calls overfitting.</p><div class="aka-viz"></div></aside>
+
 </section>
 
 <section class="reveal" id="sim">
 <h2><span class="sec-num">C.4</span>Export, and the simulator check</h2>
+<div class="prereq"><span class="pq-k">Before this section</span><ul><li><a href="basics.html#snn">A.5 Spiking neurons</a>: the arithmetic the simulator must reproduce.</li></ul></div>
+
 <p>After training, each layer is written out in the chip's own format: tables of neurons, the connections between them, integer weights, integer thresholds and leak settings. Then every validation clip runs through a simulator that uses the chip's exact integer arithmetic, and its answer on each clip is compared with the trained network's. A network whose numbers do not fit the chip, or that the simulator cannot run, is marked as not deployable and scores zero; any clip where the two answers differ is counted and reported.</p>
 <figure class="figure"><div class="figure-scroll lv" id="sim-vis"></div><figcaption>The same clip through the trained network (top) and the chip simulator (bottom). The two are built to agree spike for spike, which is tested separately for every kind of layer; each trial then confirms they give the same answer on every validation clip.</figcaption></figure>
+<p>The reference is the simulator the HiAER-Spike team ships with the chip's software. It is the target, rather than the physical chip, because according to that team's own tests the current FPGA build handles the leak of negative potentials incorrectly. The reference simulator stores every connection as a separate object, so a large network takes about 150 GB of memory and over an hour to load before it simulates a single clip. That cost motivates a second, fast simulator inside the tool. It does the reference simulator's exact arithmetic, step by step, but keeps each convolution as a convolution, and it checks all the validation clips of a trial in seconds.</p>
+<p>The fast simulator is trusted only because it is tested. A self-test builds 18 small networks covering every layer type the tool deploys, runs each through both simulators, and compares every neuron's potential and spike at every step. All 18 match exactly, and the test also catches deliberate one-unit errors in the threshold, the bias and the leak.</p>
+<aside class="aka" data-viz="clips" data-n="216" data-k="163" data-lost="2" data-cols="18" data-label="before export: 163" data-second="deployed: 161"><div class="aka-head"><span class="aka-k">In the search records</span><code class="aka-name">pre_export_val_accuracy</code><code class="aka-name">hw_val_accuracy</code><code class="aka-name">quant_gap</code></div><p>Export can cost a little accuracy. The example network scored <b><code>pre_export_val_accuracy</code> = 0.754</b> (163 clips) just before export and <b><code>hw_val_accuracy</code> = 0.745</b> (161 clips) after it. <b><code>quant_gap</code> = 0.008</b> is the difference: the 2 clips in red.</p><div class="aka-viz"></div></aside>
+
+<aside class="aka" data-viz="clips" data-n="216" data-k="161" data-cols="18" data-label="trained network: 161" data-second="chip simulator: 161"><div class="aka-head"><span class="aka-k">In the search records</span><code class="aka-name">sim_val_accuracy</code><code class="aka-name">sim_disagreements</code></div><p>The same 216 clips through the chip simulator: <b><code>sim_val_accuracy</code> = 0.745</b>, and <b><code>sim_disagreements</code> = 0</b> because the simulator and the trained network gave the same answer on every clip. Any other value would mean the network on the chip is not the network that was trained.</p><div class="aka-viz"></div></aside>
+
+<aside class="aka" data-viz="net" data-hl="deployed_tau"><div class="aka-head"><span class="aka-k">In the search records</span><button class="aka-name" data-hl="deployed_tau" type="button">deployed_tau</button><button class="aka-name" data-hl="deployable" type="button">deployable</button></div><p><b><code>deployed_tau</code> = 4,4,4,4,4</b> lists the leak each spiking layer runs with on the chip: the three convolutions, the hidden layer and the outputs. A network that fits the chip and that the simulator ran is marked <b><code>deployable</code> = True</b>.</p><div class="aka-viz"></div></aside>
+
 <p>The trial's score is the deployed network's accuracy on the validation people. Scoring the deployed network, rather than the network as it was during training, means the search is optimizing exactly what would run on the chip.</p>
 </section>
 
 <section class="reveal" id="why-search">
 <h2><span class="sec-num">C.5</span>What the search is for</h2>
-<p>A network here is described by about thirty settings: how deep it is, how wide each layer is, how each layer shrinks the map, how the input is encoded, how the neurons behave and how training runs. Each setting changes accuracy, many change how much the others matter, and some combinations do not fit the chip at all. There are trillions of possible shapes before a single training setting is chosen, and each trial costs 15 to 25 minutes of GPU time. The search exists to find a very good combination within a budget of a few hundred trials.</p>
+<p>A network here is described by about thirty settings (often called hyperparameters): how deep it is, how wide each layer is, how each layer shrinks the map, how the input is encoded, how the neurons behave and how training runs. Each setting changes accuracy, many change how much the others matter, and some combinations do not fit the chip at all. There are trillions of possible shapes before a single training setting is chosen, and each trial costs 15 to 25 minutes of GPU time. The search exists to find a very good combination within a budget of a few hundred trials.</p>
 <div class="stats"><div class="stat"><div class="k">Settings per network</div><div class="val">about 30</div></div><div class="stat"><div class="k">Possible shapes</div><div class="val">trillions</div></div><div class="stat"><div class="k">Trials per search</div><div class="val">400</div></div><div class="stat"><div class="k">At a time</div><div class="val">2 per GPU</div></div></div>
-<p>It does that with five ideas, each covered below: check the shape before anything else, start with a balanced comparison of every option, learn from finished trials where to look next, stop weak trials early, and retrain the best few before naming a winner.</p>
+<p>Three outside tools do the heavy lifting, and the rest of this page shows how they are used.</p>
+<dl class="kv">
+<dt><a href="https://optuna.org/">Optuna</a></dt><dd>Proposes the next configuration to try, from the scores of finished trials (C.8).</dd>
+<dt>Ray Tune</dt><dd>Runs many trials at once on the available GPUs, two to a GPU here, collects their reports and saves the search's progress.</dd>
+<dt>ASHA</dt><dd>An early-stopping rule that comes with Ray Tune: it compares trials at a checkpoint and stops the weaker ones (C.9).</dd>
+</dl>
+<p>The search uses five ideas, each covered below: check the shape before anything else, start with a balanced comparison of every option, learn from finished trials where to look next, stop weak trials early, and retrain the best few before naming a winner.</p>
 </section>
 
 <section class="reveal" id="shape-first">
 <h2><span class="sec-num">C.6</span>Shape first, then the chip check</h2>
 <p>A trial chooses its shape first: depth, widths, kernels, input size, bits, head and the options that change connection counts. The chip check runs on the shape alone. If it fails, the trial ends with a score of zero before any training setting is chosen.</p>
 <figure class="figure"><div class="figure-scroll lv" id="funnel-vis"></div><figcaption>The order matters for learning, not just for speed. A failed trial's zero is charged only to the shape settings that caused it, so the search never concludes that, say, a learning rate is bad because it once appeared next to a shape that could not fit.</figcaption></figure>
+<p>Some settings exist only for some networks: a four-layer network has a kernel size for its fourth layer, and a two-layer network does not. Optuna builds each trial's settings step by step, so a trial only has the settings it actually uses. Change a choice below and watch which settings appear.</p>
+<div class="demo">
+<div class="demo-head">
+<span class="demo-tag">INTERACTIVE</span>
+<span class="demo-title">Settings sampled along one path</span>
+<span class="demo-sub">Changing a structural choice changes which settings exist for that trial. "Per layer" gives every layer its own kernel, channels and shrinking; "uniform" uses one of each for the whole stack.</span>
+</div>
+<div class="demo-body">
+<div class="controls">
+<div class="ctl"><label>space</label><div class="seg" id="db-space"><button class="on" data-v="per_layer">per layer</button><button data-v="uniform">uniform</button></div></div>
+<div class="ctl"><label for="db-d">depth <output id="db-d-out">3</output></label><input id="db-d" max="4" min="2" type="range" value="3"/></div>
+<div class="ctl"><label for="db-fc">hidden layers <output id="db-fc-out">0</output></label><input id="db-fc" max="1" min="0" type="range" value="0"/></div>
+<div class="ctl"><label>normalization</label><div class="seg" id="db-norm"><button class="on" data-v="bn">bn</button><button data-v="tdbn">tdbn</button></div></div>
+<div class="ctl"><label>optimizer</label><div class="seg" id="db-opt"><button class="on" data-v="adam">adam</button><button data-v="adamw">adamw</button></div></div>
+<div class="ctl"><label>scheduler</label><div class="seg" id="db-sch"><button class="on" data-v="cosine">cosine</button><button data-v="onecycle">onecycle</button><button data-v="step">step</button><button data-v="none">none</button></div></div>
+<div class="ctl"><label>augmentation</label><div class="seg" id="db-aug"><button class="on" data-v="off">off</button><button data-v="on">on</button></div></div>
+</div>
+<div class="pill-row" id="db-params"></div>
+<div class="stats">
+<div class="stat"><div class="k">settings sampled this trial</div><div class="val acc" id="db-count">-</div></div>
+</div>
+</div>
+</div>
+<aside class="aka" data-viz="none"><div class="aka-head"><span class="aka-k">In the search records</span><code class="aka-name">feasible</code></div><p><b><code>feasible</code> = False</b> marks a trial the chip check rejected, together with the limit it broke, for example <i>neuron_fan_in 8343 &gt; 8159</i>: one layer's neurons would each need 8,343 incoming connections. In the DVS128 Gesture search, 28 of the first 163 proposals were rejected this way, each in microseconds.</p></aside>
+
 </section>
 
 <section class="reveal" id="block">
 <h2><span class="sec-num">C.7</span>Starting with a balanced comparison</h2>
-<p>The first 96 trials are designed rather than sampled. Ten options with two or three choices each are covered so that every choice appears equally often, every pair of options is spread as evenly as possible, and each trial gets a random shape that fits the chip. These trials all train for the full 80 epochs and are never stopped early.</p>
-<figure class="figure"><div class="figure-scroll lv" id="block-vis"></div><figcaption>The 96 designed trials, one column each. Every row has each of its colours equally often.</figcaption></figure>
+<p>The first 96 trials are designed rather than sampled. They cover ten choices:</p>
+<ul>
+<li>pooling: none, average or max</li>
+<li>bias: in the threshold, or bias neurons</li>
+<li>head: flatten or GAP</li>
+<li>signed spikes: off or on</li>
+<li>bits per pixel: one, or more than one</li>
+<li>τ: fixed, learned per layer, or learned per channel</li>
+<li>loss: rate or TET</li>
+<li>augmentation, dropout between layers and the firing-rate penalty: each off or on</li>
+</ul>
+<p>Every combination of all ten would take 2,304 trials. Instead every choice appears equally often across the 96, every pair of choices is spread as evenly as possible, and each trial gets a random shape that fits the chip. These trials all train for the full 80 epochs and are never stopped early.</p>
+<figure class="figure"><div class="figure-scroll lv" id="block-vis"></div><figcaption>The 96 designed trials, one column each. Every row has each of its colors equally often.</figcaption></figure>
 <p>There are two reasons. First, a fair comparison: if an option appeared mostly next to good shapes, it would look better than it is, and balancing removes that. Second, a fair start: the sampler learns from whatever it has seen, so an even first map of every option keeps it from locking onto whatever happened to be tried first. The full 80 epochs matter because some options, such as augmentation, learn slowly at first and would be cut unfairly by early stopping.</p>
 </section>
 
 <section class="reveal" id="tpe">
 <h2><span class="sec-num">C.8</span>Learning where to look</h2>
-<p>After the designed trials, a sampler from the Optuna library proposes every new trial, using a method called the Tree-structured Parzen Estimator (TPE). It splits finished trials into the best tenth and the rest, estimates for each setting where good trials tend to sit and where the rest sit, and proposes values that are common among good trials and rare among the rest. It looks at one setting at a time, but because "good" is judged on whole trials, values that work well in combination keep coming back together.</p>
+<div class="prereq"><span class="pq-k">Before this section</span><ul><li><a href="pipeline.html#overview">C.1</a> and <a href="data.html#split">B.3</a>: a trial and its validation score.</li></ul></div>
+
+<p>After the designed trials, a sampler from Optuna proposes every new trial, using a method called the Tree-structured Parzen Estimator (TPE). It splits finished trials into the best tenth and the rest, estimates for each setting where good trials tend to sit and where the rest sit, and proposes values that are common among good trials and rare among the rest. It looks at one setting at a time, but because "good" is judged on whole trials, values that work well in combination keep coming back together.</p>
 <div class="demo" id="demo-tpe">
 <div class="demo-head">
 <span class="demo-tag">INTERACTIVE</span>
@@ -121,7 +201,13 @@
 
 <section class="reveal" id="asha">
 <h2><span class="sec-num">C.9</span>Stopping weak trials early</h2>
-<p>Most trials will not win, and it is usually clear well before the end. At epoch 30, ten epochs after the switch to integer weights, each trial is compared with every other trial that has reached epoch 30, and only the best third continue to epoch 80. The rule is called ASHA. Its checkpoint comes after the switch on purpose: accuracy dips for a few epochs while the network adjusts to its integer weights, and judging during the dip would be unfair.</p>
+<div class="prereq"><span class="pq-k">Before this section</span><ul><li><a href="pipeline.html#phases">C.3 Two training phases</a>: the switch to integer weights at epoch 20.</li></ul></div>
+
+<p>Most trials will not win, and it is usually clear well before the end. At epoch 30, ten epochs after the switch to integer weights, each trial is compared with every other trial that has reached epoch 30, and only the best third continue to epoch 80. The rule is called ASHA, and two decisions shape it.</p>
+<ul>
+<li><strong>The checkpoint comes after the switch.</strong> Accuracy dips for a few epochs while a network adjusts to its integer weights. A checkpoint at or just after the switch would cut trials before they had trained on the weights they deploy with.</li>
+<li><strong>Trials in the balanced block are never stopped.</strong> Options such as augmentation and GAP heads learn slowly at first. The block exists to compare every option fairly, so every option there is judged on full runs.</li>
+</ul>
 <div class="demo" id="demo-asha">
 <div class="demo-head">
 <span class="demo-tag">ANIMATION</span>
@@ -133,16 +219,47 @@
 <div class="play-row"><button class="btn primary" id="asha-play" type="button">Play</button><button class="btn" id="asha-restart" type="button">Restart</button><span class="readout" id="asha-readout"></span></div>
 </div>
 </div>
+<p>How long to wait before the first checkpoint, the <span class="term">grace period</span>, is a trade-off. Some learning-rate schedules improve most toward the end of training, so a grace period that is too short stops promising trials early. Try it: set the grace period to 1 and the late-improving curves are cut.</p>
+<div class="demo">
+<div class="demo-head">
+<span class="demo-tag">INTERACTIVE</span>
+<span class="demo-title">Early stopping on a cohort of 24 trials</span>
+<span class="demo-sub">Simulated learning curves, including some that improve late. At each dashed checkpoint the lower-ranked trials stop and their curves gray out.</span>
+</div>
+<div class="demo-body">
+<div class="controls">
+<div class="ctl"><label for="as-g">grace period <output id="as-g-out">8</output></label><input id="as-g" max="16" min="1" type="range" value="8"/></div>
+<div class="ctl"><label for="as-rf">reduction factor <output id="as-rf-out">3</output></label><input id="as-rf" max="4" min="2" type="range" value="3"/></div>
+<div class="ctl"><label for="as-ep">epoch budget <output id="as-ep-out">40</output></label><input id="as-ep" max="60" min="16" type="range" value="40"/></div>
+<button class="btn primary" id="as-run">New cohort</button>
+</div>
+<canvas height="280" id="as-canvas"></canvas>
+<div class="stats">
+<div class="stat"><div class="k">checkpoints</div><div class="val" id="as-rungs" style="font-size:18px;">8, 24</div></div>
+<div class="stat"><div class="k">trials completing</div><div class="val" id="as-fin">-</div></div>
+<div class="stat"><div class="k">GPU-epochs spent</div><div class="val acc" id="as-cost">-</div><div class="sub" id="as-save"></div></div>
+</div>
+</div>
+<div class="demo-note">
+      Setting the grace period to 1 stops the late-improving trials before their schedule has taken
+      effect, which is the behavior a longer grace period guards against.
+    </div>
+</div>
+<aside class="aka" data-viz="curve" data-mark="float"><div class="aka-head"><span class="aka-k">In the search records</span><code class="aka-name">float_val_accuracy</code><code class="aka-name">stopped_early</code></div><p>The score early stopping watches is measured during training, before export. In the trial record, <b><code>float_val_accuracy</code> = 0.679</b> is the example network's best score during the warm-up, the dashed green line. <code>stopped_early</code> = True would mean ASHA cut the trial at epoch 30. Five of the first 39 sampled trials were cut there.</p><div class="aka-viz"></div></aside>
+
 </section>
 
 <section class="reveal" id="finalists">
 <h2><span class="sec-num">C.10</span>Picking a winner fairly</h2>
-<p>A trial's score depends partly on luck: the random starting weights and the order of the batches. With a validation set of 216 clips, two runs of the same configuration can differ by several points (<a href="data.html#noise">page B</a>). So when the trials are done, the five best configurations are trained again from scratch with three new random seeds each, and the winner is the configuration with the best average. Only then is its accuracy on the test people measured, once.</p>
+<div class="prereq"><span class="pq-k">Before this section</span><ul><li><a href="data.html#noise">B.5 How much to trust one number</a>: a score moves by several points by chance.</li></ul></div>
+
+<p>A trial's score depends partly on luck: the random starting weights and the order of the batches. Both come from a <span class="term">seed</span>, a number that fixes every random choice of a run, so the same seed repeats a run exactly. With a validation set of 216 clips, two runs of the same configuration with different seeds can differ by several points (<a href="data.html#noise">page B</a>). So when the trials are done, the five best configurations are trained again from scratch with three new seeds each, and the winner is the configuration with the best average. Only then is its accuracy on the test people measured, once.</p>
 <figure class="figure"><div class="figure-scroll lv" id="final-vis"></div><figcaption>An illustration. The configuration that ranked first in the search had a lucky run; retrained three times, another configuration is better on average and wins.</figcaption></figure>
 </section>
 
 <section class="reveal" id="timeline">
 <h2><span class="sec-num">C.11</span>A search, start to finish</h2>
+<p>A search runs for a day or more, so a mistake in its setup, such as a missing package, a dataset path that exists only on another machine, a trial too large for its share of the GPU, or a bug in the steps after the trials, would otherwise surface hours in. That motivates a <span class="term">preflight</span>: before a search starts, every stage of it runs in miniature on the same machine. It checks the settings against each other, loads the data, measures the largest network on the GPU, trains two small networks and checks them against the simulator, and runs a six-trial search to the very end. The search refuses to start until a preflight has passed for the same settings and the same code.</p>
 <div class="demo" id="demo-timeline">
 <div class="demo-head">
 <span class="demo-tag">ANIMATION</span>
@@ -155,8 +272,184 @@
 </div>
 <div class="demo-note"><p>An illustration of the shape of a search, not a record of one. The designed block takes the first stretch; after it, sampled trials score higher on average because the sampler concentrates on what worked, early stopping frees slots quickly, and rejected shapes cost no GPU time at all.</p></div>
 </div>
-<p>When the search ends it leaves behind the winning configuration, its trained network in the chip's format, its validation, simulator and test accuracy, how much work it does in SynOps, and a record of every trial, so any of them can be retrained exactly.</p>
-<div class="recap"><strong>In short</strong><p>Every trial proposes a configuration, checks its shape against the chip, trains first with ordinary weights and then on the chip's integer grid, exports, and is scored by a simulator of the chip on held-out people. The search runs a balanced block of designed trials, then lets a sampler concentrate on what scores well, stops weak trials at epoch 30, and retrains the best five with fresh seeds before naming a winner.</p></div>
+<p>Every result is written to disk the moment a trial finishes, so a crash near the end loses nothing: one row per trial with its settings and scores, every trial's score after every epoch, the rejected shapes and the limits they broke, the best configuration so far and, at the end, each finalist's score for every seed. The search also ends early if a deployed network reaches the target accuracy, 97.5% for DVS128 Gesture, judged on the deployed score and never on a training-time one.</p>
+</section>
+
+<section class="reveal" id="so-far">
+<h2><span class="sec-num">C.12</span>The search on DVS128 Gesture so far</h2>
+<div class="prereq"><span class="pq-k">Before this section</span><ul><li><a href="pipeline.html#block">C.7 The balanced comparison</a> and <a href="data.html#overfit">B.4 Overfitting</a>.</li></ul></div>
+
+<p>Everything above is running on the gesture task now: one search of 400 trials on one GPU, two trials at a time, each trained for up to 80 epochs, with T chosen from 16, 24, 32 and 48 frames. This section is a snapshot taken on October 18, 2026, when 163 trials had finished. Pages D and E report what its first 96 trials showed about each setting, and <a href="results.html">page H</a> collects the best networks.</p>
+<div class="stats"><div class="stat"><div class="k">Trials finished</div><div class="val">163 of 400</div></div><div class="stat"><div class="k">Rejected by the chip check</div><div class="val">28</div></div><div class="stat"><div class="k">Stopped at epoch 30</div><div class="val">5</div></div><div class="stat"><div class="k">Best validation score</div><div class="val acc">0.745</div></div></div>
+<figure class="figure"><div class="figure-scroll lv"><svg viewBox="0 0 840 300" role="img" aria-label="Validation accuracy of every trained network in the search so far">
+<line x1="60.0" x2="60.0" y1="20" y2="262" stroke="rgba(255,255,255,0.075)"/>
+<text x="60.0" y="280" class="lt-ms mid">0%</text>
+<line x1="153.8" x2="153.8" y1="20" y2="262" stroke="rgba(255,255,255,0.075)"/>
+<text x="153.8" y="280" class="lt-ms mid">10%</text>
+<line x1="247.5" x2="247.5" y1="20" y2="262" stroke="rgba(255,255,255,0.075)"/>
+<text x="247.5" y="280" class="lt-ms mid">20%</text>
+<line x1="341.2" x2="341.2" y1="20" y2="262" stroke="rgba(255,255,255,0.075)"/>
+<text x="341.2" y="280" class="lt-ms mid">30%</text>
+<line x1="435.0" x2="435.0" y1="20" y2="262" stroke="rgba(255,255,255,0.075)"/>
+<text x="435.0" y="280" class="lt-ms mid">40%</text>
+<line x1="528.8" x2="528.8" y1="20" y2="262" stroke="rgba(255,255,255,0.075)"/>
+<text x="528.8" y="280" class="lt-ms mid">50%</text>
+<line x1="622.5" x2="622.5" y1="20" y2="262" stroke="rgba(255,255,255,0.075)"/>
+<text x="622.5" y="280" class="lt-ms mid">60%</text>
+<line x1="716.2" x2="716.2" y1="20" y2="262" stroke="rgba(255,255,255,0.075)"/>
+<text x="716.2" y="280" class="lt-ms mid">70%</text>
+<line x1="810.0" x2="810.0" y1="20" y2="262" stroke="rgba(255,255,255,0.075)"/>
+<text x="810.0" y="280" class="lt-ms mid">80%</text>
+<text x="435.0" y="297" class="lt-ms mid">validation accuracy</text>
+<circle cx="153.8" cy="123.0" r="3.6" fill="#e0a94f"/>
+<circle cx="165.5" cy="123.0" r="3.6" fill="#e0a94f"/>
+<circle cx="247.5" cy="123.0" r="3.6" fill="#e0a94f"/>
+<circle cx="259.2" cy="123.0" r="3.6" fill="#e0a94f"/>
+<circle cx="259.2" cy="114.0" r="3.6" fill="#e0a94f"/>
+<circle cx="294.4" cy="123.0" r="3.6" fill="#e0a94f"/>
+<circle cx="329.5" cy="123.0" r="3.6" fill="#e0a94f"/>
+<circle cx="341.2" cy="123.0" r="3.6" fill="#e0a94f"/>
+<circle cx="353.0" cy="123.0" r="3.6" fill="#e0a94f"/>
+<circle cx="376.4" cy="123.0" r="3.6" fill="#e0a94f"/>
+<circle cx="376.4" cy="114.0" r="3.6" fill="#e0a94f"/>
+<circle cx="388.1" cy="123.0" r="3.6" fill="#e0a94f"/>
+<circle cx="399.8" cy="123.0" r="3.6" fill="#e0a94f"/>
+<circle cx="411.6" cy="123.0" r="3.6" fill="#e0a94f"/>
+<circle cx="435.0" cy="123.0" r="3.6" fill="#e0a94f"/>
+<circle cx="470.2" cy="123.0" r="3.6" fill="#e0a94f"/>
+<circle cx="481.9" cy="123.0" r="3.6" fill="#e0a94f"/>
+<circle cx="481.9" cy="114.0" r="3.6" fill="#e0a94f"/>
+<circle cx="481.9" cy="105.0" r="3.6" fill="#e0a94f"/>
+<circle cx="493.6" cy="123.0" r="3.6" fill="#e0a94f"/>
+<circle cx="493.6" cy="114.0" r="3.6" fill="#e0a94f"/>
+<circle cx="505.3" cy="123.0" r="3.6" fill="#e0a94f"/>
+<circle cx="505.3" cy="114.0" r="3.6" fill="#e0a94f"/>
+<circle cx="505.3" cy="105.0" r="3.6" fill="#e0a94f"/>
+<circle cx="528.8" cy="123.0" r="3.6" fill="#e0a94f"/>
+<circle cx="528.8" cy="114.0" r="3.6" fill="#e0a94f"/>
+<circle cx="528.8" cy="105.0" r="3.6" fill="#e0a94f"/>
+<circle cx="540.5" cy="123.0" r="3.6" fill="#e0a94f"/>
+<circle cx="540.5" cy="114.0" r="3.6" fill="#e0a94f"/>
+<circle cx="552.2" cy="123.0" r="3.6" fill="#e0a94f"/>
+<circle cx="552.2" cy="114.0" r="3.6" fill="#e0a94f"/>
+<circle cx="552.2" cy="105.0" r="3.6" fill="#e0a94f"/>
+<circle cx="552.2" cy="96.0" r="3.6" fill="#e0a94f"/>
+<circle cx="552.2" cy="87.0" r="3.6" fill="#e0a94f"/>
+<circle cx="552.2" cy="78.0" r="3.6" fill="#e0a94f"/>
+<circle cx="563.9" cy="123.0" r="3.6" fill="#e0a94f"/>
+<circle cx="563.9" cy="114.0" r="3.6" fill="#e0a94f"/>
+<circle cx="563.9" cy="105.0" r="3.6" fill="#e0a94f"/>
+<circle cx="563.9" cy="96.0" r="3.6" fill="#e0a94f"/>
+<circle cx="563.9" cy="87.0" r="3.6" fill="#e0a94f"/>
+<circle cx="575.6" cy="123.0" r="3.6" fill="#e0a94f"/>
+<circle cx="575.6" cy="114.0" r="3.6" fill="#e0a94f"/>
+<circle cx="575.6" cy="105.0" r="3.6" fill="#e0a94f"/>
+<circle cx="575.6" cy="96.0" r="3.6" fill="#e0a94f"/>
+<circle cx="575.6" cy="87.0" r="3.6" fill="#e0a94f"/>
+<circle cx="575.6" cy="78.0" r="3.6" fill="#e0a94f"/>
+<circle cx="575.6" cy="69.0" r="3.6" fill="#e0a94f"/>
+<circle cx="575.6" cy="60.0" r="3.6" fill="#e0a94f"/>
+<circle cx="587.3" cy="123.0" r="3.6" fill="#e0a94f"/>
+<circle cx="587.3" cy="114.0" r="3.6" fill="#e0a94f"/>
+<circle cx="587.3" cy="105.0" r="3.6" fill="#e0a94f"/>
+<circle cx="587.3" cy="96.0" r="3.6" fill="#e0a94f"/>
+<circle cx="587.3" cy="87.0" r="3.6" fill="#e0a94f"/>
+<circle cx="599.1" cy="123.0" r="3.6" fill="#e0a94f"/>
+<circle cx="599.1" cy="114.0" r="3.6" fill="#e0a94f"/>
+<circle cx="599.1" cy="105.0" r="3.6" fill="#e0a94f"/>
+<circle cx="599.1" cy="96.0" r="3.6" fill="#e0a94f"/>
+<circle cx="599.1" cy="87.0" r="3.6" fill="#e0a94f"/>
+<circle cx="599.1" cy="78.0" r="3.6" fill="#e0a94f"/>
+<circle cx="610.8" cy="123.0" r="3.6" fill="#e0a94f"/>
+<circle cx="610.8" cy="114.0" r="3.6" fill="#e0a94f"/>
+<circle cx="610.8" cy="105.0" r="3.6" fill="#e0a94f"/>
+<circle cx="622.5" cy="123.0" r="3.6" fill="#e0a94f"/>
+<circle cx="622.5" cy="114.0" r="3.6" fill="#e0a94f"/>
+<circle cx="622.5" cy="105.0" r="3.6" fill="#e0a94f"/>
+<circle cx="622.5" cy="96.0" r="3.6" fill="#e0a94f"/>
+<circle cx="622.5" cy="87.0" r="3.6" fill="#e0a94f"/>
+<circle cx="622.5" cy="78.0" r="3.6" fill="#e0a94f"/>
+<circle cx="634.2" cy="123.0" r="3.6" fill="#e0a94f"/>
+<circle cx="634.2" cy="114.0" r="3.6" fill="#e0a94f"/>
+<circle cx="634.2" cy="105.0" r="3.6" fill="#e0a94f"/>
+<circle cx="634.2" cy="96.0" r="3.6" fill="#e0a94f"/>
+<circle cx="634.2" cy="87.0" r="3.6" fill="#e0a94f"/>
+<circle cx="634.2" cy="78.0" r="3.6" fill="#e0a94f"/>
+<circle cx="645.9" cy="123.0" r="3.6" fill="#e0a94f"/>
+<circle cx="645.9" cy="114.0" r="3.6" fill="#e0a94f"/>
+<circle cx="657.7" cy="123.0" r="3.6" fill="#e0a94f"/>
+<circle cx="657.7" cy="114.0" r="3.6" fill="#e0a94f"/>
+<circle cx="669.4" cy="123.0" r="3.6" fill="#e0a94f"/>
+<circle cx="669.4" cy="114.0" r="3.6" fill="#e0a94f"/>
+<circle cx="669.4" cy="105.0" r="3.6" fill="#e0a94f"/>
+<circle cx="669.4" cy="96.0" r="3.6" fill="#e0a94f"/>
+<circle cx="681.1" cy="123.0" r="3.6" fill="#e0a94f"/>
+<circle cx="681.1" cy="114.0" r="3.6" fill="#e0a94f"/>
+<circle cx="681.1" cy="105.0" r="3.6" fill="#e0a94f"/>
+<circle cx="681.1" cy="96.0" r="3.6" fill="#e0a94f"/>
+<circle cx="692.8" cy="123.0" r="3.6" fill="#e0a94f"/>
+<circle cx="692.8" cy="114.0" r="3.6" fill="#e0a94f"/>
+<circle cx="692.8" cy="105.0" r="3.6" fill="#e0a94f"/>
+<circle cx="704.5" cy="123.0" r="3.6" fill="#e0a94f"/>
+<circle cx="704.5" cy="114.0" r="3.6" fill="#e0a94f"/>
+<circle cx="704.5" cy="105.0" r="3.6" fill="#e0a94f"/>
+<circle cx="704.5" cy="96.0" r="3.6" fill="#e0a94f"/>
+<circle cx="704.5" cy="87.0" r="3.6" fill="#e0a94f"/>
+<circle cx="704.5" cy="78.0" r="3.6" fill="#e0a94f"/>
+<circle cx="763.1" cy="123.0" r="3.6" fill="#e0a94f"/>
+<text x="60" y="144" class="lt-b">first 96 trials: the balanced block, every option equally often</text>
+<circle cx="505.3" cy="231.0" r="3.6" fill="none" stroke="#ece7de" stroke-width="1.4"/>
+<circle cx="575.6" cy="231.0" r="3.6" fill="none" stroke="#ece7de" stroke-width="1.4"/>
+<circle cx="587.3" cy="231.0" r="3.6" fill="none" stroke="#ece7de" stroke-width="1.4"/>
+<circle cx="599.1" cy="231.0" r="3.6" fill="none" stroke="#ece7de" stroke-width="1.4"/>
+<circle cx="599.1" cy="222.0" r="3.6" fill="none" stroke="#ece7de" stroke-width="1.4"/>
+<circle cx="634.2" cy="231.0" r="3.6" fill="#ece7de"/>
+<circle cx="657.7" cy="231.0" r="3.6" fill="#ece7de"/>
+<circle cx="657.7" cy="222.0" r="3.6" fill="#ece7de"/>
+<circle cx="669.4" cy="231.0" r="3.6" fill="#ece7de"/>
+<circle cx="681.1" cy="231.0" r="3.6" fill="#ece7de"/>
+<circle cx="681.1" cy="222.0" r="3.6" fill="#ece7de"/>
+<circle cx="681.1" cy="213.0" r="3.6" fill="#ece7de"/>
+<circle cx="681.1" cy="204.0" r="3.6" fill="#ece7de"/>
+<circle cx="681.1" cy="195.0" r="3.6" fill="#ece7de"/>
+<circle cx="704.5" cy="231.0" r="3.6" fill="#ece7de"/>
+<circle cx="704.5" cy="222.0" r="3.6" fill="#ece7de"/>
+<circle cx="704.5" cy="213.0" r="3.6" fill="#ece7de"/>
+<circle cx="704.5" cy="204.0" r="3.6" fill="#ece7de"/>
+<circle cx="704.5" cy="195.0" r="3.6" fill="#ece7de"/>
+<circle cx="704.5" cy="186.0" r="3.6" fill="#ece7de"/>
+<circle cx="704.5" cy="177.0" r="3.6" fill="#ece7de"/>
+<circle cx="704.5" cy="168.0" r="3.6" fill="#ece7de"/>
+<circle cx="716.2" cy="231.0" r="3.6" fill="#ece7de"/>
+<circle cx="716.2" cy="222.0" r="3.6" fill="#ece7de"/>
+<circle cx="716.2" cy="213.0" r="3.6" fill="#ece7de"/>
+<circle cx="716.2" cy="204.0" r="3.6" fill="#ece7de"/>
+<circle cx="716.2" cy="195.0" r="3.6" fill="#ece7de"/>
+<circle cx="716.2" cy="186.0" r="3.6" fill="#ece7de"/>
+<circle cx="716.2" cy="177.0" r="3.6" fill="#ece7de"/>
+<circle cx="728.0" cy="231.0" r="3.6" fill="#ece7de"/>
+<circle cx="728.0" cy="222.0" r="3.6" fill="#ece7de"/>
+<circle cx="728.0" cy="213.0" r="3.6" fill="#ece7de"/>
+<circle cx="728.0" cy="204.0" r="3.6" fill="#ece7de"/>
+<circle cx="728.0" cy="195.0" r="3.6" fill="#ece7de"/>
+<circle cx="728.0" cy="186.0" r="3.6" fill="#ece7de"/>
+<circle cx="739.7" cy="231.0" r="3.6" fill="#ece7de"/>
+<circle cx="739.7" cy="222.0" r="3.6" fill="#ece7de"/>
+<circle cx="739.7" cy="213.0" r="3.6" fill="#ece7de"/>
+<circle cx="751.4" cy="231.0" r="3.6" fill="#ece7de"/>
+<text x="60" y="252" class="lt-b">next 39 trained: proposed by the sampler (hollow: stopped at epoch 30)</text>
+<text x="750.4" y="104" class="lt-a end">0.745: the example network</text>
+</svg></div><figcaption>Every trained network so far, one dot each, placed by its deployed validation accuracy. The balanced block spreads widely, from 10% to 74.5%, because it deliberately includes bad options; the sampler's trials then crowd near the top.</figcaption></figure>
+<p>Four things stand out.</p>
+<ul>
+<li><strong>Every network in the block deployed.</strong> All 96 fit the chip, exported, and agreed with the simulator on every validation clip: zero disagreements across 20,736 clip checks.</li>
+<li><strong>The block's scores spread widely.</strong> The average is 53.2% and the middle score 55.8%, and about seven in ten scores fall within 13 points of the average. That spread is what makes the balanced comparison useful: differences between options show up against it (<a href="settings.html#how-to-read">page D</a>).</li>
+<li><strong>The sampler is learning.</strong> The 34 sampled trials that trained to the end average 68.9%, against 53.2% in the block, though none has yet beaten the block's best.</li>
+<li><strong>The best network overfits.</strong> The example network scores 74.5% on validation but 99.7% on its own training clips (C.3). Closing that gap, more than fitting the chip, is what limits accuracy now.</li>
+</ul>
+<aside class="aka" data-viz="net" data-hl="k_1" data-size="full" data-train="1"><div class="aka-head"><span class="aka-k">In the search records</span><button class="aka-name" data-hl="k_0" type="button">k_0</button><button class="aka-name" data-hl="k_1" type="button">k_1</button><button class="aka-name" data-hl="k_2" type="button">k_2</button><button class="aka-name" data-hl="ch_0" type="button">ch_0</button><button class="aka-name" data-hl="ch_1" type="button">ch_1</button><button class="aka-name" data-hl="ch_2" type="button">ch_2</button><button class="aka-name" data-hl="ds_0" type="button">ds_0</button><button class="aka-name" data-hl="ds_1" type="button">ds_1</button><button class="aka-name" data-hl="ds_2" type="button">ds_2</button><button class="aka-name" data-hl="resize_to" type="button">resize_to</button><button class="aka-name" data-hl="T" type="button">T</button><button class="aka-name" data-hl="final_reduction" type="button">final_reduction</button><button class="aka-name" data-hl="fc_width_0" type="button">fc_width_0</button></div><p>The example network used throughout this site, as its trial record names it: three layers with kernels <code>k_0</code> = 5, <code>k_1</code> = 5 and <code>k_2</code> = 3, channels <code>ch_0</code> = 71, <code>ch_1</code> = 18 and <code>ch_2</code> = 41, and shrinking <code>ds_0</code> = stride, <code>ds_1</code> = none and <code>ds_2</code> = stride, on <code>resize_to</code> = 40 frames with <code>T</code> = 48, a <code>final_reduction</code> = flatten head and one hidden layer of <code>fc_width_0</code> = 128. <a href="settings.html#anatomy">Page D</a> has every name of this record.</p><div class="aka-viz"></div></aside>
+
+<div class="recap"><strong>In short</strong><p>Every trial proposes a configuration, checks its shape against the chip, trains first with ordinary weights and then on the chip's integer grid, exports, and is scored by a simulator of the chip on held-out people. The search runs a balanced block of designed trials, then lets a sampler concentrate on what scores well, stops weak trials at epoch 30, and retrains the best five with fresh seeds before naming a winner. On DVS128 Gesture it is under way: every network so far has deployed exactly, and the best scores 74.5% on validation.</p></div>
 </section>
 
 </div>
@@ -171,6 +464,11 @@
 </footer>
 <script src="assets/site.js"></script>
 <script src="assets/learn.js"></script>
+<script src="assets/snn.js?v=16000"></script>
 <script src="assets/demo-pipeline.js"></script>
+<script src="assets/demo-search.js"></script>
+<script src="assets/aka.js"></script>
+<script src="assets/glossary-data.js"></script>
+<script src="assets/gloss.js"></script>
 </body>
 </html>

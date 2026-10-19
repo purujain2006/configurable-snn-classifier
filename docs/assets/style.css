@@ -991,3 +991,14 @@ p code, li code, dd code { white-space: normal; overflow-wrap: anywhere; }
 }
 .overview-page .hero h1 { font-size: clamp(29px, 3.5vw, 40px); max-width: 100%; }
 .demo .stat output { display: block; }
+
+/* glossary terms (gloss.js) */
+.gl { border-bottom: 1px dotted rgba(224,169,79,.75); cursor: help; text-decoration: none; }
+.gl:hover, .gl:focus-visible { color: var(--text); border-bottom-style: solid; outline: none; }
+.gl-pop { position: absolute; z-index: 900; display: none; padding: 12px 14px; background: #121110; border: 1px solid rgba(224,169,79,.5); box-shadow: 0 8px 30px rgba(0,0,0,.6); font-size: 14.5px; line-height: 1.55; color: var(--text-dim); max-width: calc(100vw - 16px); }
+.gl-pop.on { display: block; }
+.gl-pop .gl-t { font-weight: 650; color: var(--text); margin-bottom: 4px; }
+.gl-pop .gl-links { display: flex; gap: 14px; margin-top: 8px; font-size: 13px; }
+.glossary-list dt { scroll-margin-top: 90px; }
+.glossary-list dt:target { color: var(--accent); }
+.gl-letter { font-family: var(--mono); color: var(--accent); margin: 34px 0 6px; font-size: 14px; letter-spacing: .14em; }

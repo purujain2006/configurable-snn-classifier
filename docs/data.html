@@ -23,6 +23,8 @@
 </header>
 <main class="with-toc">
 <div class="wrap">
+<div class="prereq"><span class="pq-k">Before this page</span><ul><li><a href="basics.html#snn">A.5 Spiking neurons</a>: a spiking network reads its input one frame per timestep.</li><li><a href="index.html#rules">Home: the chip's rules</a>: the chip has 16,000 input axons, one per pixel and channel.</li></ul></div>
+
 
 <section class="reveal" id="camera">
 <h2><span class="sec-num">B.1</span>An event camera</h2>
@@ -78,6 +80,49 @@
 <div class="lv" id="rs-bar" style="margin-top:16px"></div>
 </div>
 </div>
+<details class="technical-details"><summary>Why shrink with "any event" instead of an average?</summary><div class="detail-body">
+<p>Averaging neighboring pixels is the usual way to shrink a picture, but it treats sparse events badly. A lone event in a block becomes a small fraction, and a fraction cannot be sent as a spike. Marking a small pixel as 1 whenever any event landed in its block keeps every event. Click the left frame to place events and compare the two rules.</p>
+<div class="demo">
+<div class="demo-head">
+<span class="demo-tag">INTERACTIVE</span>
+<span class="demo-title">Two ways to shrink a sparse frame</span>
+<span class="demo-sub">Left: a 16 × 16 frame of events, editable by clicking. Right: the 8 × 8 result under each rule.</span>
+</div>
+<div class="demo-body">
+<div class="controls">
+<button class="btn" id="bz-rand">Randomize events</button>
+<button class="btn" id="bz-clear">Clear</button>
+<div class="seg" id="bz-mode">
+<button class="on" data-m="or">any event</button>
+<button data-m="avg">average</button>
+</div>
+</div>
+<canvas height="260" id="bz-canvas"></canvas>
+<div class="stats">
+<div class="stat"><div class="k">events in</div><div class="val" id="bz-in">0</div><div class="sub" id="bz-ind">0% density</div></div>
+<div class="stat"><div class="k">active pixels out</div><div class="val acc" id="bz-out">0</div><div class="sub" id="bz-outd">0% density</div></div>
+<div class="stat"><div class="k">events lost</div><div class="val" id="bz-lost">0</div></div>
+</div>
+</div>
+</div>
+<p>The range of frame sizes a search tries comes from the dataset: from about a quarter of the largest size up to the camera's own size or the largest square that fits in 16,000 axons, whichever is smaller. For DVS128 Gesture that is 24 × 24 to 88 × 88, in steps of 8.</p>
+</div></details>
+<details class="technical-details"><summary>Other kinds of input: still images</summary><div class="detail-body">
+<p>The tool also runs on ordinary photos and digits, which have no time axis. An input coding decides what such a network receives at each step.</p>
+<div class="tbl-wrap">
+<table class="tbl">
+<thead><tr><th>Coding</th><th>What it does</th><th>Fits</th></tr></thead>
+<tbody>
+<tr><td class="layer-name">levels</td><td>Rounds each pixel to a whole number from 0 to 2<sup>B</sup> − 1 and sends it at every step, on B input lines (<a href="bits.html">page E</a>).</td><td>Still images on the chip. The default for still images.</td></tr>
+<tr><td class="layer-name">direct</td><td>Sends the same pixel values at every step.</td><td>Still images in software only: the chip's input lines carry spikes, so it cannot run on the chip as is.</td></tr>
+<tr><td class="layer-name">poisson</td><td>Each step, fires a pixel with probability equal to its brightness.</td><td>Still images on the chip. The randomness costs accuracy when T is small.</td></tr>
+<tr><td class="layer-name">temporal</td><td>Each pixel fires once; brighter pixels fire earlier.</td><td>The fewest spikes, and the hardest to train.</td></tr>
+<tr><td class="layer-name">passthrough</td><td>Shrinks event frames and sends any nonzero pixel as a spike, or with B bits, its event count up to 2<sup>B</sup> − 1.</td><td>Event cameras, including DVS128 Gesture.</td></tr>
+</tbody>
+</table>
+</div>
+</div></details>
+<aside class="aka" data-viz="net" data-hl="resize_to"><div class="aka-head"><span class="aka-k">In the search records</span><button class="aka-name" data-hl="resize_to" type="button">resize_to</button><button class="aka-name" data-hl="input_bits" type="button">input_bits</button></div><p><b><code>resize_to</code> = 40</b> in the example network (the best of the search's first 96, <a href="pipeline.html#so-far">page C</a>): every frame is shrunk to 40 × 40, which needs 40 × 40 × 2 = 3,200 of the 16,000 input axons. With <b><code>input_bits</code> = 1</b>, each pixel sends one bit (<a href="bits.html">page E</a> covers more bits).</p><div class="aka-viz"></div></aside>
 </section>
 
 <section class="reveal" id="split">
@@ -102,18 +147,22 @@
 </div>
 <div class="demo-note"><p id="split-note"></p></div>
 </div>
+<aside class="aka" data-viz="clips" data-n="216" data-k="161" data-groups="4" data-cols="27" data-label="validation: 4 people, 216 clips"><div class="aka-head"><span class="aka-k">In the search records</span><code class="aka-name">hw_val_accuracy</code><code class="aka-name">val_accuracy</code></div><p>A validation score is a fraction of the 216 validation clips. The example network's <b><code>hw_val_accuracy</code> = 0.745</b> means it classified 161 of the 216 clips correctly, drawn below as amber squares, with the four validation people in alternating outlines. <code>val_accuracy</code> is the same number when the network can run on the chip, and 0 when it cannot; it is the score the search tries to raise.</p><div class="aka-viz"></div></aside>
+<aside class="aka" data-viz="clips" data-n="288" data-k="240" data-groups="6" data-cols="24" data-seed="11" data-label="test: 6 other people, 288 clips"><div class="aka-head"><span class="aka-k">In the search records</span><code class="aka-name">hw_test_accuracy</code></div><p>The test score is measured once, on the final network, over 288 clips from 6 people the search never saw. <b><code>hw_test_accuracy</code> = 0.8333</b> for the most accurate network trained so far (<a href="results.html">page H</a>) means 240 of 288 clips correct.</p><div class="aka-viz"></div></aside>
 </section>
 
 <section class="reveal" id="overfit">
 <h2><span class="sec-num">B.4</span>Overfitting</h2>
-<p>A network can learn its training examples too well. It memorises details that belong to those 19 people, such as how one person holds their arm or where another stands, instead of what makes a wave a wave. The sign is a gap between accuracy on the training set and accuracy on the validation set.</p>
+<div class="prereq"><span class="pq-k">Before this section</span><ul><li><a href="basics.html#learning">A.3 How a network learns</a>: training fits the weights to the training examples.</li></ul></div>
+
+<p>A network can learn its training examples too well. It memorizes details that belong to those 19 people, such as how one person holds their arm or where another stands, instead of what makes a wave a wave. The sign is a gap between accuracy on the training set and accuracy on the validation set.</p>
 <figure class="figure"><div class="lv" style="padding:18px 18px 8px"><canvas id="overfit-canvas"></canvas></div><figcaption>One real training run of a network that deploys on the chip. Training accuracy climbs to 99.7% while validation settles near 74%. The dashed line marks the switch from ordinary weights to the chip's integer weights (<a href="pipeline.html#phases">page C</a>).</figcaption></figure>
-<p>The usual remedies are more varied data (augmentation, below), regularization that makes memorising harder (dropout, weight decay and label smoothing, all on <a href="settings.html#regularization">page D</a>), smaller networks, and not training past the point where the gap opens. This gap, not the chip, is what holds accuracy back on this task.</p>
+<p>The usual remedies are more varied data (augmentation, below), regularization that makes memorizing harder (dropout, which silences random units during training, weight decay and label smoothing, all on <a href="settings.html#regularization">page D</a>), smaller networks, and not training past the point where the gap opens. This gap, not the chip, is what holds accuracy back on this task.</p>
 </section>
 
 <section class="reveal" id="noise">
 <h2><span class="sec-num">B.5</span>How much to trust one number</h2>
-<p>The validation set has 216 clips, so each clip is worth 0.46 percentage points, and luck in which clips happen to be hard moves the score. Imagine a network whose true accuracy on new people is fixed, and score it on many different validation sets of the same size: the measured scores spread out around the truth.</p>
+<p>The validation set has 216 clips, so each clip is worth 0.46 percentage points, and luck in which clips happen to be hard moves the score. Take a network whose true accuracy on new people is fixed, and score it on many different validation sets of the same size: the measured scores spread out around the truth.</p>
 <div class="demo" id="demo-noise">
 <div class="demo-head">
 <span class="demo-tag">INTERACTIVE</span>
@@ -136,7 +185,7 @@
 
 <section class="reveal" id="augment">
 <h2><span class="sec-num">B.6</span>Data augmentation</h2>
-<p><span class="term">Augmentation</span> makes new training examples out of old ones by changing them in ways that do not change the label. A wave moved a few pixels to the left is still a wave. The network sees a slightly different version of every clip each epoch, so memorising individual clips stops paying off.</p>
+<p><span class="term">Augmentation</span> makes new training examples out of old ones by changing them in ways that do not change the label. A wave moved a few pixels to the left is still a wave. The network sees a slightly different version of every clip each epoch, so memorizing individual clips stops paying off.</p>
 <dl class="kv">
 <dt>Shift</dt><dd>Move the whole clip by up to a set fraction of the frame, filling the uncovered edge with nothing.</dd>
 <dt>Cutout</dt><dd>Blank out one square, so the network cannot depend on any single region.</dd>
@@ -159,6 +208,8 @@
 <div class="aug-grid" id="aug-grid"></div>
 </div>
 </div>
+<p>Every changed clip is still made of whole event values the chip could receive, so augmentation never teaches the network something the chip could not show it.</p>
+<aside class="aka" data-viz="none"><div class="aka-head"><span class="aka-k">In the search records</span><code class="aka-name">use_augment</code><code class="aka-name">aug_shift</code><code class="aka-name">aug_cutout</code><code class="aka-name">aug_drop</code><code class="aka-name">aug_flip</code></div><p><code>use_augment</code> switches augmentation on or off for a trial. When it is on, <b><code>aug_shift</code> = 0.1</b> moves each clip by up to a tenth of the frame, <b><code>aug_cutout</code> = 0.2</b> blanks a square up to a fifth of the frame's side, and <b><code>aug_drop</code> = 0.1</b> deletes about one event in ten. <code>aug_flip</code> mirrors clips, and only when the dataset says a mirrored clip keeps its label, which DVS128 Gesture does not. The sliders above use the same three strengths.</p></aside>
 <div class="callout key"><span class="callout-title">Why no mirror flips</span>
 <p>Flipping left to right is the most common augmentation for photographs, but here it changes the answer: a mirrored right-hand wave is a left-hand wave, and a clockwise arm circle becomes counter-clockwise. So flips are switched off for this dataset.</p>
 <div class="aug-grid small" id="flip-grid"></div>
@@ -181,5 +232,10 @@
 <script src="assets/learn.js"></script>
 <script src="assets/gesture.js"></script>
 <script src="assets/demo-data.js"></script>
+<script src="assets/snn.js?v=16000"></script>
+<script src="assets/demo-downsample.js"></script>
+<script src="assets/aka.js"></script>
+<script src="assets/glossary-data.js"></script>
+<script src="assets/gloss.js"></script>
 </body>
 </html>

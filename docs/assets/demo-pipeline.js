@@ -5,7 +5,7 @@
   const { S, T, C } = L;
 
   L.onReady(() => {
-    [pipe, phases, fold, sim, funnel, block, tpe, asha, finalists, timeline]
+    [pipe, phases, sim, funnel, block, tpe, asha, finalists, timeline]
       .forEach(f => { try { f(); } catch (e) { console.error(f.name, e); } });
   });
 
@@ -187,30 +187,6 @@
     }, { button: document.getElementById("phases-play"), autoplay: false });
     document.getElementById("phases-restart").addEventListener("click", () => { init(); render(); ctrl.play(); });
     init(); render();
-  }
-
-  /* ---------- C.3 folding (static) ---------- */
-  function fold() {
-    const boxEl = document.getElementById("fold-vis");
-    if (!boxEl) return;
-    const s = L.svg(boxEl, 840, 270, "Folding batch normalization into the weights and threshold");
-    T(s, 20, 24, "Trained", "lt-a");
-    box(s, 20, 36, 220, 64, ["convolution", "weights w"]);
-    arrow(s, 240, 68, 290, 68);
-    box(s, 290, 36, 260, 64, ["batch normalization", "× scale, + shift, per channel"], { stroke: C.rust });
-    arrow(s, 550, 68, 600, 68);
-    box(s, 600, 36, 220, 64, ["spiking neuron", "fires above threshold θ"]);
-    T(s, 20, 160, "Deployed", "lt-a");
-    box(s, 20, 172, 220, 64, ["convolution", "weights w × scale"], { stroke: C.accent });
-    arrow(s, 240, 204, 600, 204);
-    box(s, 600, 172, 220, 64, ["spiking neuron", "threshold θ − shift"], { stroke: C.accent });
-    arrow(s, 130, 104, 130, 166, C.accent, 1.2, "4 4");
-    arrow(s, 420, 104, 420, 196, C.accent, 1.2, "4 4");
-    arrow(s, 470, 104, 690, 166, C.accent, 1.2, "4 4");
-    T(s, 140, 140, "scale folds into the weights", "lt-s");
-    T(s, 830, 128, "shift becomes a threshold change", "lt-s end");
-    T(s, 830, 142, "(or a bias neuron)", "lt-s end");
-    T(s, 420, 258, "no normalization step left on the chip", "lt-s mid");
   }
 
   /* ---------- C.4 simulator (static) ---------- */

@@ -3,116 +3,7 @@
   const TAUS = SNN.HW_TAU_CHOICES;
   const P = () => window.Site.PALETTE;
 
-  /* ============ 2.2 full simulator ============ */
-  (function fullSim() {
-    const cv = document.getElementById("sim-canvas");
-    if (!cv) return;
-    const HIST = 160;
-    const els = {
-      pattern: document.getElementById("sim-pattern"),
-      rate: document.getElementById("sim-rate"), rateOut: document.getElementById("sim-rate-out"),
-      w: document.getElementById("sim-w"), wOut: document.getElementById("sim-w-out"),
-      tau: document.getElementById("sim-tau"), tauOut: document.getElementById("sim-tau-out"),
-      theta: document.getElementById("sim-theta"), thetaOut: document.getElementById("sim-theta-out"),
-      pause: document.getElementById("sim-pause"),
-      v: document.getElementById("sim-v"), fr: document.getElementById("sim-fr"),
-      thint: document.getElementById("sim-thint")
-    };
-    const state = { v: 0 };
-    const vH = new Array(HIST).fill(0), inH = new Array(HIST).fill(0), spH = new Array(HIST).fill(0);
-    let t = 0, paused = false;
-    const rand = SNN.rng(1234);
-
-    function inputAt(t, p) {
-      const kind = els.pattern.value;
-      if (kind === "poisson") return rand() < p ? 1 : 0;
-      if (kind === "regular") { const period = Math.max(1, Math.round(1 / Math.max(p, 0.02))); return t % period === 0 ? 1 : 0; }
-      if (kind === "burst") { const phase = t % 40; return phase < 10 ? (rand() < Math.min(1, p * 2.6) ? 1 : 0) : 0; }
-      if (kind === "step") return 1; // constant drive scaled by w & p
-      return 0;
-    }
-
-    function step(force = false) {
-      if (paused && !force) return;
-      const p = parseInt(els.rate.value, 10) / 100;
-      const w = parseInt(els.w.value, 10) / 100;
-      const tau = TAUS[parseInt(els.tau.value, 10)];
-      const theta = parseInt(els.theta.value, 10) / 100;
-      const ev = inputAt(t, p);
-      const x = els.pattern.value === "step" ? w * p * 2 : ev * w;
-      const s = SNN.hardwareLIFStep(state, x, { tau, v_threshold: theta });
-      vH.push(state.v); vH.shift();
-      inH.push(x); inH.shift();
-      spH.push(s); spH.shift();
-      t++;
-      els.v.textContent = state.v.toFixed(3);
-      els.fr.textContent = (spH.reduce((a, b) => a + b, 0) / HIST).toFixed(2);
-      els.thint.textContent = SNN.quantizedThresholdInt(theta);
-    }
-
-    function draw() {
-      const { ctx, w, h } = window.Site.setupCanvas(cv, 345);
-      ctx.fillStyle = P().bg; ctx.fillRect(0, 0, w, h);
-      const theta = parseInt(els.theta.value, 10) / 100;
-      const padL = 8, spikeBand = 30, inBand = 26;
-      const plotTop = spikeBand + 12, plotBot = h - inBand - 12;
-      const dx = (w - padL - 8) / HIST;
-      const vmax = Math.max(theta * 1.5, 1.4, ...vH) * 1.04;
-      const Y = v => plotBot - (Math.max(v, 0) / vmax) * (plotBot - plotTop);
-      ctx.font = "12.5px 'JetBrains Mono', monospace";
-      // output band
-      ctx.fillStyle = "#9bb17a"; ctx.textAlign = "left"; ctx.textBaseline = "top";
-      ctx.fillText("output spikes", padL, 2);
-      for (let i = 0; i < HIST; i++) if (spH[i]) {
-        ctx.fillRect(padL + i * dx, 14, Math.max(2, dx * 0.55), 13);
-      }
-      // input band
-      ctx.fillStyle = "#e0a94f";
-      ctx.fillText("input events", padL, h - inBand + 12);
-      for (let i = 0; i < HIST; i++) if (inH[i] > 0) {
-        ctx.globalAlpha = 0.85;
-        ctx.fillRect(padL + i * dx, h - inBand, Math.max(2, dx * 0.55), 12);
-        ctx.globalAlpha = 1;
-      }
-      // threshold
-      ctx.strokeStyle = "#e0a94f"; ctx.setLineDash([5, 4]);
-      ctx.beginPath(); ctx.moveTo(padL, Y(theta)); ctx.lineTo(w - 8, Y(theta)); ctx.stroke();
-      ctx.setLineDash([]);
-      ctx.fillStyle = "#e0a94f"; ctx.textBaseline = "bottom";
-      ctx.fillText("θ = " + theta.toFixed(2), padL + 4, Y(theta) - 2);
-      // membrane
-      ctx.strokeStyle = "#ece7de"; ctx.lineWidth = 2; ctx.beginPath();
-      for (let i = 0; i < HIST; i++) {
-        const x = padL + i * dx, y = Y(vH[i]);
-        i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
-      }
-      ctx.stroke();
-    }
-
-    els.rate.addEventListener("input", () => els.rateOut.textContent = els.rate.value + "%");
-    els.w.addEventListener("input", () => els.wOut.textContent = (els.w.value / 100).toFixed(2));
-    els.tau.addEventListener("input", () => els.tauOut.textContent = TAUS[parseInt(els.tau.value, 10)]);
-    els.theta.addEventListener("input", () => els.thetaOut.textContent = (els.theta.value / 100).toFixed(2));
-    els.pause.addEventListener("click", () => {
-      paused = !paused;
-      els.pause.textContent = paused ? "Resume" : "Pause";
-      els.pause.setAttribute("aria-pressed", String(paused));
-    });
-    document.getElementById("sim-step").addEventListener("click", () => {
-      paused = true; els.pause.textContent = "Resume"; els.pause.setAttribute("aria-pressed", "true");
-      step(true); draw();
-    });
-    function clearHistory() {
-      state.v = 0; t = 0; vH.fill(0); inH.fill(0); spH.fill(0);
-      els.v.textContent = '0.000'; els.fr.textContent = '0'; draw();
-    }
-    document.getElementById("sim-reset").addEventListener("click", clearHistory);
-    cv.closest('.demo').addEventListener('demo:reset', clearHistory);
-    setInterval(step, 70);
-    (function loop() { draw(); requestAnimationFrame(loop); })();
-  })();
-
-  /* ============ 2.3 order comparison ============ */
+  /* ============ F.1 order comparison ============ */
   (function orderCmp() {
     const cv = document.getElementById("ord-canvas");
     if (!cv) return;
@@ -190,7 +81,7 @@
     draw();
   })();
 
-  /* ============ 2.4 integer leak ============ */
+  /* ============ F.2 integer leak ============ */
   (function intLeak() {
     const cv = document.getElementById("il-canvas");
     if (!cv) return;
@@ -221,7 +112,7 @@
     draw();
   })();
 
-  /* ============ 2.5 threshold sigmoid + quantize ============ */
+  /* ============ F.3 threshold sigmoid + quantize ============ */
   (function thres() {
     const cv = document.getElementById("th-canvas");
     if (!cv) return;
@@ -255,34 +146,4 @@
     draw();
   })();
 
-  /* ============ 2.6 surrogate gradient ============ */
-  (function surr() {
-    const cv = document.getElementById("sg-canvas");
-    if (!cv) return;
-    const els = {
-      x: document.getElementById("sg-x"), xOut: document.getElementById("sg-x-out"),
-      fwd: document.getElementById("sg-fwd"), grad: document.getElementById("sg-grad")
-    };
-    function draw() {
-      const xv = parseInt(els.x.value, 10) / 100;
-      const xs = [], step = [], grad = [];
-      for (let x = -2; x <= 2.001; x += 0.02) {
-        xs.push(x);
-        step.push(SNN.heaviside(x));
-        grad.push(SNN.atanSurrogateGrad(x));
-      }
-      const plt = window.Site.linePlot(cv, [
-        { xs, ys: step, color: "#e0a94f", width: 2, label: "forward: real spike (Heaviside)", step: true },
-        { xs, ys: grad, color: "#cf8763", width: 2, label: "backward: ATan surrogate gradient" }
-      ], { height: 295, xlabel: "v − θ (distance from threshold)", ylabel: "", ymin: -0.05, ymax: 1.12 });
-      plt.ctx.fillStyle = "#ece7de";
-      plt.ctx.beginPath(); plt.ctx.arc(plt.X(xv), plt.Y(SNN.atanSurrogateGrad(xv)), 5, 0, Math.PI * 2); plt.ctx.fill();
-      els.xOut.textContent = xv.toFixed(2);
-      els.fwd.textContent = SNN.heaviside(xv);
-      els.grad.textContent = SNN.atanSurrogateGrad(xv).toFixed(3);
-    }
-    els.x.addEventListener("input", draw);
-    window.addEventListener("resize", draw);
-    draw();
-  })();
 })();

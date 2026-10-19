@@ -5,19 +5,19 @@
 
   /* ---------- navigation ---------- */
   const PAGES = [
-    ["index.html", "01", "The problem"],
+    ["index.html", "", "Home"],
     ["basics.html", "A", "Basics"],
     ["data.html", "B", "Data and testing"],
-    ["pipeline.html", "C", "The pipeline"],
+    ["pipeline.html", "C", "Pipeline and search"],
     ["settings.html", "D", "Settings"],
     ["bits.html", "E", "Bit encoding"],
-    ["neurons.html", "02", "The neuron"],
-    ["architecture.html", "03", "The architecture"],
-    ["hardware.html", "04", "Fitting the chip"],
-    ["training.html", "05", "Training"],
-    ["search.html", "06", "The search"],
-    ["results.html", "07", "Results"]
+    ["neurons.html", "F", "The neuron"],
+    ["hardware.html", "G", "Fitting the chip"],
+    ["results.html", "H", "Results"],
+    ["guide.html", "?", "Guide"],
+    ["glossary.html", "Aa", "Glossary"]
   ];
+  // The code reference stays reachable from the home page footer and the guide.
   // The code reference stays reachable from the home page footer, outside the reading path.
 
   function currentPage() {

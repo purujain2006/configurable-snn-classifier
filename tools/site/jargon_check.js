@@ -2,8 +2,8 @@
 // Reading order is the page order in the nav, then position within the page.
 const fs = require('fs'), path = require('path');
 const DOCS = path.join(__dirname, '..', '..', 'docs');
-const ORDER = ['index.html', 'neurons.html', 'architecture.html', 'hardware.html',
-               'training.html', 'search.html', 'results.html', 'reference.html'];
+const ORDER = ['index.html', 'basics.html', 'data.html', 'pipeline.html', 'settings.html',
+               'bits.html', 'neurons.html', 'hardware.html', 'results.html', 'guide.html'];
 
 // term -> the exact markup that constitutes its definition
 const TERMS = [
@@ -21,17 +21,17 @@ const TERMS = [
   ['folding',            'index.html',        'a step called folding'],
   ['bias neuron',        'index.html',        '<em>bias neuron</em>'],
   ['validation',         'index.html',        'A validation set, held back from training'],
-  ['convolutional',      'index.html',        'networks that slide small learned filters'],
-  ['epoch',              'neurons.html',      '(passes through the training data)'],
-  ['surrogate',          'neurons.html',      'class="term">surrogate gradient<'],
-  ['straight-through',   'neurons.html',      '<em>straight-through estimator</em>'],
-  ['global average pool','architecture.html', '<dt>flatten, GAP</dt>'],
-  ['dropout',            'architecture.html', 'dropout (silencing random units during training'],
-  ['overfitting',        'architecture.html', 'overfitting: learning details of the training clips'],
-  ['SynOp',              'architecture.html', 'SynOps (synaptic operations)'],
+  ['convolutional',      'index.html',        'which slide small learned filters'],
+  ['epoch',              'index.html',        'epochs, passes over the training data'],
+  ['surrogate',          'basics.html',       'class="term">surrogate gradient<'],
+  ['straight-through',   'basics.html',       '<em>straight-through estimator</em>'],
+  ['global average pool','basics.html',       'class="term">Global average pooling<'],
+  ['dropout',            'data.html',         'dropout, which silences random units during training'],
+  ['overfitting',        'index.html',        'overfitting, learning the training people rather than the gestures'],
+  ['SynOp',              'basics.html',       'class="term">synaptic operation</span> (SynOp)'],
   ['weight scale',       'hardware.html',     'The weight scale α says'],
-  ['flush',              'training.html',     'called flush steps'],
-  ['hyperparameter',     'search.html',       'class="term">hyperparameter<'],
+  ['flush',              'basics.html',       'class="term">flush steps<'],
+  ['hyperparameter',     'pipeline.html',     '(often called hyperparameters)'],
 ];
 
 // Words that must never appear in prose at all.

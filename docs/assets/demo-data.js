@@ -150,7 +150,7 @@
     const dotsVal = [...Array(29)].map(() => [...Array(12)].map(() => r() < 216 / 1176));
     const NOTE = {
       person: "Whole people are held out. Every validation score asks the question the test set asks: how well does the network handle someone it has never seen?",
-      clip: "Split by clip instead, and every training person lands on both sides. The network can score well on validation by recognising each person's style rather than the gesture, and the validation score stops predicting the test score."
+      clip: "Split by clip instead, and every training person lands on both sides. The network can score well on validation by recognizing each person's style rather than the gesture, and the validation score stops predicting the test score."
     };
     function draw(mode) {
       const s = L.svg(box, 760, 300, "Twenty-nine people split into training, validation and test");

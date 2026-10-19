@@ -11,85 +11,26 @@
 <link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&amp;family=JetBrains+Mono:ital,wght@0,400;0,600;0,700;1,400&amp;display=swap" rel="stylesheet"/>
 <link href="assets/style.css" rel="stylesheet"/>
+<link href="assets/learn.css" rel="stylesheet"/>
 </head>
 <body>
 <header class="hero">
 <div class="hero-inner">
-<p class="kicker">Page 2</p>
-<h1>The neuron</h1>
-<p class="lede">HiAER-Spike runs one kind of neuron, with a fixed update order, a leak that must be a power of two, and a threshold limited to (0, 1]. This page rebuilds that neuron for training, exactly, and explains how a network made of it can still learn.</p>
+<p class="kicker">In depth · F</p>
+<h1>The chip's neuron</h1>
+<p class="lede">HiAER-Spike runs one kind of neuron, with a fixed update order, a leak that must be a power of two, and a threshold limited to (0, 1]. This page shows how training rebuilds that neuron exactly, so the network that trains is the network that runs.</p>
 </div>
 </header>
 <main class="with-toc">
 <div class="wrap">
-<section class="reveal" id="update">
-<h2><span class="sec-num">2.1</span>The update rule</h2>
-<p><a href="basics.html#snn">Page A</a> introduced the leaky integrate-and-fire neuron. This page covers the details that decide whether a trained network behaves the same way on the chip. The neuron stores one number, its membrane potential <code>v</code>, and three constants set its behavior.</p>
-<dl class="kv">
-<dt>τ</dt><dd>The leak. Each step <code>v</code> loses <code>v/τ</code>, rounded down. At τ = 2 half the potential remains after one step; at τ = 16, about 94% remains.</dd>
-<dt>θ</dt><dd>The threshold. The neuron fires when <code>v</code> is strictly greater than θ.</dd>
-<dt>reset value</dt><dd>The value <code>v</code> takes after firing, which is 0 here. Anything above θ is thrown away.</dd>
-</dl>
-<p>The input at each step is one number: the sum of the weights of the incoming connections whose source neuron fired. Weights can be negative, which lowers the potential. The chip performs four operations in a fixed order:</p>
-<ol>
-<li><strong>Fire.</strong> Compare the potential carried in from the previous step against θ. Emit a spike if it is strictly greater.</li>
-<li><strong>Reset.</strong> If the neuron fired, set the potential to 0.</li>
-<li><strong>Leak.</strong> Subtract <code>v/τ</code>, rounded down.</li>
-<li><strong>Integrate.</strong> Add this step's input at full size.</li>
-</ol>
-<p>Because the neuron fires before it integrates, input arriving at step <code>t</code> can cause a spike no earlier than step <code>t+1</code>. A network with five spiking layers answers five steps after the input that caused the answer, which is why every clip ends with a few empty steps (<a href="training.html#flush">section 5.3</a>).</p>
-<div class="demo">
-<div class="demo-head">
-<span class="demo-tag">INTERACTIVE</span>
-<span class="demo-title">The update rule, running</span>
-<span class="demo-sub">The chip's four operations, in the chip's order. Amber marks input events, the pale trace is the membrane potential, and the top band marks output spikes. The firing rate readout counts spikes over the visible window.</span>
-</div>
-<div class="demo-body">
-<div class="controls">
-<div class="ctl">
-<label for="sim-pattern">input pattern</label>
-<select id="sim-pattern">
-<option value="poisson">random</option>
-<option value="regular">regular</option>
-<option value="burst">bursts and silence</option>
-<option value="step">constant drive</option>
-</select>
-</div>
-<div class="ctl">
-<label for="sim-rate">input rate <output id="sim-rate-out">30%</output></label>
-<input id="sim-rate" max="90" min="5" type="range" value="30"/>
-</div>
-<div class="ctl">
-<label for="sim-w">weight w <output id="sim-w-out">0.40</output></label>
-<input id="sim-w" max="120" min="5" type="range" value="40"/>
-</div>
-<div class="ctl">
-<label for="sim-tau">leak τ <output id="sim-tau-out">4</output></label>
-<input id="sim-tau" max="7" min="0" step="1" type="range" value="2"/>
-</div>
-<div class="ctl">
-<label for="sim-theta">threshold θ <output id="sim-theta-out">1.00</output></label>
-<input id="sim-theta" max="100" min="10" type="range" value="100"/>
-</div>
-<button class="btn" id="sim-pause">Pause</button>
-<button class="btn" id="sim-step" type="button">Advance one timestep</button><button class="btn" id="sim-reset" type="button">Clear history</button></div>
-<canvas height="300" id="sim-canvas"></canvas>
-<div class="stats">
-<div class="stat"><div class="k">membrane v</div><div class="val acc" id="sim-v">0.000</div></div>
-<div class="stat"><div class="k">output firing rate</div><div class="val" id="sim-fr">0.00</div><div class="sub">spikes per timestep</div></div>
-<div class="stat"><div class="k">θ as stored on chip</div><div class="val" id="sim-thint">32767</div><div class="sub">int(θ × 32767)</div></div>
-</div>
-</div>
-<div class="demo-note">
-      The threshold slider stops at 1.00 because the chip stores θ as a 16-bit integer, and
-      1.0 maps to the largest value that field holds. Section 2.4 covers how training keeps a
-      learned threshold inside that range.
-    </div>
-</div>
-<details class="technical-details"><summary>Work through three steps by hand</summary><div class="detail-body"><p>Start at <code>v</code> = 0 with τ = 4, θ = 1, and an input of 0.6 on every step.</p><ol><li>Step 1: 0 is below θ, so no spike. The leak leaves 0, and the input raises <code>v</code> to 0.6.</li><li>Step 2: 0.6 is below θ. The leak removes 0.6 / 4 = 0.15, and the input raises <code>v</code> to 1.05.</li><li>Step 3: 1.05 is above θ, so the neuron fires and resets to 0. The input raises <code>v</code> to 0.6 again.</li></ol><p>The spike comes one step after the potential first passed 1. Each layer of a network adds one such step.</p></div></details>
+<div class="prereq"><span class="pq-k">Before this page</span><ul><li><a href="basics.html#snn">A.5 Spiking neurons</a>: fire, reset, leak, integrate.</li><li><a href="basics.html#surrogate">A.10 Training through a spike</a>: the surrogate gradient.</li><li><a href="index.html#rules">Home: the chip's rules</a>: every number on the chip is a 16-bit integer.</li></ul></div>
+
+<section class="reveal" id="intro">
+<h2><span class="sec-num">F.1</span>Why the neuron needs its own page</h2>
+<p><a href="basics.html#snn">Page A</a> introduced the leaky integrate-and-fire neuron and the order the chip runs it in: fire, reset, leak, integrate. A trained network only works on the chip if training uses that exact neuron, down to the rounding. This page covers the three places where the usual training tools and the chip disagree: the order of the four steps, the leak, and the range of the threshold.</p>
 </section>
 <section class="reveal" id="order">
-<h2><span class="sec-num">2.2</span>Matching the chip's update order</h2>
+<h2><span class="sec-num">F.2</span>Matching the chip's update order</h2>
 <p>The training code is built on SpikingJelly, a PyTorch library for spiking networks. Its LIF neuron differs from the chip's in two ways. It adds the input before testing the threshold, so a spike can come in the same step as the input that caused it. It also shrinks the input by the leak, computing <code>v += (x − v)/τ</code>, so at τ = 4 the neuron receives a quarter of each input.</p>
 <p>A network trained with the library neuron and then run on the chip would see different spike timing and a different input scale in every layer, and the error grows with depth. That motivates a training neuron that runs the chip's order exactly: fire, reset, leak, integrate, with the input added at full size, the strict comparison against θ, and the leak rounded down on the chip's integer grid. It is the only neuron the tool builds, so the network that trains and the network that deploys follow the same rule, spike for spike.</p>
 <p>The demo drives both neurons with the same input. Compare where each one spikes.</p>
@@ -121,10 +62,10 @@
 </div>
 </section>
 <section class="reveal" id="leak">
-<h2><span class="sec-num">2.3</span>The leak is a shift</h2>
+<h2><span class="sec-num">F.3</span>The leak is a shift</h2>
 <p>The chip stores the leak as a shift amount <code>k</code> and subtracts <code>v &gt;&gt; k</code> each step, which equals <code>v / 2<sup>k</sup></code> rounded down. So τ can only be a power of two: 2, 4, 8, 16 and so on. A network trained with τ = 3 has nothing on the chip to run it with.</p>
-<p>Letting training learn τ is still useful, which motivates learning <code>log2(τ)</code> and rounding it during training. The forward pass always uses a power of two, and the gradient still reaches the parameter through the technique in section 2.5. A search samples the starting τ from {2, 4, 8, 16}, and whether τ stays fixed, is learned once per layer, or is learned separately for each channel. The chip stores settings for every neuron, so a different τ in each channel costs nothing to deploy.</p>
-<p>The rounding down also matters. When the potential is smaller than 2<sup>k</sup> in the chip's integer units, the leak rounds to zero and the potential does not decay at all. Training rounds the leak the same way. Behind an average pool the potential moves in finer steps (<a href="hardware.html#limits">section 4.1</a>), and there the leak rounds down on that finer grid, as the chip does.</p>
+<p>Letting training learn τ is still useful, which motivates learning <code>log2(τ)</code> and rounding it during training. The forward pass always uses a power of two, and the gradient still reaches the parameter through a surrogate, the trick <a href="basics.html#surrogate">page A</a> uses for spikes. A search samples the starting τ from {2, 4, 8, 16}, and whether τ stays fixed, is learned once per layer, or is learned separately for each channel. The chip stores settings for every neuron, so a different τ in each channel costs nothing to deploy.</p>
+<p>The rounding down also matters. When the potential is smaller than 2<sup>k</sup> in the chip's integer units, the leak rounds to zero and the potential does not decay at all. Training rounds the leak the same way. Behind an average pool the potential moves in finer steps (<a href="hardware.html#limits">page G</a>), and there the leak rounds down on that finer grid, as the chip does.</p>
 <div class="demo">
 <div class="demo-head">
 <span class="demo-tag">INTERACTIVE</span>
@@ -149,11 +90,12 @@
 <details class="technical-details"><summary>Why weight decay leaves τ alone</summary><div class="detail-body">
 <p>Weight decay is a training penalty that pulls every parameter it applies to toward zero. Applied to τ, it shrinks the leak constant along with the weights, so the strength of weight decay ends up deciding how fast the neurons forget. In three otherwise identical runs of 300 epochs (passes through the training data) that started at τ = 8, τ ended near 5.5, 3 and 0 as weight decay rose from 0.0001 to 0.01. That motivates applying weight decay only to connection weights, so τ moves only when moving it helps the network.</p>
 </div></details>
+<aside class="aka" data-viz="net" data-hl="tau"><div class="aka-head"><span class="aka-k">In the search records</span><button class="aka-name" data-hl="tau" type="button">tau</button><button class="aka-name" data-hl="tau_mode" type="button">tau_mode</button><button class="aka-name" data-hl="deployed_tau" type="button">deployed_tau</button></div><p><b><code>tau</code> = 4</b> is the starting leak and <b><code>tau_mode</code> = fixed</b> keeps it there. With <code>layer</code> or <code>channel</code>, training learns it, always as a power of two. <b><code>deployed_tau</code> = 4,4,4,4,4</b> is what each spiking layer actually runs with on the chip, so it is where a learned τ shows up.</p><div class="aka-viz"></div></aside>
 </section>
 <section class="reveal" id="threshold">
-<h2><span class="sec-num">2.4</span>Keeping the threshold in range</h2>
+<h2><span class="sec-num">F.4</span>Keeping the threshold in range</h2>
 <p>The chip stores θ on the same integer grid as the weights, as a whole number from 1 to 32,767, so θ must lie in (0, 1]. A larger θ cannot be stored, and a θ of zero or below makes the neuron fire on every step.</p>
-<p>A threshold that training learns freely can wander out of that range, which motivates writing θ = sigmoid(raw), where raw is the number the optimizer actually updates. A sigmoid always returns a value between 0 and 1, so no update can push θ out. The result is then rounded to the grid. Folding batch normalization can still shift θ later (<a href="hardware.html#folding">section 4.3</a>), so the deployment check reads the folded value directly.</p>
+<p>A threshold that training learns freely can wander out of that range, which motivates writing θ = sigmoid(raw), where raw is the number the optimizer actually updates. A sigmoid always returns a value between 0 and 1, so no update can push θ out. The result is then rounded to the grid. Folding batch normalization can still shift θ later (<a href="hardware.html#folding">page G</a>), so the deployment check reads the folded value directly.</p>
 <div class="demo">
 <div class="demo-head">
 <span class="demo-tag">INTERACTIVE</span>
@@ -175,43 +117,14 @@
 </div>
 </div>
 </div>
-</section>
-<section class="reveal" id="surrogate">
-<h2><span class="sec-num">2.5</span>Training through a spike</h2>
-<p>A spike is a step: 0 below θ and 1 above, so its slope is zero everywhere except at θ, where it is undefined. Backpropagation multiplies slopes together layer by layer, so no gradient would reach any weight below a spiking layer (<a href="basics.html#surrogate">page A</a> draws the problem).</p>
-<p>The forward pass has to keep the real step, because that is what the chip computes, which motivates changing only the backward pass. It uses the slope of a smooth curve shaped like the step, here an arctangent. A neuron that came close to firing gets a large gradient, and one far from θ gets almost none. This is called a <span class="term">surrogate gradient</span>. The same idea, passing a gradient through a rounding step as if it were not there, is the <em>straight-through estimator</em> that <a href="hardware.html#ste">section 4.4</a> uses for weights.</p>
-<div class="demo">
-<div class="demo-head">
-<span class="demo-tag">INTERACTIVE</span>
-<span class="demo-title">Forward step against backward gradient</span>
-<span class="demo-sub">The horizontal axis is the distance from the threshold. The amber step is what the neuron computes. The terracotta curve is the gradient backpropagation receives instead.</span>
-</div>
-<div class="demo-body">
-<div class="controls">
-<div class="ctl" style="flex:1;min-width:230px;">
-<label for="sg-x">distance from threshold <output id="sg-x-out">0.00</output></label>
-<input id="sg-x" max="200" min="-200" type="range" value="0"/>
-</div>
-</div>
-<canvas height="250" id="sg-canvas"></canvas>
-<div class="stats">
-<div class="stat"><div class="k">forward output</div><div class="val" id="sg-fwd">1</div></div>
-<div class="stat"><div class="k">backward gradient</div><div class="val acc" id="sg-grad">1.000</div></div>
-</div>
-</div>
-<div class="demo-note">
-      Neurons close to their threshold receive most of the gradient, which matches the intuition
-      that a small weight change there would have altered the spike.
-    </div>
-</div>
-<p>Rounding the leak down has the same problem as the spike: its slope is zero wherever it is defined. Training passes the gradient of the unrounded leak through it with the straight-through estimator, so the forward pass stays exact and learning still works.</p>
+<aside class="aka" data-viz="net" data-hl="trainable_threshold"><div class="aka-head"><span class="aka-k">In the search records</span><button class="aka-name" data-hl="trainable_threshold" type="button">trainable_threshold</button></div><p><b><code>trainable_threshold</code> = False</b> in the example network: θ stays at its starting value. When it is True, θ is learned through the sigmoid above, one value per layer.</p><div class="aka-viz"></div></aside>
 </section>
 </div>
 <aside class="toc"></aside>
 </main>
 <nav class="foot-nav">
 <a class="prev" href="bits.html"><span class="dir">Previous</span><span class="pg">E · Bit encoding</span></a>
-<a class="next" href="architecture.html"><span class="dir">Next</span><span class="pg">03 · The architecture</span></a>
+<a class="next" href="hardware.html"><span class="dir">Next</span><span class="pg">G · Fitting the chip</span></a>
 </nav>
 <footer class="site-foot">
 <span>Documentation for <a href="https://github.com/purujain2006/configurable-snn-classifier">configurable-snn-classifier</a></span>
@@ -219,6 +132,10 @@
 </footer>
 <script src="assets/snn.js?v=16000"></script>
 <script src="assets/site.js"></script>
+<script src="assets/learn.js"></script>
 <script src="assets/demo-neurons.js"></script>
+<script src="assets/aka.js"></script>
+<script src="assets/glossary-data.js"></script>
+<script src="assets/gloss.js"></script>
 </body>
 </html>

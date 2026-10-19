@@ -199,27 +199,6 @@
     update();
   })();
 
-  /* ---------- 4.5 QAT epoch split ---------- */
-  (function qatSplit() {
-    if (!$("qt-ep")) return;
-    function update() {
-      const epochs = +$("qt-ep").value;
-      const frac = (+$("qt-fr").value) / 100;
-      // the same warm-up formula training uses
-      let warmup = Math.max(1, Math.round(epochs * frac));
-      warmup = epochs > 1 ? Math.min(warmup, epochs - 1) : 1;
-      const grid = epochs - warmup;
-      $("qt-ep-out").textContent = epochs;
-      $("qt-fr-out").textContent = frac.toFixed(2);
-      const wp = warmup / epochs * 100, gp = grid / epochs * 100;
-      $("qt-bar").innerHTML =
-        `<div style="width:${wp}%;background:#ece7de;display:grid;place-items:center;color:#050505;font-weight:700;min-width:52px;">float ×${warmup}</div>` +
-        `<div style="width:${gp}%;background:#cf8763;display:grid;place-items:center;color:#050505;font-weight:700;min-width:52px;">on-grid ×${grid}</div>`;
-    }
-    ["qt-ep", "qt-fr"].forEach(id => $(id).addEventListener("input", update));
-    update();
-  })();
-
   /* ---------- 4.3 bias into input vs theta - b' ---------- */
   (function foldBiasForm() {
     if (!$("fx-canvas")) return;
