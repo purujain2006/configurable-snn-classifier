@@ -264,6 +264,18 @@ the finished medians. Validation sets are small: with about 200 clips, a score
 moves by roughly 3 points by chance, so treat smaller gaps as ties. For a
 clean answer about one option, use the option study.
 
+Accuracy per person and per lighting, for checkpoints `single` wrote:
+
+```
+python tools/analysis/per_subject.py -c configs/dvs128_search05.yaml results/search05_top5/rank1 results/search05_top5/rank2
+```
+
+Validation and test are different people, so a run can score higher on test
+than on validation when the validation people are harder to read. This shows
+it person by person, one column per checkpoint, and checks that its overall
+scores equal the ones in each `single.json`. A person has about 50 clips, so a
+pattern every checkpoint shares means more than one number.
+
 ## 8. Option study
 
 ```
@@ -500,6 +512,7 @@ python tests/test_study.py
 python tests/test_input_pipeline.py
 python tests/test_frame_cache.py
 python tests/test_synops.py
+python tests/test_per_subject.py
 python tests/test_docs.py
 python tests/smoke_test.py
 ```
