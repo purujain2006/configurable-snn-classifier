@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Why this project exists</title>
+<meta content="The chain of problems and ideas behind the project: why neural networks cost so much energy, why brains do not, what neuromorphic chips and spiking networks change, and what each change costs." name="description"/>
+<link href="data:image/svg+xml,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'&gt;&lt;rect width='32' height='32' fill='%23000'/&gt;&lt;path d='M3 22h5l3-13 4 19 3-11h4l2 5h5' fill='none' stroke='%23e0a94f' stroke-width='2.4' stroke-linejoin='round'/&gt;&lt;/svg&gt;" rel="icon"/>
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&amp;family=JetBrains+Mono:ital,wght@0,400;0,600;0,700;1,400&amp;display=swap" rel="stylesheet"/>
+<link href="assets/style.css" rel="stylesheet"/>
+<link href="assets/learn.css" rel="stylesheet"/>
+</head>
+<body>
+<header class="hero">
+<div class="hero-inner">
+<p class="kicker">Start here · 0</p>
+<h1>Why this project exists</h1>
+<p class="lede">Every part of this project answers a problem, and most answers created the next problem. This page tells that story from the beginning, with no background assumed: why neural networks cost so much energy, why a brain does not, what a chip built like a brain changes, and what each change costs.</p>
+</div>
+</header>
+<main class="with-toc">
+<div class="wrap">
+
+<section class="reveal" id="chain">
+<h2><span class="sec-num">0.1</span>The story in one picture</h2>
+<p>Read it top to bottom. Each step is a problem, the idea that answered it, and the new problem that idea raised. Each row links to the section below that explains it.</p>
+<ol class="chain">
+<li><a href="#networks"><span class="ch-p">Problem</span> Some tasks, like recognizing a gesture, have no rules anyone could write down. <span class="ch-i">Idea</span> Neural networks, which learn from examples.</a></li>
+<li><a href="#bottleneck"><span class="ch-p">Problem</span> Running them costs a lot of energy, mostly spent moving numbers between memory and processor. <span class="ch-i">Idea</span> Look at how brains avoid that.</a></li>
+<li><a href="#brain"><span class="ch-p">Problem</span> Brains keep memory where the computing happens, and neurons only talk when they have something to say. <span class="ch-i">Idea</span> Build chips the same way: neuromorphic computers such as HiAER-Spike.</a></li>
+<li><a href="#snn"><span class="ch-p">Problem</span> Such a chip only runs networks whose neurons talk in spikes. <span class="ch-i">Idea</span> Spiking neural networks.</a></li>
+<li><a href="#accuracy"><span class="ch-p">Problem</span> Spiking networks round every number and cannot be trained the usual way, so they lose accuracy. <span class="ch-i">Idea</span> Surrogate gradients, and training with spikes from the start.</a></li>
+<li><a href="#rules"><span class="ch-p">Problem</span> A real chip has fixed limits: connection tables, 16-bit numbers, a cheap leak. Networks trained the usual way break them. <span class="ch-i">Idea</span> Train with the chip's own rules, and check every result on an exact simulator of the chip.</a></li>
+<li><a href="#search"><span class="ch-p">Problem</span> A network has about thirty settings and trillions of combinations, and no rule says which will fit and score well. <span class="ch-i">Idea</span> An automated search.</a></li>
+<li><a href="#honest"><span class="ch-p">Problem</span> A search can fool itself with lucky or memorized results. <span class="ch-i">Idea</span> Held-out people, a test set used once, and retraining the finalists.</a></li>
+<li><a href="#now"><span class="ch-p">Where it stands</span> Networks that fit the chip now beat the published result. Overfitting, and how much work the networks do, are the open problems.</a></li>
+</ol>
+</section>
+
+<section class="reveal" id="networks">
+<h2><span class="sec-num">0.2</span>Computers that learn from examples</h2>
+<p>An ordinary program is a list of rules a person wrote. That works for adding up a bill, and fails for recognizing a hand wave: nobody can write down which pixels make a wave, because every person, angle and lighting gives different pixels. A <strong>neural network</strong> takes the other route. It is a large calculation with millions of adjustable numbers, called weights, and it is shown thousands of labeled examples. After each example its weights are nudged so its answer gets a little closer to the right one, until the network gets most examples right on its own. That nudging is called <strong>training</strong>.</p>
+<p>The calculation itself is simple and repetitive: multiply each input by a weight, add the results, pass the sum on to the next layer, and repeat. A network that recognizes gestures does tens of millions of these multiply-and-add steps for every clip it looks at. <a href="basics.html">Page A</a> builds one up from a single neuron.</p>
+<div class="callout"><span class="callout-title">The new problem</span><p>Tens of millions of operations per answer, for every answer, adds up to a lot of energy. The largest data centers that run neural networks draw as much power as a small town, and a battery-powered sensor cannot run a large network for long.</p></div>
+</section>
+
+<section class="reveal" id="bottleneck">
+<h2><span class="sec-num">0.3</span>Where the energy goes: the von Neumann bottleneck</h2>
+<p>Almost every computer, from a phone to a graphics card, follows a design described by John von Neumann in 1945: <strong>memory</strong> holds the numbers, a separate <strong>processor</strong> does the arithmetic, and a connection between them, the bus, carries every number back and forth. For a neural network, the weights live in memory, so every multiply first needs its weight fetched across that connection.</p>
+<p>The surprise is how the cost splits. Doing the multiplication is cheap. Fetching the number is not: reading one 32-bit number from main memory takes roughly 170 times the energy of multiplying two 32-bit numbers. Most of a network's energy therefore goes into moving weights around. This limit is called the <strong>von Neumann bottleneck</strong>, after a 1977 lecture by John Backus that named it.</p>
+<div class="demo" id="demo-vn">
+<div class="demo-head">
+<span class="demo-tag">ANIMATION</span>
+<span class="demo-title">One neuron's worth of work on an ordinary computer</span>
+<span class="demo-sub">Each weight travels from memory to the processor before it can be used. The meters add up the energy spent moving numbers and the energy spent multiplying and adding them.</span>
+</div>
+<div class="demo-body">
+<div class="lv lv-scroll" id="vn-vis"></div>
+<div class="play-row"><button class="btn primary" id="vn-play" type="button">Play</button><button class="btn" id="vn-restart" type="button">Restart</button><span class="readout" id="vn-readout"></span></div>
+</div>
+<div class="demo-note"><p>Each packet is one weight. Moving it from main memory costs about 640 picojoules (a picojoule is a millionth of a millionth of a joule); multiplying and adding it costs about 4.6. After a few weights the "moving" meter dwarfs the "computing" one, whatever the network does with the numbers.</p></div>
+</div>
+<figure class="figure"><div class="figure-scroll lv" id="energy-vis"></div><figcaption>Energy per operation in a typical chip process, on a log scale: each gridline is ten times the one before. Figures from Mark Horowitz's survey of computing energy (ISSCC 2014, 45 nm). Reading from main memory (DRAM) dwarfs everything else; even a small on-chip memory (SRAM) next to the arithmetic is about a hundred times cheaper.</figcaption></figure>
+<div class="callout"><span class="callout-title">The new problem</span><p>Faster processors do not fix this, because the cost is in the trip, not the arithmetic. Fixing it means changing where the numbers live.</p></div>
+</section>
+
+<section class="reveal" id="brain">
+<h2><span class="sec-num">0.4</span>How a brain avoids it, and chips that copy the brain</h2>
+<p>A brain has about 86 billion neurons and runs on roughly 20 watts. Two habits make that possible.</p>
+<ul>
+<li><strong>Memory sits where the computing happens.</strong> A brain's "weights" are the strengths of its synapses, the junctions between neurons, and they are part of the neurons that use them. Nothing is fetched from a distant memory.</li>
+<li><strong>Neurons only talk when they have something to say.</strong> A neuron sends a brief electrical pulse, a spike, only when its input pushes it past a threshold. Most neurons are silent most of the time, and a silent neuron costs almost nothing.</li>
+</ul>
+<p>A <strong>neuromorphic</strong> computer is a chip built on the same two habits. Its memory is split into many small pieces, each sitting next to the circuits that use it, and it does work only when a spike arrives. <strong>HiAER-Spike</strong> is one, built at UC San Diego. Its name stands for Hierarchical Address-Event Routing: when a neuron fires, the chip sends a tiny message holding only that neuron's address, and a hierarchy of routers delivers it to every neuron it connects to, which then add that connection's weight to their own running total. It runs on FPGAs, chips whose circuits can be rewired after they are made, which lets a new design run today without the years and cost of manufacturing a custom chip.</p>
+<figure class="figure"><div class="figure-scroll lv" id="arch-vis"></div><figcaption>Left: an ordinary computer, where every weight crosses the bus for every use. Right: a neuromorphic chip, where each core keeps its own neurons and their connections, and only spikes travel, as short address messages.</figcaption></figure>
+<div class="callout"><span class="callout-title">The new problem</span><p>A chip like this only runs one kind of network: one whose neurons communicate in spikes. The networks that power today's software pass exact numbers between neurons on every step, so they cannot run on it as they are.</p></div>
+</section>
+
+<section class="reveal" id="snn">
+<h2><span class="sec-num">0.5</span>Spiking neural networks</h2>
+<p>A <strong>spiking neural network</strong> is a neural network rebuilt around spikes. Each neuron keeps a running total of its input, called its membrane potential. When the total passes a threshold, the neuron sends a spike and starts again; between inputs, the total slowly leaks away, so old input fades. The network runs in small time steps, and its answer is read from which output neuron fired most.</p>
+<p>Because a spike either happens or does not, a connection only does work in the steps when its neuron fires. A layer where few neurons fire does little work, which is the source of the energy saving. <a href="basics.html#snn">Page A</a> shows this neuron working, and <a href="basics.html#work">A.9</a> counts the work it saves.</p>
+<div class="callout"><span class="callout-title">The new problem</span><p>Spikes are a coarse language. A number like 0.37 has to be spread out as a spike on about 37% of the steps, so every answer is rounded, and the rounding compounds through the layers. Worse, the usual training method needs the slope of every step of the calculation, and a spike, which jumps from 0 to 1, has no useful slope. For years spiking networks lagged well behind ordinary ones in accuracy.</p></div>
+</section>
+
+<section class="reveal" id="accuracy">
+<h2><span class="sec-num">0.6</span>Getting accuracy back</h2>
+<p>Two ideas closed much of that gap. The first is the <strong>surrogate gradient</strong>, which became the standard method around 2018 and 2019: during training, the spike's missing slope is replaced by the slope of a smooth curve shaped like it, while the network itself still fires real spikes. That lets spiking networks learn with the same method ordinary networks use (<a href="basics.html#surrogate">A.10</a>). The second is to train the network as a spiking network from the very beginning, instead of training an ordinary network and converting it, so its weights grow used to the rounding (<a href="basics.html#binarize">A.8</a>).</p>
+<div class="callout"><span class="callout-title">The new problem</span><p>A network trained this way still assumes ideal arithmetic: any number of connections per neuron, numbers with many decimal places, any leak. A real chip offers none of that.</p></div>
+</section>
+
+<section class="reveal" id="rules">
+<h2><span class="sec-num">0.7</span>The chip's rules, and why they exist</h2>
+<p>Every limit on HiAER-Spike buys something: smaller circuits, more neurons per chip, or less energy per spike.</p>
+<dl class="kv">
+<dt>connection tables</dt><dd>Each neuron's incoming connections live in a table of fixed size in the chip's memory, which keeps every lookup fast and the circuit simple. So a neuron can receive at most 8,159 connections, its <em>fan-in</em> (<a href="hardware.html#limits">G.3</a>).</dd>
+<dt>16-bit whole numbers</dt><dd>The chip stores one weight per connection, billions of them, so each is a 16-bit whole number instead of a longer decimal one. That halves the memory of the 32-bit numbers networks usually train with and keeps the adders small, at the cost of rounding every weight (<a href="hardware.html#int16">G.4</a>).</dd>
+<dt>a leak by halving</dt><dd>Dividing by a power of two is a bit shift, nearly free in hardware, while general division is costly. So the leak can only be τ = 2, 4, 8, 16 and so on (<a href="neurons.html#leak">F.3</a>).</dd>
+<dt>no normalization step</dt><dd>Batch normalization, a training aid that rescales each layer, would need extra arithmetic on every step. After training it is just a fixed scale and shift, so it can be merged into the weights and thresholds instead (<a href="hardware.html#folding">G.5</a>).</dd>
+<dt>16,000 input lines</dt><dd>Input arrives from outside on a fixed number of lines, called axons, so camera frames have to be shrunk to fit (<a href="data.html#frames">B.2</a>).</dd>
+</dl>
+<p>A network trained the usual way breaks these rules, and converting it afterwards loses accuracy or does not fit at all. This project's answer is to train with the chip's rules built in: the chip's exact neuron, integer weights, a power-of-two leak, and a check of every network's size before it is trained. When training ends, the network is <strong>exported</strong>, written out in the chip's own format of neuron tables and integer weights, and then run on a <strong>simulator</strong>: a program that computes exactly what the chip would, spike for spike. The simulator is used because it gives the chip's answers on any computer, quickly and repeatably, and because the current build of the physical chip still mishandles the leak of negative potentials.</p>
+<div class="callout"><span class="callout-title">The new problem</span><p>Now there are many choices, and each one changes both accuracy and whether the network fits: how many layers, how wide, how each layer shrinks the picture, how the neurons leak, how training runs. About thirty in all.</p></div>
+</section>
+
+<section class="reveal" id="search">
+<h2><span class="sec-num">0.8</span>Too many choices: the search</h2>
+<p>The numbers a network learns during training are its weights. The choices made before training, which training cannot change, are called <strong>hyperparameters</strong> (often called settings on this site): the number of layers, the width of each layer, the learning rate and so on. Thirty of them give trillions of combinations, each takes 15 to 25 minutes to train, and they interact, so no rule of thumb picks a good set.</p>
+<p>A <strong>hyperparameter search</strong> tries combinations automatically. Each attempt is a <strong>trial</strong>: build the network, check it fits the chip, train it, export it, score it on the simulator. This search starts with a balanced set of trials that tests every option fairly, then uses what scored well to choose what to try next, and stops trials that are clearly losing so the computer's time goes to promising ones. <a href="pipeline.html">Page C</a> follows a trial through every stage and then the search as a whole.</p>
+<div class="callout"><span class="callout-title">The new problem</span><p>Out of hundreds of trials, the best score is partly luck, and a network can score well by memorizing the examples it trained on rather than learning the gesture.</p></div>
+</section>
+
+<section class="reveal" id="honest">
+<h2><span class="sec-num">0.9</span>Measuring honestly</h2>
+<p>The data is split three ways. The network trains on one part. Trials are compared on a second part, the <strong>validation set</strong>, held back from training, so memorizing does not help. The third part, the <strong>test set</strong>, is used once at the end, because a set that is used again and again to choose ends up flattering the choice. Both held-back sets come from people the network never trained on, since the real question is whether it recognizes gestures from strangers. And the best few configurations are trained again with fresh random starts before a winner is named, to separate good settings from good luck. <a href="data.html#split">Page B</a> covers the split and how much one score can move by chance.</p>
+</section>
+
+<section class="reveal" id="now">
+<h2><span class="sec-num">0.10</span>Where the story stands</h2>
+<p>On the gesture task, the best network chosen this way recognizes 85.4% of the test clips on the chip simulator, against 68.75% in the HiAER-Spike paper, and it fits every limit of the chip. So obeying the chip's rules has not cost accuracy.</p>
+<p>Two problems are open, and they close the loop back to the start of this page. The networks memorize: they get 98 to 100% of their training clips right and about 80% of new people's. And the accurate networks do more work than a conventional network of the same shape, because they use long clips and busy neurons, so the energy saving that motivated all of this is not yet realized. <a href="results.html">Page H</a> has the numbers and the next experiments.</p>
+<div class="recap"><strong>In short</strong><p>Neural networks spend most of their energy moving numbers between memory and processor. Brains avoid that by keeping memory with the neurons and sending spikes only when needed, and neuromorphic chips such as HiAER-Spike copy them. Running on such a chip requires spiking networks, which lose accuracy and are hard to train; surrogate gradients and training with spikes from the start recover much of it. The chip's limits require training with its own rules and checking on an exact simulator, the many choices require an automated search, and honest measurement requires held-out people and a test set used once.</p></div>
+</section>
+
+</div>
+<aside class="toc"></aside>
+</main>
+<nav class="foot-nav">
+<a class="prev" href="index.html"><span class="dir">Previous</span><span class="pg">Home</span></a>
+<a class="next" href="basics.html"><span class="dir">Next</span><span class="pg">A · Neural networks</span></a>
+</nav>
+<footer class="site-foot">
+<span>Documentation for <a href="https://github.com/purujain2006/configurable-snn-classifier">configurable-snn-classifier</a></span>
+</footer>
+<script src="assets/site.js"></script>
+<script src="assets/learn.js"></script>
+<script src="assets/demo-why.js"></script>
+<script src="assets/glossary-data.js"></script>
+<script src="assets/gloss.js"></script>
+</body>
+</html>

@@ -6,6 +6,7 @@
   /* ---------- navigation ---------- */
   const PAGES = [
     ["index.html", "", "Home"],
+    ["why.html", "0", "Why"],
     ["basics.html", "A", "Basics"],
     ["data.html", "B", "Data and testing"],
     ["pipeline.html", "C", "Pipeline and search"],

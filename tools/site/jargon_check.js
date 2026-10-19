@@ -2,7 +2,7 @@
 // Reading order is the page order in the nav, then position within the page.
 const fs = require('fs'), path = require('path');
 const DOCS = path.join(__dirname, '..', '..', 'docs');
-const ORDER = ['index.html', 'basics.html', 'data.html', 'pipeline.html', 'settings.html',
+const ORDER = ['index.html', 'why.html', 'basics.html', 'data.html', 'pipeline.html', 'settings.html',
                'bits.html', 'neurons.html', 'hardware.html', 'results.html', 'guide.html'];
 
 // term -> the exact markup that constitutes its definition
@@ -31,7 +31,7 @@ const TERMS = [
   ['SynOp',              'basics.html',       'class="term">synaptic operation</span> (SynOp)'],
   ['weight scale',       'hardware.html',     'The weight scale α says'],
   ['flush',              'basics.html',       'class="term">flush steps<'],
-  ['hyperparameter',     'pipeline.html',     '(often called hyperparameters)'],
+  ['hyperparameter',     'why.html',          '(often called settings on this site)'],
 ];
 
 // Words that must never appear in prose at all.
