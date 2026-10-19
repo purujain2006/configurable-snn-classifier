@@ -282,23 +282,23 @@
 <p>Everything above is running on the gesture task now: one search of 400 trials on one GPU, two trials at a time, each trained for up to 80 epochs, with T chosen from 16, 24, 32 and 48 frames. This section is a snapshot taken on October 18, 2026, when 163 trials had finished. Pages D and E report what its first 96 trials showed about each setting, and <a href="results.html">page H</a> collects the best networks.</p>
 <div class="stats"><div class="stat"><div class="k">Trials finished</div><div class="val">163 of 400</div></div><div class="stat"><div class="k">Rejected by the chip check</div><div class="val">28</div></div><div class="stat"><div class="k">Stopped at epoch 30</div><div class="val">5</div></div><div class="stat"><div class="k">Best validation score</div><div class="val acc">0.745</div></div></div>
 <figure class="figure"><div class="figure-scroll lv"><svg viewBox="0 0 840 300" role="img" aria-label="Validation accuracy of every trained network in the search so far">
-<line x1="60.0" x2="60.0" y1="20" y2="262" stroke="rgba(255,255,255,0.075)"/>
+<line x1="60.0" x2="60.0" y1="20" y2="130" stroke="rgba(255,255,255,0.075)"/><line x1="60.0" x2="60.0" y1="152" y2="238" stroke="rgba(255,255,255,0.075)"/>
 <text x="60.0" y="280" class="lt-ms mid">0%</text>
-<line x1="153.8" x2="153.8" y1="20" y2="262" stroke="rgba(255,255,255,0.075)"/>
+<line x1="153.8" x2="153.8" y1="20" y2="130" stroke="rgba(255,255,255,0.075)"/><line x1="153.8" x2="153.8" y1="152" y2="238" stroke="rgba(255,255,255,0.075)"/>
 <text x="153.8" y="280" class="lt-ms mid">10%</text>
-<line x1="247.5" x2="247.5" y1="20" y2="262" stroke="rgba(255,255,255,0.075)"/>
+<line x1="247.5" x2="247.5" y1="20" y2="130" stroke="rgba(255,255,255,0.075)"/><line x1="247.5" x2="247.5" y1="152" y2="238" stroke="rgba(255,255,255,0.075)"/>
 <text x="247.5" y="280" class="lt-ms mid">20%</text>
-<line x1="341.2" x2="341.2" y1="20" y2="262" stroke="rgba(255,255,255,0.075)"/>
+<line x1="341.2" x2="341.2" y1="20" y2="130" stroke="rgba(255,255,255,0.075)"/><line x1="341.2" x2="341.2" y1="152" y2="238" stroke="rgba(255,255,255,0.075)"/>
 <text x="341.2" y="280" class="lt-ms mid">30%</text>
-<line x1="435.0" x2="435.0" y1="20" y2="262" stroke="rgba(255,255,255,0.075)"/>
+<line x1="435.0" x2="435.0" y1="20" y2="130" stroke="rgba(255,255,255,0.075)"/><line x1="435.0" x2="435.0" y1="152" y2="238" stroke="rgba(255,255,255,0.075)"/>
 <text x="435.0" y="280" class="lt-ms mid">40%</text>
-<line x1="528.8" x2="528.8" y1="20" y2="262" stroke="rgba(255,255,255,0.075)"/>
+<line x1="528.8" x2="528.8" y1="20" y2="130" stroke="rgba(255,255,255,0.075)"/><line x1="528.8" x2="528.8" y1="152" y2="238" stroke="rgba(255,255,255,0.075)"/>
 <text x="528.8" y="280" class="lt-ms mid">50%</text>
-<line x1="622.5" x2="622.5" y1="20" y2="262" stroke="rgba(255,255,255,0.075)"/>
+<line x1="622.5" x2="622.5" y1="20" y2="130" stroke="rgba(255,255,255,0.075)"/><line x1="622.5" x2="622.5" y1="152" y2="238" stroke="rgba(255,255,255,0.075)"/>
 <text x="622.5" y="280" class="lt-ms mid">60%</text>
-<line x1="716.2" x2="716.2" y1="20" y2="262" stroke="rgba(255,255,255,0.075)"/>
+<line x1="716.2" x2="716.2" y1="20" y2="130" stroke="rgba(255,255,255,0.075)"/><line x1="716.2" x2="716.2" y1="152" y2="238" stroke="rgba(255,255,255,0.075)"/>
 <text x="716.2" y="280" class="lt-ms mid">70%</text>
-<line x1="810.0" x2="810.0" y1="20" y2="262" stroke="rgba(255,255,255,0.075)"/>
+<line x1="810.0" x2="810.0" y1="20" y2="130" stroke="rgba(255,255,255,0.075)"/><line x1="810.0" x2="810.0" y1="152" y2="238" stroke="rgba(255,255,255,0.075)"/>
 <text x="810.0" y="280" class="lt-ms mid">80%</text>
 <text x="435.0" y="297" class="lt-ms mid">validation accuracy</text>
 <circle cx="153.8" cy="123.0" r="3.6" fill="#e0a94f"/>
@@ -438,7 +438,7 @@
 <circle cx="739.7" cy="213.0" r="3.6" fill="#ece7de"/>
 <circle cx="751.4" cy="231.0" r="3.6" fill="#ece7de"/>
 <text x="60" y="252" class="lt-b">next 39 trained: proposed by the sampler (hollow: stopped at epoch 30)</text>
-<text x="750.4" y="104" class="lt-a end">0.745: the example network</text>
+<rect x="560" y="92" width="194" height="16" fill="#050505"/><text x="750.4" y="104" class="lt-a end">0.745: the example network</text>
 </svg></div><figcaption>Every trained network so far, one dot each, placed by its deployed validation accuracy. The balanced block spreads widely, from 10% to 74.5%, because it deliberately includes bad options; the sampler's trials then crowd near the top.</figcaption></figure>
 <p>Five things stand out.</p>
 <ul>

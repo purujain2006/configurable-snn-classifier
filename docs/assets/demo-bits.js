@@ -61,7 +61,7 @@
         const bt = T(gBits, 400, yy + 5, "0", "lt-h mid");
         T(gBits, 372, yy + 5, `${2 ** k}s`, "lt-ms end");
         const line = S("line", { x1: 420, y1: yy, x2: NX - 38, y2: NY + (yy - NY) * 0.25, stroke: C.lineStrong, "stroke-width": 1.5 }, gAx);
-        T(gAx, 470, yy - 6, `axon ${k + 1}, weight ${(w * 2 ** k).toFixed(1)}`, "lt-ms");
+        L.plate(T(gAx, 470, yy - 6, `axon ${k + 1}, weight ${(w * 2 ** k).toFixed(1)}`, "lt-ms"));
         axons.push({ k, yy, rect, bt, line, x1: 420, y1: yy, x2: NX - 38, y2: NY + (yy - NY) * 0.25 });
       }
     }

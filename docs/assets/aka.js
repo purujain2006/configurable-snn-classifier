@@ -166,7 +166,6 @@
       const shG = S("g", {}, s);
       const lab = ly.ds === "stride" ? "stride 2" : ly.ds === "pool" ? (cfg.pool === "max" ? "max pool" : "pool") : "no shrink";
       if (!mini) {
-        S("rect", { x: ax1 + 2, y: cy - 30, width: ax2 - ax1 - 4, height: 18, fill: "transparent" }, shG);
         T(shG, (ax1 + ax2) / 2, cy - 18, lab, "lt-ms mid");
       } else {
         S("rect", { x: (ax1 + ax2) / 2 - 5, y: cy - 12, width: 10, height: 6, fill: ly.ds === "none" ? "rgba(255,255,255,.08)" : C.faint }, shG);
@@ -237,7 +236,7 @@
       const lr = S("polyline", { points: `${X(0)},${y0 + 30} ${X(20)},${y0 + 30} ${X(20)},${y0 + 46} ${X(80)},${y0 + 46}`, fill: "none", stroke: C.faint, "stroke-width": 2 }, s);
       reg("lrCurve", lr, "line");
       reg("lrRamp", S("line", { x1: X(0), y1: y0 + 56, x2: X(2), y2: y0 + 30, stroke: "transparent", "stroke-width": 2 }, s), "lineGhost");
-      T(s, X(80) + 4, y0 + 50, "learning rate", "lt-ms");
+      T(s, X(50), y0 + 40, "learning rate, halved at the switch", "lt-ms mid");
     }
 
     function paint(on, p) {
@@ -250,7 +249,7 @@
         if (e.tagName === "text") e.style.fill = on ? col : "";
         else if (e.tagName === "line") e.setAttribute("stroke", on ? col : (e.dataset.base || e.getAttribute("stroke")));
         else if (e.tagName === "circle") e.setAttribute("fill", on ? col : (e.dataset.base || e.getAttribute("fill")));
-        else e.setAttribute("stroke", on ? col : (e.dataset.base || e.getAttribute("stroke") || C.line));
+        else e.setAttribute("stroke", on ? col : (e.dataset.base || "none"));
       });
       else if (p.base === "ghost") p.node.querySelectorAll("text").forEach(e => { e.setAttribute("opacity", on ? 1 : 0); e.style.fill = on ? col : ""; });
       else if (p.base === "text") p.node.style.fill = on ? col : "";
@@ -264,7 +263,8 @@
     // remember each element's resting color so a group can be restored
     s.querySelectorAll("line,circle,rect").forEach(e => {
       const a = e.tagName === "circle" ? "fill" : "stroke";
-      if (e.getAttribute(a)) e.dataset.base = e.getAttribute(a);
+      // an element drawn without an outline goes back to none, not to a default
+      e.dataset.base = e.getAttribute(a) || "none";
     });
     let lit = [];
     const tag = T(s, 0, 0, "", mini ? "lt-a" : "lt-a", { opacity: 0 });
@@ -280,12 +280,53 @@
         const b = first.node.getBBox();
         if (!b.width && !b.height) return;
         tag.textContent = hl;
-        const tx = Math.max(4, Math.min(Wv - 4, b.x + b.width / 2));
-        const ty = b.y > 26 ? b.y - 13 : b.y + b.height + 15;
-        tag.setAttribute("x", tx); tag.setAttribute("y", ty);
-        tag.setAttribute("text-anchor", tx < 40 ? "start" : tx > Wv - 40 ? "end" : "middle");
         tag.setAttribute("opacity", 1);
+        place(b);
       } catch (e) { /* not rendered yet */ }
+    }
+    /* the label goes beside the lit part, in the first spot where it covers no
+       other label, crosses no line and does not cut a box edge */
+    function obstacles() {
+      const texts = [...s.querySelectorAll("text")].filter(t => t !== tag && t.textContent.trim() &&
+        t.getAttribute("opacity") !== "0").map(t => t.getBBox());
+      const pts = [];
+      s.querySelectorAll("line, polyline").forEach(e => {
+        if (e.getAttribute("stroke") === "transparent") return;
+        let p = [];
+        if (e.tagName === "line") p = [[+e.getAttribute("x1"), +e.getAttribute("y1")], [+e.getAttribute("x2"), +e.getAttribute("y2")]];
+        else p = (e.getAttribute("points") || "").trim().split(/\s+/).map(q => q.split(",").map(Number));
+        for (let i = 0; i + 1 < p.length; i++) for (let t = 0; t <= 1; t += 0.1) pts.push([p[i][0] + (p[i + 1][0] - p[i][0]) * t, p[i][1] + (p[i + 1][1] - p[i][1]) * t]);
+      });
+      const rects = [...s.querySelectorAll("rect")].filter(r => {
+        const st = r.getAttribute("stroke");
+        return st && st !== "none" && st !== "transparent";
+      }).map(r => r.getBBox()).filter(r => r.width > 12 && r.height > 10);
+      return { texts, pts, rects };
+    }
+    function place(b) {
+      const ob = obstacles();
+      const cx = b.x + b.width / 2, cy = b.y + b.height / 2;
+      const top = mini ? 15 : 17;                       // the strip above every drawing is empty
+      const spots = [[cx, b.y - 6, "middle"], [cx, top, "middle"], [cx, b.y + b.height + 13, "middle"],
+                     [b.x + b.width + 5, cy + 4, "start"], [b.x - 5, cy + 4, "end"],
+                     [cx, b.y - 20, "middle"], [cx, b.y + b.height + 27, "middle"],
+                     [cx - 30, top, "middle"], [cx + 30, top, "middle"]];
+      const over = (a, c) => a.x < c.x + c.width && c.x < a.x + a.width && a.y < c.y + c.height && c.y < a.y + a.height;
+      const inside = (o, i) => i.x >= o.x && i.y >= o.y && i.x + i.width <= o.x + o.width && i.y + i.height <= o.y + o.height;
+      let best = null;
+      for (const [x, y, anchor] of spots) {
+        tag.setAttribute("x", x); tag.setAttribute("y", y); tag.setAttribute("text-anchor", anchor);
+        const t = tag.getBBox();
+        if (t.x < 0 || t.y < 0 || t.x + t.width > Wv || t.y + t.height > Hn + Ht) continue;
+        const core = { x: t.x + 1, y: t.y + 2, width: t.width - 2, height: t.height - 4 };
+        let bad = ob.texts.filter(o => over(core, o)).length;
+        bad += ob.pts.filter(([px, py]) => px > core.x && px < core.x + core.width && py > core.y && py < core.y + core.height).length ? 1 : 0;
+        bad += ob.rects.filter(r => over(core, r) && !inside(r, core)).length;
+        if (!best || bad < best.bad) best = { x, y, anchor, bad };
+        if (bad === 0) break;
+      }
+      if (!best) best = { x: Math.max(4, Math.min(Wv - 4, cx)), y: Math.max(12, b.y - 6), anchor: "middle" };
+      tag.setAttribute("x", best.x); tag.setAttribute("y", best.y); tag.setAttribute("text-anchor", best.anchor);
     }
     set(opts.hl);
     return { set };
@@ -323,28 +364,28 @@
   /* curve(el): the best trial's validation (amber) and training (pale) accuracy */
   function curve(el, spec) {
     spec = spec || {};
-    const W = 640, H = 220, x0 = 46, x1 = W - 20, y0 = 20, y1 = H - 34;
+    const W = 640, H = 236, x0 = 46, x1 = W - 20, y0 = 34, y1 = H - 40;
     const s = L.svg(el, W, H, "Training and validation accuracy of one trial, epoch by epoch");
     const X = e => x0 + (x1 - x0) * e / 80, Y = v => y1 - (y1 - y0) * (v - 0.4) / 0.6;
     [0.4, 0.6, 0.8, 1.0].forEach(v => { S("line", { x1: x0, x2: x1, y1: Y(v), y2: Y(v), stroke: C.lineSoft }, s); T(s, x0 - 6, Y(v) + 4, (v * 100) + "%", "lt-ms end"); });
-    [0, 20, 40, 60, 80].forEach(e => T(s, X(e), H - 14, String(e), "lt-ms mid"));
-    T(s, (x0 + x1) / 2, H - 1, "epoch", "lt-ms mid");
+    [0, 20, 40, 60, 80].forEach(e => T(s, X(e), y1 + 16, String(e), "lt-ms mid"));
+    T(s, (x0 + x1) / 2, H - 6, "epoch", "lt-ms mid");
     S("rect", { x: X(0), y: y0, width: X(20) - X(0), height: y1 - y0, fill: "rgba(236,231,222,.04)" }, s);
-    T(s, X(10), y0 + 12, "ordinary weights", "lt-ms mid");
-    T(s, X(50), y0 + 12, "integer weights", "lt-ms mid");
+    T(s, X(10), y0 - 10, "ordinary weights", "lt-ms mid");
+    T(s, X(50), y0 - 10, "integer weights", "lt-ms mid");
     const line = (arr, col, w) => S("polyline", { points: arr.map((v, e) => `${X(e + 0.5)},${Y(v)}`).join(" "), fill: "none", stroke: col, "stroke-width": w }, s);
     if (spec.train !== false) line(CURVE.train, C.s1, 1.6);
     line(CURVE.val, C.accent, 2);
     if (spec.mark === "float") {
       S("line", { x1: X(0), x2: X(20), y1: Y(CURVE.floatBest), y2: Y(CURVE.floatBest), stroke: C.green, "stroke-dasharray": "4 3", "stroke-width": 1.5 }, s);
-      T(s, X(20) + 4, Y(CURVE.floatBest) + 14, "warm-up score 0.679", "lt-g");
+      L.plate(T(s, X(20) + 4, Y(CURVE.floatBest) + 14, "warm-up score 0.679", "lt-g"));
     }
     if (spec.mark !== "none") {
       S("circle", { cx: X(80), cy: Y(CURVE.deployed), r: 4, fill: C.accent }, s);
-      T(s, X(80) - 6, Y(CURVE.deployed) + 18, "deployed 0.745", "lt-a end");
+      L.plate(T(s, X(80) - 6, Y(CURVE.deployed) + 18, "deployed 0.745", "lt-a end"));
     }
-    T(s, X(62), Y(0.985) - 8, "training", "lt-ms");
-    T(s, X(62), Y(0.735) + 18, "validation", "lt-a");
+    L.plate(T(s, X(62), Y(0.985) + 16, "training", "lt-ms"));
+    L.plate(T(s, X(40), Y(0.66), "validation", "lt-a"));
   }
 
   function init(root) {

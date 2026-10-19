@@ -33,7 +33,7 @@
         S("line", { x1: 82, y1: y, x2: nx - 44, y2: ny, stroke: w >= 0 ? C.accent : C.rust,
           "stroke-width": 1 + 7 * Math.abs(w), "stroke-opacity": 0.85 }, s);
         const mx = (82 + nx - 44) / 2, my = (y + ny) / 2 - 10;
-        T(s, mx, my, `× ${w.toFixed(2)}`, w >= 0 ? "lt-a mid" : "lt-r mid");
+        L.plate(T(s, mx, my, `× ${w.toFixed(2)}`, w >= 0 ? "lt-a mid" : "lt-r mid"));
         S("circle", { cx: 60, cy: y, r: 22, fill: `rgba(236,231,222,${0.06 + 0.3 * st.x[i]})`, stroke: C.lineStrong }, s);
         T(s, 60, y + 4, st.x[i].toFixed(2), "lt-m mid");
         T(s, 60, y - 28, `input ${i + 1}`, "lt-s mid");
@@ -509,7 +509,7 @@
       ys.forEach((y, i) => {
         const w = st.w[i];
         S("line", { x1: 90, y1: y, x2: nx - 38, y2: ny, stroke: w >= 0 ? C.accent : C.rust, "stroke-width": 1 + 6 * Math.abs(w), "stroke-opacity": .85 }, gTop);
-        T(gTop, (90 + nx - 38) / 2, (y + ny) / 2 - 9, `× ${w.toFixed(2)}`, w >= 0 ? "lt-a mid" : "lt-r mid");
+        L.plate(T(gTop, (90 + nx - 38) / 2, (y + ny) / 2 - 9, `× ${w.toFixed(2)}`, w >= 0 ? "lt-a mid" : "lt-r mid"));
         S("circle", { cx: 68, cy: y, r: 20, fill: `rgba(236,231,222,${0.06 + 0.3 * st.x[i]})`, stroke: C.lineStrong }, gTop);
         T(gTop, 68, y + 4, st.x[i].toFixed(2), "lt-m mid");
       });
@@ -552,7 +552,7 @@
         }
         const w = st.w[i], lit = last.ins[i];
         S("line", { x1: 162, y1: y, x2: nx - 36, y2: ny, stroke: w >= 0 ? C.accent : C.rust, "stroke-width": 1 + 6 * Math.abs(w), "stroke-opacity": lit ? .9 : .18 }, gBot);
-        T(gBot, (162 + nx - 36) / 2 + 8, (y + ny) / 2 - 9, `× ${w.toFixed(2)}`, w >= 0 ? "lt-a mid" : "lt-r mid");
+        L.plate(T(gBot, (162 + nx - 36) / 2 + 8, (y + ny) / 2 - 9, `× ${w.toFixed(2)}`, w >= 0 ? "lt-a mid" : "lt-r mid"));
       });
       const lvl = L.clamp(v / st.th, -1, 1.5);
       S("circle", { cx: nx, cy: ny, r: 36, fill: lvl > 0 ? `rgba(224,169,79,${0.08 + 0.5 * Math.min(1, lvl)})` : C.panel, stroke: last.fired ? C.accent : C.lineStrong, "stroke-width": last.fired ? 3 : 1.4 }, gBot);
@@ -563,7 +563,6 @@
       const Y = q => by + bh - (L.clamp(q, vmin, vmax) - vmin) / (vmax - vmin) * bh;
       S("rect", { x: bx, y: by, width: bw, height: bh, fill: "rgba(255,255,255,.02)", stroke: C.line }, gBot);
       S("line", { x1: bx, x2: bx + bw, y1: Y(st.th), y2: Y(st.th), stroke: C.accent, "stroke-dasharray": "4 3" }, gBot);
-      T(gBot, bx + bw - 2, Y(st.th) - 4, "threshold", "lt-ms end");
       T(gBot, bx, by - 8, "potential, last 20 steps", "lt-s");
       const dx = bw / N, pts = [];
       hist.forEach((h, k) => {
@@ -572,6 +571,8 @@
         if (h.fired) S("circle", { cx: x0 + dx / 2, cy: by + 6, r: 3, fill: C.accent }, gBot);
       });
       if (pts.length) S("polyline", { points: pts.join(" "), fill: "none", stroke: C.s1, "stroke-width": 1.5 }, gBot);
+      // drawn after the trace, so the trace passes behind the word
+      L.plate(T(gBot, bx + bw - 2, Y(st.th) - 4, "threshold", "lt-ms end"));
       arrow(gBot, bx + bw + 4, ny, 618, ny);
       for (let k = 0; k < N; k++) {
         const h = hist[hist.length - N + k];
@@ -717,10 +718,10 @@
         prev = rt;
       }
       S("polyline", { points: pts.join(" "), fill: "none", stroke: C.accent, "stroke-width": 2 }, gR);
-      T(gR, PX(1.5) - 4, PY(1) - 8, "at most one spike per step", "lt-a end");
+      L.plate(T(gR, PX(1.5) - 4, PY(1) - 8, "at most one spike per step", "lt-a end"));
       if (first !== null && first > 0.04) {
         S("line", { x1: PX(0), x2: PX(first), y1: PY(0) - 6, y2: PY(0) - 6, stroke: C.red, "stroke-width": 3 }, gR);
-        T(gR, PX(first) + 4, PY(0) - 12, "too weak to fire", "lt-bad");
+        L.plate(T(gR, PX(first) + 4, PY(0) - 12, "too weak to fire", "lt-bad"));
       }
       const cur = run(x);
       S("line", { x1: PX(x), x2: PX(x), y1: PY(1.5), y2: PY(0), stroke: C.text, "stroke-opacity": .35 }, gR);
@@ -742,10 +743,10 @@
         S("rect", { x: 60 + t * cw, y: 52 - h, width: cw - 1.5, height: h, fill: t < shown ? "rgba(236,231,222,.45)" : "rgba(255,255,255,.05)" }, gL);
       }
       const by = 70, bh = 150, vmax = 1.6, Y = q => by + bh - L.clamp(q, 0, vmax) / vmax * bh;
-      T(gL, 20, by + 12, "potential", "lt-s");
+      T(gL, 60, by - 6, "potential", "lt-s");
       S("rect", { x: 60, y: by, width: 330, height: bh, fill: "rgba(255,255,255,.02)", stroke: C.line }, gL);
       S("line", { x1: 60, x2: 390, y1: Y(1), y2: Y(1), stroke: C.accent, "stroke-dasharray": "4 3" }, gL);
-      T(gL, 388, Y(1) - 4, "threshold", "lt-ms end");
+      L.plate(T(gL, 388, Y(1) - 4, "threshold", "lt-ms end"));
       const pts = [];
       cur.tr.slice(0, shown).forEach((e, t) => { pts.push(`${60 + t * cw},${Y(e.carried)}`, `${60 + (t + 1) * cw},${Y(e.carried)}`); });
       S("polyline", { points: pts.join(" "), fill: "none", stroke: C.s1, "stroke-width": 1.5 }, gL);
@@ -937,7 +938,7 @@
     S("line", { x1: p2.X(-3), y1: p2.Y(0) - 1, x2: p2.X(3), y2: p2.Y(0) - 1, stroke: C.accent, "stroke-width": 2.4 }, s);
     S("line", { x1: p2.X(0), y1: p2.Y(0), x2: p2.X(0), y2: p2.y0 + 4, stroke: C.accent, "stroke-width": 2.4 }, s);
     T(s, p2.X(0) + 8, p2.y0 + 14, "true slope: infinite", "lt-a");
-    T(s, p2.X(0) + 8, p2.y0 + 28, "here, zero elsewhere", "lt-a");
+    T(s, p2.X(0) + 8, p2.y0 + 31, "here, zero elsewhere", "lt-a");
     T(s, p2.X(-2.9), p2.Y(0.55), "stand-in slope", "lt-m");
   }
 

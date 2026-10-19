@@ -24,6 +24,21 @@
     return s;
   }
   function clear(el) { while (el.firstChild) el.removeChild(el.firstChild); }
+  /* plate(text): a dark backing behind a label that sits on a line, so the
+     line passes behind the words instead of through them */
+  function plate(t, pad) {
+    pad = pad == null ? 2 : pad;
+    try {
+      const b = t.getBBox();
+      if (!b.width) return t;
+      const r = document.createElementNS(NS, "rect");
+      r.setAttribute("x", b.x - pad); r.setAttribute("y", b.y);
+      r.setAttribute("width", b.width + 2 * pad); r.setAttribute("height", b.height);
+      r.setAttribute("fill", "#050505"); r.setAttribute("class", "plate");
+      t.parentNode.insertBefore(r, t);
+    } catch (e) { /* not laid out yet */ }
+    return t;
+  }
 
   const C = {
     text: "#f6f4f1", dim: "#cfcbc4", muted: "#a7a29a", faint: "#7d7871",
@@ -139,5 +154,5 @@
     else fn();
   }
 
-  window.Learn = { S, T, svg, clear, C, rng, gauss, loop, ticker, reduced, clamp, lerp, fmt, signedFill, seg, range, onReady };
+  window.Learn = { S, T, svg, clear, plate, C, rng, gauss, loop, ticker, reduced, clamp, lerp, fmt, signedFill, seg, range, onReady };
 })();

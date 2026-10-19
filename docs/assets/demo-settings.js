@@ -335,7 +335,8 @@
       lab(s, 10, 22, "in the threshold", "lt-m");
       S("line", { x1: 30, y1: 48, x2: 140, y2: 48, stroke: C.s4, "stroke-dasharray": "4 3" }, s);
       S("line", { x1: 30, y1: 60, x2: 140, y2: 60, stroke: C.accent, "stroke-width": 1.6 }, s);
-      lab(s, 30, 80, "θ moves down by the bias: free");
+      lab(s, 30, 80, "θ moves down");
+      lab(s, 30, 94, "by the bias: free");
       lab(s, 180, 22, "bias neurons", "lt-m");
       S("circle", { cx: 200, cy: 52, r: 9, fill: C.panel, stroke: C.rust }, s); T(s, 200, 56, "b", "lt-r mid");
       arrow(s, 210, 52, 268, 52, C.rust);
@@ -411,15 +412,21 @@
       lab(s, 20, 122, "keeps one bad batch from wrecking the weights");
     },
     opt(s) {
+      const boxes = [[8, 70], [92, 112], [218, 94]];          // x, width: room for each word
       const row = (y, a, b, t) => {
         lab(s, 10, y - 10, t, "lt-m");
-        [["gradient", 10], [a, 110], [b, 210]].forEach(([u, x], i) => { S("rect", { x, y, width: 88, height: 24, fill: C.panel, stroke: i === 1 ? C.accent : C.line }, s); T(s, x + 44, y + 16, u, "lt-ms mid"); if (i < 2) arrow(s, x + 90, y + 12, x + 108, y + 12); });
+        [["gradient"], [a], [b]].forEach(([u], i) => {
+          const [x, w] = boxes[i];
+          S("rect", { x, y, width: w, height: 24, fill: C.panel, stroke: i === 1 ? C.accent : C.line }, s);
+          T(s, x + w / 2, y + 16, u, "lt-ms mid");
+          if (i < 2) arrow(s, x + w + 2, y + 12, boxes[i + 1][0] - 2, y + 12);
+        });
       };
       row(24, "+ decay, scale", "step", "Adam");
       row(84, "scale", "step, − decay", "AdamW");
     },
     lr(s) {
-      const X = u => 160 + u * 140, Y = u => 110 - u * u * 80;
+      const X = u => 178 + u * 122, Y = u => 118 - u * u * 70;
       const pts = []; for (let u = -1; u <= 1.001; u += 0.05) pts.push(`${X(u)},${Y(u)}`);
       S("polyline", { points: pts.join(" "), fill: "none", stroke: C.line }, s);
       let u = -0.95; const small = [];
@@ -428,16 +435,18 @@
       u = 0.95; const big = [];
       for (let k = 0; k < 6; k++) { big.push([X(u), Y(u)]); u -= 0.9 * 2 * u; }
       S("polyline", { points: big.map(p => p.join(",")).join(" "), fill: "none", stroke: C.red, "stroke-width": 1.5 }, s);
-      lab(s, 10, 30, "small: slow but steady", "lt-g"); lab(s, 10, 50, "large: bounces", "lt-bad");
+      lab(s, 10, 18, "small: slow but steady", "lt-g"); lab(s, 10, 34, "large: bounces", "lt-bad");
     },
     sched(s) {
-      const X = e => 20 + e * 3.4, Y = v => 108 - v * 84;
+      const X = e => 20 + e * 3.4, Y = v => 108 - v * 74;
+      const legendX = [20, 82, 162, 210];
       const curves = [["cosine", C.accent, e => 0.5 * (1 + Math.cos(Math.PI * e / 80))], ["one-cycle", C.rust, e => e < 24 ? e / 24 : 0.5 * (1 + Math.cos(Math.PI * (e - 24) / 56))],
         ["step", C.green, e => Math.pow(0.2, Math.floor(e / 27))], ["none", C.s4, () => 0.6]];
       curves.forEach(([t, col, f], k) => {
         const pts = []; for (let e = 0; e <= 80; e++) pts.push(`${X(e)},${Y(f(e))}`);
         S("polyline", { points: pts.join(" "), fill: "none", stroke: col, "stroke-width": 1.6 }, s);
-        T(s, 310, 20 + k * 14, t, "lt-ms end", { fill: col });
+        S("line", { x1: legendX[k], x2: legendX[k] + 10, y1: 13, y2: 13, stroke: col, "stroke-width": 2 }, s);
+        T(s, legendX[k] + 14, 17, t, "lt-ms", { fill: col });
       });
       lab(s, 20, 124, "learning rate across the epochs");
     },
@@ -446,7 +455,9 @@
       const pts = []; for (let e = 0; e <= 80; e++) { const v = e < 3 ? (e + 1) / 4 : 0.5 * (1 + Math.cos(Math.PI * (e - 3) / 77)); pts.push(`${X(e)},${Y(v)}`); }
       S("polyline", { points: pts.join(" "), fill: "none", stroke: C.accent, "stroke-width": 1.6 }, s);
       S("rect", { x: X(0), y: 20, width: X(3) - X(0), height: 88, fill: "rgba(224,169,79,.1)" }, s);
-      lab(s, X(4), 34, "ramp up over the first few epochs", "lt-a");
+      lab(s, 44, 86, "ramp up over", "lt-a");
+      lab(s, 44, 100, "the first few epochs", "lt-a");
+      arrow(s, 42, 80, X(2.5), 62, C.accent, 1);
       lab(s, 20, 124, "then the chosen schedule");
     },
     loss(s) {
@@ -620,7 +631,9 @@
       const y = 10 + i * rowH;
       T(s, 262, y + 13, it.name, "lt end");
       S("rect", { x: 270, y: y + 3, width: X(it.gap) - 270, height: 13, fill: it.gap >= 0.08 ? C.accent : it.gap >= 0.054 ? "rgba(224,169,79,.55)" : "rgba(167,162,154,.5)" }, s);
-      T(s, X(it.gap) + 6, y + 14, `${(it.gap * 100).toFixed(1)} pts`, "lt-ms");
+      // a value label never sits on the dashed luck line: it moves past it
+      const lineX = X(0.054), lx = X(it.gap) + 6;
+      T(s, lx < lineX + 4 && lx + 48 > lineX ? lineX + 6 : lx, y + 14, `${(it.gap * 100).toFixed(1)} pts`, "lt-ms");
     });
     const yb = 10 + items.length * rowH;
     S("line", { x1: X(0.054), y1: 4, x2: X(0.054), y2: yb, stroke: C.text, "stroke-dasharray": "4 4", "stroke-opacity": .6 }, s);
