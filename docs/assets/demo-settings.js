@@ -230,7 +230,7 @@
     },
     bits(s) {
       lab(s, 10, 22, "a pixel that saw 5 events", "lt-m");
-      lab(s, 10, 52, "1 bit"); S("line", { x1: 80, y1: 48, x2: 300, y2: 48, stroke: C.accent, "stroke-width": 3 }, s); lab(s, 210, 42, "1: something fired", "lt-a");
+      lab(s, 10, 52, "1 bit"); S("line", { x1: 80, y1: 48, x2: 300, y2: 48, stroke: C.accent, "stroke-width": 3 }, s); lab(s, 80, 42, "1: something fired", "lt-a");
       lab(s, 10, 86, "3 bits");
       [[0, 1], [1, 0], [2, 1]].forEach(([k, on]) => { S("line", { x1: 80, y1: 76 + k * 14, x2: 300, y2: 76 + k * 14, stroke: on ? C.accent : C.lineStrong, "stroke-width": on ? 3 : 1.5 }, s); lab(s, 306, 80 + k * 14, `×${2 ** k}`, "lt-ms"); });
       lab(s, 80, 124, "1 + 4 = 5: the count arrives, on 3 axons");

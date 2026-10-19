@@ -126,14 +126,14 @@
       document.getElementById("rs-small-cap").textContent = `after shrinking: ${N} × ${N}${bits > 1 ? `, counts up to ${top}` : ""}`;
       const axons = N * N * 2 * bits, lim = 16000, fits = axons <= lim;
       const largest = Math.floor(Math.sqrt(lim / (2 * bits)));
-      const s = L.svg(bar, 760, 74, "Input axons used against the chip's limit");
+      const s = L.svg(bar, 760, 82, "Input axons used against the chip's limit");
       const X = v => 10 + Math.min(1, v / 34000) * 740;
-      S("rect", { x: 10, y: 14, width: 740, height: 18, fill: "rgba(255,255,255,.05)" }, s);
-      S("rect", { x: 10, y: 14, width: X(axons) - 10, height: 18, fill: fits ? C.green : C.red }, s);
-      S("line", { x1: X(lim), y1: 6, x2: X(lim), y2: 40, stroke: C.accent, "stroke-width": 2 }, s);
-      T(s, X(lim) + 4, 10, "limit 16,000", "lt-a");
-      T(s, 10, 54, `${N} × ${N} pixels × 2 channels × ${bits} bit${bits > 1 ? "s" : ""} = ${L.fmt(axons)} axons: ${fits ? "fits" : "does not fit"}`, fits ? "lt-g" : "lt-bad");
-      T(s, 10, 70, `largest square that fits with ${bits} bit${bits > 1 ? "s" : ""} per pixel: ${largest} × ${largest}`, "lt-ms");
+      S("rect", { x: 10, y: 18, width: 740, height: 18, fill: "rgba(255,255,255,.05)" }, s);
+      S("rect", { x: 10, y: 18, width: X(axons) - 10, height: 18, fill: fits ? C.green : C.red }, s);
+      S("line", { x1: X(lim), y1: 10, x2: X(lim), y2: 44, stroke: C.accent, "stroke-width": 2 }, s);
+      T(s, X(lim) + 4, 14, "limit 16,000", "lt-a");
+      T(s, 10, 60, `${N} × ${N} pixels × 2 channels × ${bits} bit${bits > 1 ? "s" : ""} = ${L.fmt(axons)} axons: ${fits ? "fits" : "does not fit"}`, fits ? "lt-g" : "lt-bad");
+      T(s, 10, 76, `largest square that fits with ${bits} bit${bits > 1 ? "s" : ""} per pixel: ${largest} × ${largest}`, "lt-ms");
     }
     L.range("rs-size", v => { N = v; draw(); });
     L.seg(document.getElementById("rs-bits"), v => { bits = +v; draw(); });

@@ -386,8 +386,8 @@
     arrow(s, 560, 110, 604, 112);
     arrow(s, 660, 110, 720, 110);
     S("rect", { x: 726, y: 72, width: 76, height: 76, fill: "rgba(224,169,79,.12)", stroke: C.accent }, s);
-    T(s, 726, 215, "one map per kernel", "lt-b");
-    T(s, 726, 228, "in the next layer", "lt-s");
+    T(s, 812, 215, "one map per kernel", "lt-b end");
+    T(s, 812, 228, "in the next layer", "lt-s end");
   }
 
   /* ---------- A.4 shrinking ---------- */
@@ -701,8 +701,8 @@
     const p2 = plot(470, "Backward: the slope used for learning", null, dsig, 1.15, "");
     S("line", { x1: p2.X(-3), y1: p2.Y(0) - 1, x2: p2.X(3), y2: p2.Y(0) - 1, stroke: C.accent, "stroke-width": 2.4 }, s);
     S("line", { x1: p2.X(0), y1: p2.Y(0), x2: p2.X(0), y2: p2.y0 + 4, stroke: C.accent, "stroke-width": 2.4 }, s);
-    T(s, p2.X(0) + 8, p2.y0 + 14, "true slope: infinite here,", "lt-a");
-    T(s, p2.X(0) + 8, p2.y0 + 28, "zero everywhere else", "lt-a");
+    T(s, p2.X(0) + 8, p2.y0 + 14, "true slope: infinite", "lt-a");
+    T(s, p2.X(0) + 8, p2.y0 + 28, "here, zero elsewhere", "lt-a");
     T(s, p2.X(-2.9), p2.Y(0.55), "stand-in slope", "lt-m");
   }
 
