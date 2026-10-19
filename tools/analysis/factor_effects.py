@@ -25,7 +25,11 @@ Read the last column first. Two things bias the others:
 
 A trial the chip check rejected stopped before it sampled any training
 setting, so it counts only toward the shape choices (pooling, bias, head,
-signed spikes, input bits).
+signed spikes, input bits, T).
+
+T is spread evenly in the block from Search 06 on. Earlier blocks drew it
+at random per trial, so their T counts are uneven (Search 05: 15, 33, 15,
+33 at T = 16, 24, 32, 48).
 """
 import argparse
 import json
@@ -33,7 +37,7 @@ import os
 import statistics
 import sys
 
-SHAPE = ("pooling", "bias_mode", "final_reduction", "signed_spikes", "input_bits")
+SHAPE = ("pooling", "bias_mode", "final_reduction", "signed_spikes", "input_bits", "T")
 
 
 def levels(cfg):
@@ -53,6 +57,7 @@ def levels(cfg):
         "augment": "on" if cfg.get("use_augment") else "off",
         "conv_dropout": "on" if cfg.get("use_conv_dropout") else "off",
         "rate_penalty": "on" if cfg.get("use_rate_penalty") else "off",
+        "T": str(cfg.get("T", "")),
     }
 
 
@@ -129,7 +134,10 @@ def main():
         print(f"  {'level':10s} {'trials':>6s} {'rejected':>8s} {'stopped':>7s} {'finished':>8s}"
               f"   {'finished: median   best':>23s}   {'simulator: median  best':>23s}"
               f"   {ep_head + ': n  median':>22s}")
-        for level, t in sorted(by_level.items()):
+        # numbers by value, so T = 8 comes before 16
+        for level, t in sorted(by_level.items(),
+                               key=lambda kv: (0, int(kv[0]), "") if kv[0].isdigit()
+                               else (1, 0, kv[0])):
             ep = f"{len(t['ep']):4d}  {statistics.median(t['ep']):.4f}" if t["ep"] else "   -       -"
             print(f"  {level:10s} {t['n']:6d} {t['rejected']:8d} {t['stopped']:7d} {t['finished']:8d}"
                   f"   {fmt(t['hw']):>23s}   {fmt(t['sim']):>23s}   {ep:>22s}")

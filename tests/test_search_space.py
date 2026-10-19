@@ -318,6 +318,28 @@ class BalancedBlockTests(unittest.TestCase):
                     pools = any(p[f"ds_{i}"] == "pool" for i in range(p["depth"]))
                     self.assertEqual(pools, "pool_type" in p, p)
 
+    def test_every_T_equally_often(self):
+        """Search 05 drew T at random in the block and got 15, 33, 15 and 33
+        trials, then put every winner at the largest T. A fair T curve needs
+        each T equally often, crossed evenly with the other choices."""
+        from snnsearch.spaces import block_factors
+        self.assertNotIn("T", block_factors([16], 4))
+        self.assertEqual(list(block_factors([96, 32, 64, 48], 4)["T"]),
+                         ["32", "48", "64", "96"])
+        ts = [32, 48, 64, 96]
+        points = balanced_points(96, seed=1, t_choices=ts, epochs=80, data=DVS,
+                                 max_input_bits=4, run_seed=1)
+        self.assertEqual(len(points), 96)
+        self.assertEqual(Counter(p["T"] for p in points), {t: 24 for t in ts})
+        heads = Counter((p["T"], p["final_reduction"]) for p in points)
+        self.assertEqual(len(heads), 8)
+        self.assertLessEqual(max(abs(c - 12) for c in heads.values()), 4, heads)
+        # one T leaves the block as it was; five values round 96 up to 120
+        self.assertEqual({p["T"] for p in balanced_points(24, seed=1, t_choices=[16],
+                                                          data=DVS, max_input_bits=4)}, {16})
+        self.assertEqual(len(balanced_points(96, seed=1, t_choices=[16, 24, 32, 48, 64],
+                                             data=DVS, max_input_bits=4)), 120)
+
     def test_points_are_values_the_space_can_take(self):
         """Optuna replays each point through the space, so every value must
         be one the space would suggest."""

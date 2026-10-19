@@ -518,11 +518,31 @@ def _random_geometry(rng, levels, t_choices, data, max_input_bits):
     return g
 
 
+def block_factors(t_choices=(16,), max_input_bits: int = 1) -> dict:
+    """The choices the balanced block spreads evenly: BALANCED_FACTORS, less
+    input bits when the coding sends one bit, plus T when there is more than
+    one to choose from.
+
+    T was drawn at random per trial until Search 05, whose block came out
+    15, 33, 15 and 33 trials at T = 16, 24, 32 and 48. Two searches in a row
+    then put every winner at the largest T, and with T uneven in the block
+    there was no fair curve to say whether larger still would help.
+    """
+    factors = dict(BALANCED_FACTORS)
+    if max_input_bits <= 1:
+        factors.pop("input_bits")
+    ts = sorted({int(t) for t in t_choices})
+    if len(ts) > 1:
+        factors["T"] = {str(t): {"T": t} for t in ts}
+    return factors
+
+
 def balanced_points(n: int, seed: int = 0, t_choices=(16,), batch_size: int = 16,
                     epochs: int = 40, *, data: dict, max_input_bits: int = 1,
                     run_seed: int = None) -> list:
-    """The balanced block: n trials (rounded up to a multiple of 6) in which
-    every level of every BALANCED_FACTORS choice appears equally often.
+    """The balanced block: n trials (rounded up to a multiple of every
+    choice's level count, 6 for BALANCED_FACTORS, 12 with four T values) in
+    which every level of every block_factors choice appears equally often.
 
     Optuna samples whatever has scored well so far, so an option that starts
     badly can end up barely tried: in Search 02, GAP got 32 of 400 trials and
@@ -540,9 +560,7 @@ def balanced_points(n: int, seed: int = 0, t_choices=(16,), batch_size: int = 16
     """
     import random
     rng = random.Random(seed)
-    factors = dict(BALANCED_FACTORS)
-    if max_input_bits <= 1:
-        factors.pop("input_bits")
+    factors = block_factors(t_choices, max_input_bits)
     if int(n) <= 0:
         return []
     consts = {"N": batch_size, "epochs": epochs, "data_dir": ".", **data, "seed": run_seed}
@@ -555,8 +573,10 @@ def balanced_points(n: int, seed: int = 0, t_choices=(16,), batch_size: int = 16
         else:
             raise RuntimeError(f"no shape fits the chip for {levels}")
         point = dict(geom)
-        for name in ("tau_mode", "loss", "augment", "conv_dropout", "rate_penalty"):
-            point.update(BALANCED_FACTORS[name][levels[name]])
+        # T after the shape: the chip check does not depend on it
+        for name in ("tau_mode", "loss", "augment", "conv_dropout", "rate_penalty", "T"):
+            if name in levels:
+                point.update(factors[name][levels[name]])
         points.append(point)
     return points
 
