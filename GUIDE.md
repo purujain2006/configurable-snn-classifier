@@ -277,6 +277,18 @@ it person by person, one column per checkpoint, and checks that its overall
 scores equal the ones in each `single.json`. A person has about 50 clips, so a
 pattern every checkpoint shares means more than one number.
 
+SynOps again, for checkpoints already trained, with today's counter:
+
+```
+python tools/analysis/recount_synops.py -c configs/dvs128_search05.yaml results/search05_top5 --out results/search05_top5/synops_recount.csv
+```
+
+A run measures SynOps once, when it finishes. When the counter is corrected
+later, as it was for signed spikes, the old figure in `single.json` stays
+wrong. This rebuilds each saved network exactly as it was scored, runs the
+validation clips through the current counter, and prints the new figure next
+to the old one. No training.
+
 ## 8. Option study
 
 ```
@@ -515,6 +527,7 @@ python tests/test_study.py
 python tests/test_input_pipeline.py
 python tests/test_frame_cache.py
 python tests/test_synops.py
+python tests/test_recount_synops.py
 python tests/test_per_subject.py
 python tests/test_docs.py
 python tests/smoke_test.py
