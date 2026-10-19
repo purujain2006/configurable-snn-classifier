@@ -129,7 +129,7 @@ dataset except `dataset:` itself.
 
 Copy the nearest example and edit it:
 
-* events: `configs/dvs128_search05.yaml`
+* events: `configs/dvs128_search06.yaml` (the next search; `configs/dvs128_search05.yaml` is the one before it)
 * images: `configs/cifar10.yaml`
 
 Every line in those files is commented. The settings people change most:
@@ -139,8 +139,8 @@ Every line in those files is commented. The settings people change most:
 | `search.trials` | 400 is a thorough search; 100 a quick one |
 | `search.epochs` | the budget for one trial; the first quarter trains in floating point, the rest on the chip's integer weights |
 | `search.grace_period` | when early stopping first judges a trial; must come after the first quarter of the epochs |
-| `search.balanced_trials` | trials at the start in which every option is tried equally often; use about a quarter of the trials, a multiple of 6 |
-| `search.T_choices` | timesteps per sample to try; each costs a frame cache for event data |
+| `search.balanced_trials` | trials at the start in which every option is tried equally often; use about a quarter of the trials, a multiple of 6 (12 with four T values) |
+| `search.T_choices` | timesteps per sample to try; each costs a frame cache for event data, and a trial's time and memory grow with its T. With more than one, the balanced block gives each the same number of trials |
 | `search.gpu_fraction` | the share of a GPU each trial gets, and a hard cap on its memory; 0.25 runs 4 at once per GPU, 0.167 only 5 (Ray rounds down). The preflight measures what fits |
 | `search.finalists`, `search.finalist_seeds` | how many of the best trials to retrain at the end, and with how many seeds |
 
@@ -246,6 +246,7 @@ The scores:
 | `sim_disagreements` | clips where the two predict differently; always 0 |
 | `deployable` | fits the chip and survived export |
 | `deployed_tau` | the leak each layer deploys with |
+| `threshold_bits` | bits the widest threshold needs on chip: 16 normally, 18 in a layer behind an average pool (the fold makes it 4 x theta + 3). The chip field is `limits.threshold_bits` |
 
 The leaders so far:
 
@@ -275,6 +276,18 @@ than on validation when the validation people are harder to read. This shows
 it person by person, one column per checkpoint, and checks that its overall
 scores equal the ones in each `single.json`. A person has about 50 clips, so a
 pattern every checkpoint shares means more than one number.
+
+SynOps again, for checkpoints already trained, with today's counter:
+
+```
+python tools/analysis/recount_synops.py -c configs/dvs128_search05.yaml results/search05_top5 --out results/search05_top5/synops_recount.csv
+```
+
+A run measures SynOps once, when it finishes. When the counter is corrected
+later, as it was for signed spikes, the old figure in `single.json` stays
+wrong. This rebuilds each saved network exactly as it was scored, runs the
+validation clips through the current counter, and prints the new figure next
+to the old one. No training.
 
 ## 8. Option study
 
@@ -392,7 +405,7 @@ Any other key is passed to the dataset function, for example `download: true`.
 | `space` | `uniform` | `per_layer` samples every layer's kernel, channels and downsampling separately; `uniform` shares one. Use `per_layer` |
 | `T_choices` | `[encoding.T]` | timesteps to choose from |
 | `max_input_bits` | none (4) | bits per input value are searched from 1 to this, for `levels` and `passthrough` |
-| `balanced_trials` | 0 | trials at the start in which every option appears equally often (rounded up to a multiple of 6) |
+| `balanced_trials` | 0 | trials at the start in which every option appears equally often (rounded up to a multiple of every choice's level count: 6, or 12 with four T values) |
 | `protect_balanced` | true | early stopping never cuts the balanced block |
 | `startup_trials` | 10 | random trials after the block, before Optuna steers |
 | `scheduler` | `asha` | `asha` stops weak trials early; `none` runs every trial in full |
@@ -461,6 +474,7 @@ For a chip build with other limits. Empty by default, which uses the values in
 | `axon_fan_in` | 8191 | input axons that may feed one neuron |
 | `neuron_fan_out` | 4095 | neurons one neuron may feed |
 | `neuron_fan_in` | 8159 | neurons that may feed one neuron |
+| `threshold_bits` | 36 | bits in a neuron's threshold field, the same as its state word on the FPGA. Behind an average pool the chip threshold is 4 x theta + 3, up to 18 bits; a network past the limit deploys with a warning, and `threshold_bits` records what it needs |
 
 ### report
 
@@ -491,6 +505,7 @@ study cover:
 | augmentation | off, on (shifts, cutout, dropped inputs, flips where allowed) |
 | conv dropout | off, on |
 | firing-rate penalty | off, on |
+| timesteps | every value of `search.T_choices` (the option study leaves T alone) |
 
 And the training recipe: optimizer, learning rate, weight decay, schedule,
 dropout, label smoothing, gradient clipping, normalization.
@@ -512,6 +527,7 @@ python tests/test_study.py
 python tests/test_input_pipeline.py
 python tests/test_frame_cache.py
 python tests/test_synops.py
+python tests/test_recount_synops.py
 python tests/test_per_subject.py
 python tests/test_docs.py
 python tests/smoke_test.py

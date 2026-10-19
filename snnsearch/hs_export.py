@@ -263,6 +263,27 @@ def integer_layers(net, tau_override=None):
     return out
 
 
+def chip_thresholds(layers):
+    """The largest threshold each integer layer hands the chip, positive and
+    negative neurons together, with the bits a signed field needs for it.
+
+    Reads integer_layers' output, where an average pool behind a layer has
+    already been folded in (threshold 4 * theta + 3 per 2x2 pool). Returns
+    [{"layer": index, "kind", "pool", "threshold", "bits"}, ...].
+    """
+    import numpy as np
+    from .hardware import signed_bits
+    rows = []
+    for i, L in enumerate(layers):
+        values = [np.asarray(L.get("threshold", 0))]
+        if L.get("threshold_neg") is not None:
+            values.append(np.asarray(L["threshold_neg"]))
+        top = max(int(np.abs(v).max()) if v.size else 0 for v in values)
+        rows.append({"layer": i, "kind": L["kind"], "pool": int(L.get("pool", 1)),
+                     "threshold": top, "bits": signed_bits(top)})
+    return rows
+
+
 def make_chip_faithful(net, tau=None):
     """Make the PyTorch model compute what the chip computes, in place.
 

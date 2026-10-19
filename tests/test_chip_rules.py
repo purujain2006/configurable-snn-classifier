@@ -124,5 +124,57 @@ class BiasNeurons(unittest.TestCase):
             self.assertEqual(set(per_target), {value})
 
 
+class Thresholds(unittest.TestCase):
+    """An average pool folds into the next layer, whose chip threshold becomes
+    4 * theta + 3: 131,071 for theta = 32,767, which needs 18 bits. Search 05's
+    ranks 2 to 4 need that. The FPGA's threshold field is 36 bits, so they
+    run, but deployment_report has to say what each network needs."""
+
+    def deployed(self, pool_type=None):
+        import torch
+        from snnsearch.config import NeuronSpec, TrainSpec
+        from snnsearch.model import build_model
+        torch.manual_seed(0)
+        first = {"out_channels": 4, "kernel_size": 3, "stride": 1 if pool_type else 2,
+                 "pool": bool(pool_type)}
+        spec = {"input": InputSpec(C=2, H=16, W=16, T=4, resize_to=16, N=2),
+                "encoder": EncoderSpec(layers_json=json.dumps(
+                    [first, {"out_channels": 3, "kernel_size": 3, "stride": 1, "pool": False}])),
+                "output": OutputSpec(num_classes=4),
+                "downsample": DownsampleSpec(mode="stride", pool_type=pool_type or "avg"),
+                "head": HeadSpec(final_reduction="flatten", fc_widths="", dropout_rate=0.0),
+                "neuron": NeuronSpec(tau=4), "train": TrainSpec()}
+        net = build_model(spec).eval()
+        net.to_qat_folded(bias_mode="threshold")
+        return net.export_deployed().eval()
+
+    def test_average_pool_needs_18_bits_and_the_others_16(self):
+        from snnsearch.quantize import deployment_report
+        rep = deployment_report(self.deployed("avg"))
+        self.assertEqual(rep["threshold_bits"], 18, rep["chip_thresholds"])
+        behind = [r for r in rep["chip_thresholds"] if r["pool"] > 1]
+        self.assertTrue(behind and all(r["bits"] == 18 for r in behind))
+        for pool_type in ("max", None):
+            with self.subTest(pool_type=pool_type):
+                rep = deployment_report(self.deployed(pool_type))
+                self.assertLessEqual(rep["threshold_bits"], 16, rep["chip_thresholds"])
+
+    def test_warns_only_past_the_limit(self):
+        from snnsearch.hardware import set_limits, THRESHOLD_LIMITS
+        from snnsearch.quantize import deployment_report
+        self.assertEqual(THRESHOLD_LIMITS["bits"], 36)
+        net = self.deployed("avg")
+        self.assertFalse(any("-bit threshold" in w for w in deployment_report(net)["warnings"]))
+        try:
+            set_limits({"threshold_bits": 16})
+            rep = deployment_report(net)
+            self.assertTrue(rep["deployable"])
+            self.assertTrue(any("18-bit threshold" in w and "average pool" in w
+                                for w in rep["warnings"]), rep["warnings"])
+        finally:
+            set_limits()
+        self.assertEqual(THRESHOLD_LIMITS["bits"], 36)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

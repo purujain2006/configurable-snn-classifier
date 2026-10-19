@@ -192,7 +192,7 @@ def run_search(cfg, out_dir):
     # sampler. TPE samples at random until it has n_startup_trials results, so
     # the balanced trials count as its random start and steering begins after.
     from optuna.samplers import TPESampler
-    from .spaces import balanced_points, BALANCED_FACTORS
+    from .spaces import balanced_points, block_factors
     n_block = n_balanced(s)
     if n_block and not space.per_layer:
         writer.log("[stream] balanced block skipped: it draws per-layer shapes, "
@@ -206,7 +206,7 @@ def run_search(cfg, out_dir):
                         points_to_evaluate=points or None,
                         sampler=TPESampler(n_startup_trials=startup, seed=run_seed))
     if points:
-        names = [n for n in BALANCED_FACTORS if n != "input_bits" or max_bits > 1]
+        names = list(block_factors(t_choices, max_bits))
         writer.log(f"[stream] balanced block: {len(points)} trials in which every "
                    f"option of {', '.join(names)} appears equally often, each with a "
                    f"random shape that fits the chip; Optuna steers after {startup} trials")
@@ -675,6 +675,9 @@ def _make_trainable(cfg, out_dir):
             "sim_disagreements": res.get("sim_disagreements"),
             "deployable": deployable,
             "deploy_reasons": res.get("deploy_reasons"),
+            "deploy_warnings": res.get("deploy_warnings"),
+            # bits the widest threshold needs as the chip receives it
+            "threshold_bits": res.get("threshold_bits"),
             "phase": "deploy",
             "feasible": True,
             # Carried explicitly rather than derived from `epoch`, which this

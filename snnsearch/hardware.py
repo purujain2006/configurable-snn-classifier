@@ -2,6 +2,7 @@
 
     AXON_LIMITS, NEURON_LIMITS   fan-in, fan-out and axon count, from hs_api
                                  and Christopher's L6m testing
+    THRESHOLD_LIMITS             bits in a neuron's threshold field
     HW_TAU_CHOICES               the taus the chip can run (powers of two)
     check_feasibility            the limits checked layer by layer on the plan
 
@@ -32,6 +33,19 @@ NEURON_LIMITS = {
     "fan_in": 8_159,    # neuron-to-neuron fan-in
 }
 
+THRESHOLD_LIMITS = {
+    # 36 bits, the same as a neuron's state word: the FPGA keeps 2 neurons
+    # per 72-bit URAM row, and its THRESHOLD register (CONFIG_WRITE, opcode
+    # 0x06) is 36 bits ("3 Verilog Files Review", hiaerspike-web docs).
+    # simpleSim's membrane format fxp-s35 is the same width. It matters behind
+    # an average pool: deployment folds the pool into the next layer by
+    # counting that layer's membrane in 4x finer units, so its threshold
+    # becomes 4 * theta + 3, up to 131,071 (18 bits). Search 05's ranks 2 to
+    # 4 need that, which a 16-bit field could not hold. Not used to reject a
+    # network: deployment_report warns, and every run records threshold_bits.
+    "bits": 36,
+}
+
 # A config's `limits:` block names these; set_limits applies it.
 _LIMIT_KEYS = {
     "total_axons": (AXON_LIMITS, "total_axons"),
@@ -39,6 +53,7 @@ _LIMIT_KEYS = {
     "axon_fan_in": (AXON_LIMITS, "fan_in"),
     "neuron_fan_out": (NEURON_LIMITS, "fan_out"),
     "neuron_fan_in": (NEURON_LIMITS, "fan_in"),
+    "threshold_bits": (THRESHOLD_LIMITS, "bits"),
 }
 _DEFAULT_LIMITS = {k: d[f] for k, (d, f) in _LIMIT_KEYS.items()}
 
@@ -189,3 +204,9 @@ HW_TAU_MIN, HW_TAU_MAX = 2, 128
 # trainable tau is learned as log2(tau) and rounded, so it can only land on
 # 2**HW_LOG2_TAU_MIN .. 2**HW_LOG2_TAU_MAX
 HW_LOG2_TAU_MIN, HW_LOG2_TAU_MAX = 1, 7
+
+
+def signed_bits(value) -> int:
+    """Bits of a two's-complement field that holds +value: 32767 needs 16,
+    131,071 needs 18."""
+    return int(abs(int(value))).bit_length() + 1
