@@ -71,8 +71,23 @@ def coerce_to_field(obj, key, raw):
             f"  known fields: {', '.join(sorted(known))}")
     if not isinstance(raw, str):
         return raw
+    import types
+    import typing
     ann = known[key].type
-    ann = ann if isinstance(ann, str) else getattr(ann, "__name__", str(ann))
+    optional = False
+    if not isinstance(ann, str):
+        # Optional[int] names itself "Optional", which hid the int: `--train
+        # seed=1001` stayed the string "1001" and training then failed on
+        # `seed % 2**32`. Unwrap it to the type inside.
+        args = [a for a in typing.get_args(ann) if a is not type(None)]
+        if typing.get_origin(ann) in (typing.Union, getattr(types, "UnionType", None)) \
+                and len(args) == 1:
+            optional, ann = True, args[0]
+        ann = getattr(ann, "__name__", str(ann))
+    else:
+        optional = "Optional" in ann or "None" in ann
+    if optional and ann != "str" and raw.lower() in ("none", "null"):
+        return None
     try:
         if "bool" in ann:
             return raw.lower() in ("1", "true", "yes", "on")

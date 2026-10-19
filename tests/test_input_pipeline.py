@@ -163,6 +163,30 @@ class InputPipelineTests(unittest.TestCase):
                     self.assertEqual(summary.call_args.args[0], spec)
             self.assertEqual(pipeline.load_flat_config(path), trial_config())
 
+    def test_train_flags_take_the_field_type(self):
+        """`--train seed=1001` once stayed the string "1001", because
+        Optional[int] names itself "Optional", and training then failed on
+        `seed % 2**32`. A replay with a new seed is how a result is checked."""
+        self.bundle.C, self.bundle.H, self.bundle.W, self.bundle.num_classes = 2, 128, 128, 11
+        with tempfile.TemporaryDirectory(prefix="snnsearch_inputs_") as out:
+            path = os.path.join(out, "best.json")
+            with open(path, "w", encoding="utf-8") as fh:
+                json.dump({"config": trial_config()}, fh)
+            with redirect_stdout(io.StringIO()), \
+                    patch("snnsearch._torch._require_torch"), \
+                    patch.object(pipeline, "build_dataloaders", return_value=([], [], [])), \
+                    patch("snnsearch.train.run_training", return_value={}) as train, \
+                    patch.object(pipeline, "_maybe_report"):
+                args = ["single", "-c", os.path.join(ROOT, "configs", "dvs128_long.yaml"),
+                        "--from-best", path, "--results-dir", out, "--train", "seed=1001",
+                        "qat_schedule_epochs=40", "qat_scheduler=none", "weight_decay=1e-3"]
+                self.assertEqual(cli.main(args), 0)
+            tr = train.call_args.args[0]["train"]
+            self.assertEqual((tr.seed, tr.qat_schedule_epochs, tr.qat_scheduler, tr.weight_decay),
+                             (1001, 40, "none", 1e-3))
+            self.assertIsInstance(tr.seed, int)
+        self.assertIsNone(pipeline.coerce_to_field(pipeline.TrainSpec(), "seed", "none"))
+
 
 class CacheOrderingTests(unittest.TestCase):
     def test_cache_warmup_is_dvs_only(self):
