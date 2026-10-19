@@ -333,6 +333,47 @@ def load_flat_config(path):
     return flat
 
 
+def trained_summary(cfg, bundle, encoder, spec) -> str:
+    """What a `single` run trained, line by line, from the resolved spec and
+    the network plan, so strides, pools and map sizes are the ones built."""
+    from .planning import plan_network
+    inp, enc, neu, tr = spec["input"], spec["encoder"], spec["neuron"], spec["train"]
+    ds = cfg.get("dataset") or {}
+    plan = plan_network(inp, enc, spec["output"], spec["downsample"], spec["head"])
+    side = f"{inp.resize_to}x{inp.resize_to}" if inp.resize_to else f"{inp.H}x{inp.W}"
+    layers = []
+    for b in plan.blocks:
+        text = (f"conv {b.out_channels} k{b.kernel_size}"
+                + (f" s{b.stride}" if b.stride > 1 else "")
+                + f" -> {b.conv_out_hw[0]}x{b.conv_out_hw[1]}")
+        if b.pool:
+            kind = spec["downsample"].pool_type
+            text += (f", {b.pool_kernel}x{b.pool_kernel} {kind} pool"
+                     f" -> {b.out_hw[0]}x{b.out_hw[1]}")
+        layers.append(text)
+    head = spec["head"]
+    fc = [w for w in str(head.fc_widths or "").split(",") if w.strip()]
+    tau_mode = ("learned per channel" if neu.tau_per_channel
+                else "learned per layer" if neu.trainable_tau else "fixed")
+    coding = (encoder.describe() or {}).get("coding") if encoder is not None else None
+    lines = [
+        f"dataset   : {bundle.name}  root={ds.get('root') or ds.get('module')}",
+        f"input     : {inp.C}x{inp.H}x{inp.W} at {side}, T={inp.T}, "
+        f"{inp.input_bits} bit(s) per value, coding {coding}",
+        "layers    : " + " | ".join(layers),
+        f"head      : {plan.reduction}" + (f", hidden {','.join(fc)}" if fc else "")
+        + f" -> {spec['output'].num_classes} classes",
+        f"neuron    : LIF, {'signed' if neu.signed_spikes else 'unsigned'} spikes, "
+        f"norm {enc.norm}, tau {neu.tau} {tau_mode}, threshold "
+        f"{'learned' if neu.trainable_threshold else 'fixed'}",
+        f"training  : {tr.epochs} epochs, {tr.optimizer} lr {tr.lr:.3g}, weight decay "
+        f"{tr.weight_decay:.3g}, loss {tr.loss}, augmentation "
+        f"{'on' if tr.augment else 'off'}, conv dropout {enc.dropout_rate:.3g}, "
+        f"rate penalty {tr.rate_penalty or 0:.3g}, seed {tr.seed}",
+    ]
+    return "\n".join(lines)
+
+
 def run_single(cfg, ckpt="best.pth", from_best=None, epochs=None,
                input_overrides=None, train_overrides=None):
     """Train one configuration, then fold, quantize and audit it.
@@ -442,18 +483,27 @@ def run_single(cfg, ckpt="best.pth", from_best=None, epochs=None,
             print("         training is unaffected; the checkpoint is written.")
 
     payload = {k: v for k, v in res.items() if k != "hw_net"}
-    # `describe(cfg)` summarizes the CONFIG FILE, which on a --from-best run is
-    # not what trained: the trial supplies the architecture, the input size and
-    # the schedule. It reported resize_to=64 and space=uniform for runs that
-    # used 48 and per-layer geometry. Nothing was mis-trained, the real spec
-    # was always in the checkpoint, but single.json is what a person reads, and
-    # a results file that names the wrong input size is how the last bug
-    # travelled.
+    # `trained` describes the network that trained, from the resolved spec.
+    # This used to be `describe(cfg)`, a summary of the CONFIG FILE, which on a
+    # --from-best run is not what trained: the trial supplies the architecture,
+    # the input size and the schedule. It printed T=16, resize_to=64 and
+    # space=uniform for runs that used T=48 at 40x40 with per-layer geometry,
+    # and a review of Search 05 took it for what ran. Nothing was mis-trained,
+    # the real spec was always in the checkpoint, but single.json is what a
+    # person reads. The file is named, not summarized.
+    config = {name: asdict(s) for name, s in spec.items()}
+    if config["encoder"].get("layers_json"):
+        # layers_json wins; the uniform encoder fields are ignored for shape
+        # (EncoderSpec), so leaving their defaults here reads as a second,
+        # contradicting architecture
+        for key in ("depth", "channels", "kernel_size", "stride", "padding", "dilation"):
+            config["encoder"].pop(key, None)
     payload.update(
         wall_minutes=round(mins, 2),
-        config_file=runconfig.describe(cfg),
+        config_file=cfg.get("_source"),
         replayed_from=from_best,
-        config={name: asdict(s) for name, s in spec.items()},
+        trained=trained_summary(cfg, bundle, encoder, spec),
+        config=config,
     )
     with open(os.path.join(out, "single.json"), "w", encoding="utf-8") as fh:
         json.dump(payload, fh, indent=2, default=str)

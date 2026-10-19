@@ -247,6 +247,11 @@ The scores:
 | `deployable` | fits the chip and survived export |
 | `deployed_tau` | the leak each layer deploys with |
 | `threshold_bits` | bits the widest threshold needs on chip: 16 normally, 18 in a layer behind an average pool (the fold makes it 4 x theta + 3). The chip field is `limits.threshold_bits` |
+| `float_val_accuracy` | the best validation score of the float warm-up (the first quarter of the epochs) |
+| `grid_val_accuracy` | the best validation score of the integer phase, averaged over `val_smoothing_epochs` epochs; it picks the checkpoint that deploys |
+| `pre_export_val_accuracy` | that checkpoint on its own, before export |
+| `quant_gap` | `pre_export_val_accuracy` minus `hw_val_accuracy`: what export cost. Export is exact, so it is zero up to rounding; a number far from zero means the deployed network is not the trained one |
+| `end_to_end_gain` | `hw_val_accuracy` minus `float_val_accuracy`: training progress after the warm-up, mostly the integer phase's extra epochs, and no measure of export |
 
 The leaders so far:
 
@@ -323,6 +328,13 @@ Replays the winning configuration exactly (architecture, input size, timesteps,
 training recipe), for as long as you ask, then scores it once on the test set:
 `hw_test_accuracy` in `single.json`. That is the number to report. The
 checkpoint (`best.pth`) holds the deployed network.
+
+`single.json` also holds `trained`, a summary of what actually trained (input
+size and timesteps, every layer with its map size, head, neuron, recipe and
+seed), and `config`, the full resolved settings. `config_file` only names the
+YAML given with `-c`: on a `--from-best` run the trial decides the
+architecture, input size and schedule, so the file's own values do not describe
+the run.
 
 `--train key=value` changes one training setting for an experiment, for
 example `--train weight_decay=1e-3`; every change is printed.

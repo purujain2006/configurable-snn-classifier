@@ -454,6 +454,12 @@ def run_training(cfg: dict, data_dir: str = None, device=None, report_fn=None,
             if grid_state is not None:
                 net.load_state_dict(grid_state)
 
+        # The checkpoint that deploys, scored once before export. grid_best is
+        # the best mean over val_smoothing_epochs epochs, which only picked
+        # this checkpoint, so comparing it with the deployed score measured a
+        # window mean against one epoch near its peak, not the cost of export.
+        pre_export_acc = evaluate(net, val_loader, device)
+
         # ---- freeze into the deployable BN-free model & measure IT -------
         net.eval()
         hw_net = deepcopy(net).export_deployed().to(device)
@@ -464,7 +470,10 @@ def run_training(cfg: dict, data_dir: str = None, device=None, report_fn=None,
         rep = deployment_report(hw_net)
         hw = {
             "hw_val_accuracy": hw_acc,
+            # the best smoothed score of the integer phase, which chose the
+            # checkpoint; pre_export_val_accuracy is that checkpoint's own
             "grid_val_accuracy": grid_best,
+            "pre_export_val_accuracy": pre_export_acc,
             "weight_clip_frac": rep["weight_clip_frac"],
             "max_abs_weight": rep["max_abs_weight"],
             "min_threshold": rep["min_threshold"],
@@ -506,14 +515,16 @@ def run_training(cfg: dict, data_dir: str = None, device=None, report_fn=None,
         hw["deploy_reasons"] = "; ".join(
             r for r in (hw.get("deploy_reasons"), "simulator: " + hw["sim_reason"]) if r)[:300]
 
-    # What conversion cost: same weights, same point in training,
-    # measured before and after export. Positive means export lost
-    # accuracy, which is the only direction this can honestly go.
-    # inline mode names it grid_val_accuracy, tail/ptq names it
-    # qat_val_accuracy; both are the trained net just before export.
-    pre_export = hw.get("grid_val_accuracy") or hw.get("qat_val_accuracy")
+    # What conversion cost: the same checkpoint, scored before and after
+    # export. Export is exact, so this sits at zero up to float rounding; a
+    # number far from it means the deployed network is not the trained one.
+    # Inline mode scored the checkpoint itself above; tail/ptq reports
+    # qat_val_accuracy, the trained net just before export.
+    pre_export = hw.get("pre_export_val_accuracy")
+    if pre_export is None:
+        pre_export = hw.get("qat_val_accuracy")
     hw["quant_gap"] = ((pre_export - hw["hw_val_accuracy"])
-                       if pre_export else None)
+                       if pre_export is not None else None)
     hw["pre_export_val_accuracy"] = pre_export
 
     # What the whole schedule bought, warmup best to deployed. Useful,

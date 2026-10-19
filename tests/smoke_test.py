@@ -131,14 +131,24 @@ def main():
             p = json.load(fh)
         for k in ("float_val_accuracy", "hw_val_accuracy", "deployable",
                   "synops_per_sample", "hw_test_accuracy", "quant_gap",
-                  "end_to_end_gain"):
+                  "pre_export_val_accuracy", "end_to_end_gain", "trained"):
             assert k in p, f"single.json is missing {k}"
-        # quant_gap compares the same weights before and after export, so it
-        # cannot be negative by more than float noise. A large negative value
-        # means it has drifted back to comparing different training phases.
-        if p["quant_gap"] is not None:
-            assert p["quant_gap"] > -0.05, \
-                f"quant_gap {p['quant_gap']} is negative; it is comparing the wrong pair"
+        # quant_gap scores the deploying checkpoint before and after export,
+        # and export is exact, so it is zero up to float rounding. It once
+        # compared the best 5-epoch mean with that one checkpoint and read
+        # -1.9 points on Search 05, which looked like export helping.
+        assert p["pre_export_val_accuracy"] is not None, "no pre-export score"
+        assert abs(p["quant_gap"]) < 0.02, \
+            f"quant_gap {p['quant_gap']}: the deployed network is not the trained one"
+        # the config file is named, not summarized; `trained` says what ran
+        assert p["config_file"] is None or (isinstance(p["config_file"], str)
+                                            and "\n" not in p["config_file"]), \
+            f"config_file should be a path, got {p['config_file']!r}"
+        assert "layers    :" in p["trained"] and "T=" in p["trained"], p["trained"]
+        enc = p["config"]["encoder"]
+        if enc.get("layers_json"):
+            assert "depth" not in enc and "channels" not in enc, \
+                "uniform encoder fields next to layers_json describe a second network"
         state["payload"] = p
         return (f"hw={p['hw_val_accuracy']:.3f} "
                 f"test={p['hw_test_accuracy']:.3f} "
