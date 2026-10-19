@@ -5,7 +5,7 @@
   const { S, T, C } = L;
 
   L.onReady(() => {
-    [neuron, forward, descent, conv, channels, shrink, head, lif, snnNet, work, surrogate, signed]
+    [neuron, forward, descent, conv, channels, shrink, head, sNeuron, sConv, snnNet, binarize, work, surrogate, signed]
       .forEach(f => { try { f(); } catch (e) { console.error(f.name, e); } });
   });
 
@@ -489,70 +489,305 @@
     gy.forEach(y => c2.forEach(cy => S("line", { x1: 633, y1: y, x2: 784, y2: cy, stroke: C.faint, "stroke-opacity": 0.18 }, s)));
   }
 
-  /* ---------- A.5 LIF neuron ---------- */
-  function lif() {
-    const canvas = document.getElementById("lif-canvas");
-    if (!canvas) return;
-    const Wt = [0.45, 0.35, 0.25], VIS = 90;
-    let tau = 4, th = 1.0, rate = 0.3, v = 0, n = 0;
-    const r = L.rng(21);
-    let hist = [];
-    let lastTxt = "-";
-    function stepOnce() {
-      const ins = Wt.map(() => (r() < rate ? 1 : 0));
-      const carried = v;
-      const fired = carried > th;
-      let vv = fired ? 0 : carried;
-      vv = vv - vv / tau;
-      const leaked = vv;
-      const drive = ins.reduce((a, s, i) => a + s * Wt[i], 0);
-      vv += drive;
-      v = vv; if (fired) n++;
-      hist.push({ ins, v: carried, fired, after: v });
-      if (hist.length > VIS) hist.shift();
-      lastTxt = `${carried.toFixed(2)} ${fired ? "fired, reset" : "no spike"}, leak to ${leaked.toFixed(2)}, +${drive.toFixed(2)} = ${v.toFixed(2)}`;
-    }
-    let geo = null;
-    function draw() {
-      if (!geo) geo = Site.setupCanvas(canvas, 300);
-      const { ctx, w, h } = geo;
-      ctx.fillStyle = C.bg; ctx.fillRect(0, 0, w, h);
-      const x0 = 70, pw = w - x0 - 12, dx = pw / VIS;
-      ctx.font = "11px 'JetBrains Mono', monospace";
-      ctx.fillStyle = C.muted;
-      ["in 1", "in 2", "in 3"].forEach((t, i) => ctx.fillText(`${t} ×${Wt[i]}`, 4, 22 + i * 16));
-      const vy0 = 74, vh = 170, vmax = Math.max(1.6, th * 1.4);
-      const Y = val => vy0 + vh - val / vmax * vh;
-      ctx.strokeStyle = C.lineSoft; ctx.strokeRect(x0, vy0, pw, vh);
-      ctx.setLineDash([5, 4]); ctx.strokeStyle = C.accent; ctx.beginPath(); ctx.moveTo(x0, Y(th)); ctx.lineTo(x0 + pw, Y(th)); ctx.stroke(); ctx.setLineDash([]);
-      ctx.fillStyle = C.accent; ctx.fillText("threshold", 4, Y(th) + 4);
-      ctx.fillStyle = C.muted; ctx.fillText("potential", 4, vy0 + vh - 4);
-      ctx.fillText("out", 4, h - 22);
-      hist.forEach((e, k) => {
-        const x = x0 + k * dx;
-        e.ins.forEach((s, i) => { if (s) { ctx.fillStyle = C.s1; ctx.fillRect(x + 1, 12 + i * 16, Math.max(1.5, dx - 2), 11); } });
-        if (e.fired) { ctx.fillStyle = C.accent; ctx.fillRect(x + 1, h - 34, Math.max(2, dx - 2), 18); }
+  /* ---------- A.5 the same neuron, as an ANN and as an SNN ---------- */
+  function sNeuron() {
+    const box = document.getElementById("sneuron-vis");
+    if (!box) return;
+    const N = 20;
+    const st = { x: [0.8, 0.3, 0.6], w: [0.6, -0.4, 0.3], th: 1, tau: 4 };
+    const r = L.rng(31);
+    let v = 0, hist = [], lastTxt = "-";
+    const s = L.svg(box, 780, 470, "An artificial neuron and the same neuron as a spiking neuron");
+    T(s, 10, 18, "Artificial neuron: sends a number", "lt-b");
+    S("line", { x1: 10, x2: 770, y1: 234, y2: 234, stroke: C.lineSoft }, s);
+    T(s, 10, 256, "Spiking neuron: sends spikes", "lt-b");
+    const gTop = S("g", {}, s), gBot = S("g", {}, s);
+    function drawTop() {
+      L.clear(gTop);
+      const ys = [58, 116, 174], nx = 350, ny = 116;
+      const sum = st.x.reduce((a, x, i) => a + x * st.w[i], 0), out = Math.max(0, sum);
+      ys.forEach((y, i) => {
+        const w = st.w[i];
+        S("line", { x1: 90, y1: y, x2: nx - 38, y2: ny, stroke: w >= 0 ? C.accent : C.rust, "stroke-width": 1 + 6 * Math.abs(w), "stroke-opacity": .85 }, gTop);
+        T(gTop, (90 + nx - 38) / 2, (y + ny) / 2 - 9, `× ${w.toFixed(2)}`, w >= 0 ? "lt-a mid" : "lt-r mid");
+        S("circle", { cx: 68, cy: y, r: 20, fill: `rgba(236,231,222,${0.06 + 0.3 * st.x[i]})`, stroke: C.lineStrong }, gTop);
+        T(gTop, 68, y + 4, st.x[i].toFixed(2), "lt-m mid");
       });
-      ctx.strokeStyle = C.s1; ctx.lineWidth = 1.5; ctx.beginPath();
-      hist.forEach((e, k) => { const x = x0 + k * dx; k ? ctx.lineTo(x, Y(Math.min(vmax, e.v))) : ctx.moveTo(x, Y(Math.min(vmax, e.v))); ctx.lineTo(x + dx, Y(Math.min(vmax, e.v))); });
-      ctx.stroke();
-      document.getElementById("lif-v").textContent = v.toFixed(2);
-      document.getElementById("lif-n").textContent = n;
-      document.getElementById("lif-last").textContent = lastTxt;
+      S("circle", { cx: nx, cy: ny, r: 38, fill: C.panel, stroke: C.accent, "stroke-width": 1.5 }, gTop);
+      T(gTop, nx, ny - 6, "Σ", "lt-h mid");
+      T(gTop, nx, ny + 15, sum.toFixed(2), "lt-m mid");
+      arrow(gTop, nx + 40, ny, 448, ny);
+      const bx = 455, by = 66, bw = 110, bh = 100, X = q => bx + (q + 2) / 4 * bw, Y = q => by + bh - q / 2 * bh;
+      S("rect", { x: bx, y: by, width: bw, height: bh, fill: "none", stroke: C.line }, gTop);
+      T(gTop, bx + bw / 2, by - 8, "ReLU", "lt-s mid");
+      S("polyline", { points: `${X(-2)},${Y(0)} ${X(0)},${Y(0)} ${X(2)},${Y(2)}`, fill: "none", stroke: C.s1, "stroke-width": 1.6 }, gTop);
+      const cs = L.clamp(sum, -2, 2);
+      S("circle", { cx: X(cs), cy: Y(Math.max(0, cs)), r: 5, fill: C.accent }, gTop);
+      arrow(gTop, bx + bw + 2, ny, 638, ny);
+      S("circle", { cx: 668, cy: ny, r: 26, fill: `rgba(224,169,79,${0.08 + 0.6 * Math.min(1, out)})`, stroke: C.accent }, gTop);
+      T(gTop, 668, ny + 4, out.toFixed(2), "lt-m mid");
+      T(gTop, 668, ny + 46, "one number, at once", "lt-s mid");
+      document.getElementById("s-ann").textContent = out.toFixed(2);
     }
-    const tk = L.ticker(8);
-    const ctrl = L.loop(canvas, dt => { for (let k = tk.ticks(dt); k > 0; k--) stepOnce(); draw(); return true; },
-      { button: document.getElementById("lif-play") });
-    document.getElementById("lif-step").addEventListener("click", () => { ctrl.pause(); stepOnce(); draw(); });
-    L.seg(document.getElementById("lif-tau"), val => { tau = +val; });
-    L.range("lif-th", val => { th = val; draw(); }, x => x / 100);
-    L.range("lif-rate", val => { rate = val; }, x => x / 100);
-    for (let k = 0; k < 40; k++) stepOnce();
-    window.addEventListener("resize", () => { geo = null; draw(); });
-    draw();
+    function stepOnce() {
+      const ins = st.x.map(x => (r() < x ? 1 : 0));
+      const carried = v, fired = carried > st.th;
+      let vv = fired ? 0 : carried;
+      vv -= vv / st.tau;
+      const leaked = vv, drive = ins.reduce((a, q, i) => a + q * st.w[i], 0);
+      v = vv + drive;
+      hist.push({ ins, carried, fired });
+      if (hist.length > N) hist.shift();
+      lastTxt = `${carried.toFixed(2)} ${fired ? "fired, reset to 0" : "no spike"}, leak to ${leaked.toFixed(2)}, ${drive >= 0 ? "+" : "−"} ${Math.abs(drive).toFixed(2)} = ${v.toFixed(2)}`;
+    }
+    function drawBot() {
+      L.clear(gBot);
+      const ys = [312, 368, 424], nx = 350, ny = 368, cw = 7;
+      const last = hist[hist.length - 1] || { ins: [0, 0, 0], fired: false };
+      ys.forEach((y, i) => {
+        T(gBot, 20, y - 16, `input ${i + 1}: spikes on ${Math.round(st.x[i] * 100)}% of steps`, "lt-s");
+        for (let k = 0; k < N; k++) {
+          const h = hist[hist.length - N + k], on = h && h.ins[i];
+          S("rect", { x: 20 + k * cw, y: y - 9, width: cw - 1.5, height: 18, fill: on ? (k === N - 1 ? C.accent : C.s1) : "rgba(255,255,255,.05)" }, gBot);
+        }
+        const w = st.w[i], lit = last.ins[i];
+        S("line", { x1: 162, y1: y, x2: nx - 36, y2: ny, stroke: w >= 0 ? C.accent : C.rust, "stroke-width": 1 + 6 * Math.abs(w), "stroke-opacity": lit ? .9 : .18 }, gBot);
+        T(gBot, (162 + nx - 36) / 2 + 8, (y + ny) / 2 - 9, `× ${w.toFixed(2)}`, w >= 0 ? "lt-a mid" : "lt-r mid");
+      });
+      const lvl = L.clamp(v / st.th, -1, 1.5);
+      S("circle", { cx: nx, cy: ny, r: 36, fill: lvl > 0 ? `rgba(224,169,79,${0.08 + 0.5 * Math.min(1, lvl)})` : C.panel, stroke: last.fired ? C.accent : C.lineStrong, "stroke-width": last.fired ? 3 : 1.4 }, gBot);
+      T(gBot, nx, ny - 6, "potential", "lt-s mid");
+      T(gBot, nx, ny + 14, v.toFixed(2), "lt-m mid");
+      arrow(gBot, nx + 38, ny, 418, ny);
+      const bx = 424, by = 314, bw = 168, bh = 108, vmax = 2 * st.th, vmin = -0.5 * st.th;
+      const Y = q => by + bh - (L.clamp(q, vmin, vmax) - vmin) / (vmax - vmin) * bh;
+      S("rect", { x: bx, y: by, width: bw, height: bh, fill: "rgba(255,255,255,.02)", stroke: C.line }, gBot);
+      S("line", { x1: bx, x2: bx + bw, y1: Y(st.th), y2: Y(st.th), stroke: C.accent, "stroke-dasharray": "4 3" }, gBot);
+      T(gBot, bx + bw - 2, Y(st.th) - 4, "threshold", "lt-ms end");
+      T(gBot, bx, by - 8, "potential, last 20 steps", "lt-s");
+      const dx = bw / N, pts = [];
+      hist.forEach((h, k) => {
+        const x0 = bx + (N - hist.length + k) * dx;
+        pts.push(`${x0},${Y(h.carried)}`, `${x0 + dx},${Y(h.carried)}`);
+        if (h.fired) S("circle", { cx: x0 + dx / 2, cy: by + 6, r: 3, fill: C.accent }, gBot);
+      });
+      if (pts.length) S("polyline", { points: pts.join(" "), fill: "none", stroke: C.s1, "stroke-width": 1.5 }, gBot);
+      arrow(gBot, bx + bw + 4, ny, 618, ny);
+      for (let k = 0; k < N; k++) {
+        const h = hist[hist.length - N + k];
+        S("rect", { x: 624 + k * cw, y: ny - 16, width: cw - 1.5, height: 32, fill: h && h.fired ? C.accent : "rgba(255,255,255,.05)" }, gBot);
+      }
+      T(gBot, 624, ny + 34, "spikes it sends", "lt-s");
+      const n = hist.length, k = hist.filter(h => h.fired).length;
+      document.getElementById("s-rate").textContent = n ? `${k} spikes in ${n} steps = ${(k / n).toFixed(2)} per step` : "-";
+      document.getElementById("s-last").textContent = lastTxt;
+    }
+    const tk = L.ticker(5);
+    const ctrl = L.loop(box, dt => { const n = tk.ticks(dt); if (n) { for (let k = 0; k < n; k++) stepOnce(); drawBot(); } return true; },
+      { button: document.getElementById("s-play") });
+    document.getElementById("s-step").addEventListener("click", () => { ctrl.pause(); stepOnce(); drawBot(); });
+    [1, 2, 3].forEach(i => {
+      L.range("sx" + i, val => { st.x[i - 1] = val; drawTop(); drawBot(); }, q => q / 100);
+      L.range("sw" + i, val => { st.w[i - 1] = val; drawTop(); drawBot(); }, q => q / 100);
+    });
+    L.range("sth", val => { st.th = val; drawBot(); }, q => q / 100);
+    L.seg(document.getElementById("s-tau"), val => { st.tau = +val; });
+    for (let k = 0; k < N; k++) stepOnce();
+    drawTop(); drawBot();
   }
 
-  /* ---------- A.6 spiking network ---------- */
+  /* ---------- A.6 spiking convolution ---------- */
+  function sConv() {
+    const box = document.getElementById("sconv-vis");
+    if (!box) return;
+    const N = 10, M = 8, Tn = 16, TH = 1.0, TAU = 4, SCALE = 0.45;
+    const K = [[1, 0, -1], [1, 0, -1], [1, 0, -1]];
+    let t, v, cnt, spk, frame, r;
+    const s = L.svg(box, 900, 320, "A spiking convolution over a moving bar");
+    const cs = 17, ix = 14, iy = 50, kx = 214, ky = 100, kc = 22, oc = 17, oy = 67;
+    const MX = [306, 476, 646];
+    T(s, ix, 34, "input spikes, this step", "lt-s");
+    T(s, kx, ky - 12, "kernel", "lt-s");
+    ["membrane potential", "fired this step", "spike count so far"].forEach((t0, i) => T(s, MX[i], oy - 16, t0, "lt-s"));
+    const inC = [], mem = [], fire = [], cnt0 = [], cntT = [];
+    for (let i = 0; i < N; i++) for (let j = 0; j < N; j++) inC.push(S("rect", { x: ix + j * cs, y: iy + i * cs, width: cs - 2, height: cs - 2, fill: C.cell }, s));
+    K.flat().forEach((q, i) => {
+      S("rect", { x: kx + (i % 3) * kc, y: ky + Math.floor(i / 3) * kc, width: kc - 2, height: kc - 2, fill: L.signedFill(q) }, s);
+      T(s, kx + (i % 3) * kc + kc / 2 - 1, ky + Math.floor(i / 3) * kc + kc / 2 + 3, String(q), Math.abs(q) > .4 ? "lt-dark mid" : "lt-ms mid");
+    });
+    arrow(s, ix + N * cs + 4, iy + N * cs / 2, kx - 6, ky + 1.5 * kc);
+    arrow(s, kx + 3 * kc + 4, ky + 1.5 * kc, MX[0] - 6, oy + M * oc / 2);
+    arrow(s, MX[0] + M * oc + 4, oy + M * oc / 2, MX[1] - 6, oy + M * oc / 2);
+    arrow(s, MX[1] + M * oc + 4, oy + M * oc / 2, MX[2] - 6, oy + M * oc / 2);
+    for (let i = 0; i < M; i++) for (let j = 0; j < M; j++) {
+      mem.push(S("rect", { x: MX[0] + j * oc, y: oy + i * oc, width: oc - 2, height: oc - 2, fill: C.cell }, s));
+      fire.push(S("rect", { x: MX[1] + j * oc, y: oy + i * oc, width: oc - 2, height: oc - 2, fill: C.cell }, s));
+      cnt0.push(S("rect", { x: MX[2] + j * oc, y: oy + i * oc, width: oc - 2, height: oc - 2, fill: C.cell }, s));
+      cntT.push(T(s, MX[2] + j * oc + oc / 2 - 1, oy + i * oc + oc / 2 + 3, "", "lt-dark mid"));
+    }
+    const strip = [...Array(Tn)].map((_, k) => S("rect", { x: 14 + k * 54, y: 262, width: 50, height: 14, fill: C.cell }, s));
+    T(s, 14, 296, `the clip: ${Tn} steps, the bar moving left to right`, "lt-s");
+    function makeFrame(tt) {
+      const c0 = Math.floor(tt * (N - 1) / Tn), f = [];
+      for (let i = 0; i < N; i++) for (let j = 0; j < N; j++) f.push(r() < ((j === c0 || j === c0 + 1) ? 0.9 : 0.03) ? 1 : 0);
+      return f;
+    }
+    function reset() { t = 0; r = L.rng(12); v = Array(M * M).fill(0); cnt = Array(M * M).fill(0); spk = Array(M * M).fill(0); frame = Array(N * N).fill(0); paint(); }
+    function stepOnce() {
+      if (t >= Tn) return false;
+      frame = makeFrame(t);
+      for (let i = 0; i < M; i++) for (let j = 0; j < M; j++) {
+        const q = i * M + j;
+        let cur = 0;
+        for (let a = 0; a < 3; a++) for (let b = 0; b < 3; b++) cur += K[a][b] * frame[(i + a) * N + j + b];
+        const fired = v[q] > TH;
+        let vv = fired ? 0 : v[q];
+        vv -= vv / TAU;
+        v[q] = vv + SCALE * cur;
+        spk[q] = fired ? 1 : 0;
+        cnt[q] += spk[q];
+      }
+      t++;
+      return true;
+    }
+    function paint() {
+      frame.forEach((f, i) => inC[i].setAttribute("fill", f ? C.accent : C.cell));
+      const mx = Math.max(1, ...cnt);
+      for (let q = 0; q < M * M; q++) {
+        mem[q].setAttribute("fill", L.signedFill(v[q] / (1.5 * TH)));
+        fire[q].setAttribute("fill", spk[q] ? C.accent : C.cell);
+        cnt0[q].setAttribute("fill", cnt[q] ? `rgba(224,169,79,${0.2 + 0.8 * cnt[q] / mx})` : C.cell);
+        cntT[q].textContent = cnt[q] ? String(cnt[q]) : "";
+      }
+      strip.forEach((rc, k) => { rc.setAttribute("fill", k < t ? "rgba(224,169,79,.35)" : C.cell); rc.setAttribute("stroke", k === t - 1 ? C.accent : "none"); });
+      document.getElementById("sconv-readout").innerHTML = `step <b>${t}</b> of ${Tn} · ${cnt.reduce((a, b) => a + b, 0)} output spikes so far`;
+    }
+    const tk = L.ticker(2.5);
+    const playBtn = document.getElementById("sconv-play");
+    playBtn.addEventListener("click", () => { if (t >= Tn) reset(); }, true);
+    const ctrl = L.loop(box, dt => {
+      let alive = true;
+      for (let n = tk.ticks(dt); n > 0 && alive; n--) { alive = stepOnce(); paint(); }
+      return alive;
+    }, { button: playBtn });
+    document.getElementById("sconv-step").addEventListener("click", () => { ctrl.pause(); if (t >= Tn) reset(); stepOnce(); paint(); });
+    document.getElementById("sconv-restart").addEventListener("click", () => { reset(); ctrl.play(); });
+    reset();
+  }
+
+  /* ---------- A.8 what binarizing costs ---------- */
+  function binarize() {
+    const box = document.getElementById("bz-vis");
+    if (!box) return;
+    let x = 0.37, Tn = 16, tau = 4, reset = "zero", reveal = 1, sweeping = false;
+    function run(xv) {
+      let v = 0, k = 0;
+      const tr = [];
+      for (let t = 0; t <= Tn; t++) {
+        const carried = v, fired = t > 0 && carried >= 1 - 1e-9;
+        if (fired) { k++; v = reset === "zero" ? 0 : v - 1; }
+        if (tau) v -= v / tau;
+        v += xv;
+        tr.push({ carried, fired });
+      }
+      return { k, rate: k / Tn, tr };
+    }
+    const s = L.svg(box, 880, 340, "An input value turned into a spike count, against the value itself");
+    const gL = S("g", {}, s), gR = S("g", {}, s);
+    const PX = q => 470 + q / 1.5 * 380, PY = q => 290 - q / 1.5 * 250;
+    function drawRight() {
+      L.clear(gR);
+      T(gR, 470, 20, "what the neuron sends, for every input", "lt-b");
+      S("rect", { x: PX(0), y: PY(1.5), width: PX(1.5) - PX(0), height: PY(0) - PY(1.5), fill: "rgba(255,255,255,.02)", stroke: C.lineSoft }, gR);
+      [0, 0.5, 1, 1.5].forEach(q => {
+        T(gR, PX(q), 308, q.toFixed(1), "lt-ms mid");
+        T(gR, PX(0) - 8, PY(q) + 4, q.toFixed(1), "lt-ms end");
+        S("line", { x1: PX(0), x2: PX(1.5), y1: PY(q), y2: PY(q), stroke: C.lineSoft }, gR);
+      });
+      T(gR, PX(0.75), 330, "input, as a fraction of the threshold", "lt-s mid");
+      S("line", { x1: PX(0), y1: PY(0), x2: PX(1.5), y2: PY(1.5), stroke: C.s1, "stroke-dasharray": "6 4", "stroke-width": 1.4 }, gR);
+      T(gR, PX(1.18), PY(1.38), "artificial neuron", "lt-ms end");
+      const pts = [];
+      let first = null, prev = null;
+      for (let i = 0; i <= 300; i++) {
+        const q = i * 0.005, rt = run(q).rate;
+        if (first === null && rt > 0) first = q;
+        if (prev !== null) pts.push(`${PX(q)},${PY(prev)}`);
+        pts.push(`${PX(q)},${PY(rt)}`);
+        prev = rt;
+      }
+      S("polyline", { points: pts.join(" "), fill: "none", stroke: C.accent, "stroke-width": 2 }, gR);
+      T(gR, PX(1.5) - 4, PY(1) - 8, "at most one spike per step", "lt-a end");
+      if (first !== null && first > 0.04) {
+        S("line", { x1: PX(0), x2: PX(first), y1: PY(0) - 6, y2: PY(0) - 6, stroke: C.red, "stroke-width": 3 }, gR);
+        T(gR, PX(first) + 4, PY(0) - 12, "too weak to fire", "lt-bad");
+      }
+      const cur = run(x);
+      S("line", { x1: PX(x), x2: PX(x), y1: PY(1.5), y2: PY(0), stroke: C.text, "stroke-opacity": .35 }, gR);
+      S("line", { x1: PX(x), x2: PX(x), y1: PY(x), y2: PY(cur.rate), stroke: C.red, "stroke-width": 4 }, gR);
+      S("circle", { cx: PX(x), cy: PY(x), r: 5, fill: C.s1 }, gR);
+      S("circle", { cx: PX(x), cy: PY(cur.rate), r: 6, fill: C.accent }, gR);
+      document.getElementById("bz-ideal").textContent = x.toFixed(2);
+      document.getElementById("bz-snn").textContent = `${cur.k} of ${Tn} = ${cur.rate.toFixed(2)}`;
+      document.getElementById("bz-err").textContent = x > 0 ? `${Math.abs(x - cur.rate).toFixed(2)} (${Math.round(100 * Math.abs(x - cur.rate) / x)}%)` : "0";
+      document.getElementById("bz-levels").textContent = `${Tn + 1}`;
+    }
+    function drawLeft() {
+      L.clear(gL);
+      const cur = run(x), n = Tn + 1, cw = 330 / n, shown = Math.max(1, Math.round(reveal * n));
+      T(gL, 20, 20, `one neuron, input ${x.toFixed(2)} on every step`, "lt-b");
+      T(gL, 20, 46, "input", "lt-s");
+      for (let t = 0; t < n; t++) {
+        const h = Math.min(1.5, x) / 1.5 * 22;
+        S("rect", { x: 60 + t * cw, y: 52 - h, width: cw - 1.5, height: h, fill: t < shown ? "rgba(236,231,222,.45)" : "rgba(255,255,255,.05)" }, gL);
+      }
+      const by = 70, bh = 150, vmax = 1.6, Y = q => by + bh - L.clamp(q, 0, vmax) / vmax * bh;
+      T(gL, 20, by + 12, "potential", "lt-s");
+      S("rect", { x: 60, y: by, width: 330, height: bh, fill: "rgba(255,255,255,.02)", stroke: C.line }, gL);
+      S("line", { x1: 60, x2: 390, y1: Y(1), y2: Y(1), stroke: C.accent, "stroke-dasharray": "4 3" }, gL);
+      T(gL, 388, Y(1) - 4, "threshold", "lt-ms end");
+      const pts = [];
+      cur.tr.slice(0, shown).forEach((e, t) => { pts.push(`${60 + t * cw},${Y(e.carried)}`, `${60 + (t + 1) * cw},${Y(e.carried)}`); });
+      S("polyline", { points: pts.join(" "), fill: "none", stroke: C.s1, "stroke-width": 1.5 }, gL);
+      T(gL, 20, 254, "spikes", "lt-s");
+      let k = 0;
+      cur.tr.forEach((e, t) => {
+        const on = e.fired && t < shown;
+        if (on) k++;
+        S("rect", { x: 60 + t * cw, y: 236, width: cw - 1.5, height: 26, fill: on ? C.accent : "rgba(255,255,255,.05)" }, gL);
+      });
+      T(gL, 60, 292, `${k} spike${k === 1 ? "" : "s"} in ${Tn} steps = ${(k / Tn).toFixed(2)} per step`, "lt-m");
+      T(gL, 60, 312, `it can only say 0, 1/${Tn}, 2/${Tn}, and so on up to ${Tn}/${Tn}`, "lt-s");
+    }
+    let sweepX = 0;
+    const playBtn = document.getElementById("bz-play"), slider = document.getElementById("bz-x");
+    const ctrl = L.loop(box, dt => {
+      if (sweeping) {
+        sweepX += dt * 0.22;
+        if (sweepX > 1.5) { sweeping = false; sweepX = 1.5; }
+        x = Math.round(sweepX * 100) / 100;
+        slider.value = Math.round(x * 100);
+        document.getElementById("bz-x-out").textContent = x.toFixed(2);
+        reveal = 1; drawLeft(); drawRight();
+        if (!sweeping) { playBtn.textContent = "Sweep all inputs"; return false; }
+        return true;
+      }
+      if (reveal < 1) { reveal = Math.min(1, reveal + dt / 1.6); drawLeft(); return true; }
+      return false;
+    }, { autoplay: false });
+    playBtn.addEventListener("click", () => {
+      sweeping = !sweeping;
+      if (sweeping) { sweepX = x >= 1.49 ? 0 : x; playBtn.textContent = "Pause"; ctrl.play(); }
+      else playBtn.textContent = "Sweep all inputs";
+    });
+    function changed() { reveal = sweeping ? 1 : 0; drawLeft(); drawRight(); if (!sweeping) ctrl.play(); }
+    L.range("bz-x", q => { x = q; changed(); }, q => q / 100);
+    L.seg(document.getElementById("bz-T"), q => { Tn = +q; changed(); });
+    L.seg(document.getElementById("bz-tau"), q => { tau = +q; changed(); });
+    L.seg(document.getElementById("bz-reset"), q => { reset = q; changed(); });
+  }
+
+  /* ---------- A.7 spiking network ---------- */
   function snnNet() {
     const box = document.getElementById("snn-vis");
     if (!box) return;
@@ -636,7 +871,7 @@
     L.range("snn-T", v => { Tn = v; restart(); });
   }
 
-  /* ---------- A.7 work ---------- */
+  /* ---------- A.9 work ---------- */
   function work() {
     const box = document.getElementById("work-vis");
     if (!box) return;
@@ -675,7 +910,7 @@
     stepOnce();
   }
 
-  /* ---------- A.8 surrogate (static) ---------- */
+  /* ---------- A.10 surrogate (static) ---------- */
   function surrogate() {
     const box = document.getElementById("surrogate-vis");
     if (!box) return;
@@ -706,7 +941,7 @@
     T(s, p2.X(-2.9), p2.Y(0.55), "stand-in slope", "lt-m");
   }
 
-  /* ---------- A.9 signed (static) ---------- */
+  /* ---------- A.11 signed (static) ---------- */
   function signed() {
     const box = document.getElementById("signed-vis");
     if (!box) return;
