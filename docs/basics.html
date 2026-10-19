@@ -284,7 +284,7 @@
 </div>
 <p>Every layer passes its rounded answer on to the next, so the errors compound through the network. This is the main reason a spiking network usually scores somewhat below an ordinary network of the same shape, and why converting an already trained ordinary network into a spiking one loses accuracy. Training the network as a spiking network from the start, as this project does, lets the weights adapt to these limits, which recovers much of the gap but not all of it. The all-or-nothing spike is also why training needs a trick to compute gradients (A.10).</p>
 <div class="callout key"><span class="callout-title">Is this what limits accuracy here?</span>
-<p>Mostly not. The networks here reach 90 to 99% accuracy on their own training data, so turning numbers into spikes does not stop them from learning the gestures. What holds validation accuracy near 74% is overfitting: the networks learn the 19 training people rather than the gestures (<a href="data.html#overfit">page B</a>). Binarizing still costs something, and more frames would shrink that cost at the price of time and energy on the chip.</p></div>
+<p>Mostly not. The networks here reach 90 to 99% accuracy on their own training data, so turning numbers into spikes does not stop them from learning the gestures. What holds validation accuracy below about 80% is overfitting: the networks learn the 19 training people rather than the gestures (<a href="data.html#overfit">page B</a>). Binarizing still costs something, and more frames would shrink that cost at the price of time and energy on the chip.</p></div>
 </section>
 
 <section class="reveal" id="work">
@@ -302,7 +302,7 @@
 </div>
 <div class="demo-note"><p>Each lit connection on the spiking side is one <span class="term">synaptic operation</span> (SynOp): one spike adding one weight to one neuron. Counting SynOps is the usual way to compare how much work spiking networks do.</p></div>
 </div>
-<aside class="aka" data-viz="none"><div class="aka-head"><span class="aka-k">In the search records</span><code class="aka-name">synops_per_sample</code></div><p>The measured count per clip. For the most accurate network trained so far (page H) it is <b>50,100,000</b>: about 50 million spike-triggered additions to classify one clip. A conventional network of the same shape would do about 69 million multiply-adds, so this network does 0.73 times that work (<a href="results.html#topfive">page H</a>).</p></aside>
+<aside class="aka" data-viz="none"><div class="aka-head"><span class="aka-k">In the search records</span><code class="aka-name">synops_per_sample</code></div><p>The measured count per clip. For one earlier network it is <b>50,100,000</b>: about 50 million spike-triggered additions to classify one clip. A conventional network of the same shape would do about 69 million multiply-adds, so that network does 0.73 times the work. The best networks so far do several times more (<a href="results.html#work">page H</a>).</p></aside>
 </section>
 
 <section class="reveal" id="surrogate">

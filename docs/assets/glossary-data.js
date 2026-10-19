@@ -195,7 +195,7 @@ window.GLOSSARY = [
     d: "A number that fixes every random choice of a training run, so the same seed repeats a run exactly." },
   { id: "log-scale", t: "log scale", a: ["log scale"], see: "settings.html#optimization",
     d: "A scale where each step multiplies instead of adds, so 0.001, 0.01 and 0.1 are evenly spaced." },
-  { id: "grokking", t: "grokking", a: ["grokking", "delayed generalization"], see: "results.html#decay",
+  { id: "grokking", t: "grokking", a: ["grokking", "delayed generalization"], see: "results.html#overfit",
     d: "A sudden late improvement on new data, long after training accuracy has flattened." },
   { id: "poisson", t: "Poisson coding", a: ["poisson", "Poisson"], see: "data.html#frames",
     d: "A random way to turn brightness into spikes: each step, a pixel fires with probability equal to its brightness." },

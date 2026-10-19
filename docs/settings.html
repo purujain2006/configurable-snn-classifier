@@ -155,7 +155,7 @@
 <h2><span class="sec-num">D.10</span>What mattered most</h2>
 <p>Every two-way or three-way setting from the balanced comparison, ranked by the gap between its best and worst option.</p>
 <figure class="figure"><div class="lv" id="ranked-vis" style="padding:20px 22px 10px"></div><figcaption>The dashed line marks roughly the gap luck alone could produce between two options tried 48 times each; options tried fewer times need more. The head is the one choice far beyond it; the learning-rate schedule, bits per pixel, augmentation and T come next.</figcaption></figure>
-<div class="recap"><strong>In short</strong><p>For deployed accuracy after 80 epochs, the head matters most: flatten beats GAP by about 13 points. Most other settings move accuracy by a few points at most, and many are within noise. The best networks share long clips (T = 48), one bit per pixel, signed spikes, a flatten head, a shrunk first layer and thresholds that fold the bias in, but the largest remaining problem is overfitting, which no single setting here fixes.</p></div>
+<div class="recap"><strong>In short</strong><p>For deployed accuracy after 80 epochs, the head matters most: flatten beats GAP by about 13 points. Most other settings move accuracy by a few points at most, and many are within noise. The twelve best networks the search has trained so far share long clips (T = 48), one bit per pixel, signed spikes, a flatten head, a shrunk first layer and thresholds that fold the bias in, but the largest remaining problem is overfitting, which no single setting here fixes.</p></div>
 </section>
 
 </div>

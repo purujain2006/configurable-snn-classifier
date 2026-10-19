@@ -76,7 +76,7 @@
 <section class="reveal" id="when">
 <h2><span class="sec-num">E.6</span>When more bits help</h2>
 <p>Extra bits help when pixels collect many events per frame and the difference between a busy pixel and a quiet one carries meaning: short clips cut into few frames, or frames shrunk a lot, so each pixel covers a large patch of the camera. They cost a smaller frame, a wider first layer and coarser first-layer weights.</p>
-<p>In the balanced comparison of 96 networks (<a href="settings.html#input">page D</a>), one bit did as well as any: 54.7% for 1 bit, 50.8% for 2, 47.7% for 3 and 54.9% for 4, all within noise of each other, and every one of the twelve best networks used one bit. At the frame sizes and clip lengths that score best, a bigger frame is worth more than a count.</p>
+<p>In the balanced comparison of 96 networks (<a href="settings.html#input">page D</a>), one bit did as well as any: 54.7% for 1 bit, 50.8% for 2, 47.7% for 3 and 54.9% for 4, all within noise of each other, and every one of the twelve best networks the search has trained so far uses one bit. At the frame sizes and clip lengths that score best, a bigger frame is worth more than a count.</p>
 <div class="recap"><strong>In short</strong><p>An axon carries one bit. With B bits per pixel, the event count is capped at 2<sup>B</sup> − 1, written in binary, and sent on B axons whose weights double with each bit, so the neuron receives exactly count × w. Each bit costs axons, first-layer inputs and weight precision, and the work it causes is one SynOp per 1 bit per connection.</p></div>
 </section>
 
