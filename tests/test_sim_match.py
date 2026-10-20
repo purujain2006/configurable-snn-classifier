@@ -380,7 +380,8 @@ class FpgaDiff(unittest.TestCase):
     def test_neuron_lookup_by_index_is_a_dictionary(self):
         """connectome_utils finds a neuron by index by scanning every entry,
         and hs_api does that for every neuron at every step when membranes
-        are read; build() swaps in a dictionary with the same answers."""
+        are read (by core index on simpleSim, by HBM index on the FPGA);
+        build() swaps in dictionaries with the same answers."""
         import types
         fd = load_fpga_diff()
 
@@ -394,16 +395,27 @@ class FpgaDiff(unittest.TestCase):
             def get_coreTypeIdx(self):
                 return self.idx
 
-        entries = {"A0": Entry("axon", 0), "n0": Entry("neuron", 0), "n1": Entry("neuron", 1)}
+            def get_hbmIdx(self):
+                return 100 + self.idx
+
+        entries = {"A0": Entry("axon", 0), "n0": Entry("neuron", 0), "n1": Entry("neuron", 1),
+                   "n1b": Entry("neuron", 1)}
 
         def scan(idx):
             raise AssertionError("the slow scan was called")
-        conn = types.SimpleNamespace(connectomeDict=entries, get_neuron_by_idx=scan)
+        conn = types.SimpleNamespace(connectomeDict=entries, get_neuron_by_idx=scan,
+                                     get_neuron_by_hbmIdx=scan)
         net = types.SimpleNamespace(connectome=conn)
         fd.fast_index_lookup(net)
-        self.assertIs(net.connectome.get_neuron_by_idx(1), entries["n1"])
-        self.assertIs(net.connectome.get_neuron_by_idx(0), entries["n0"])     # not the axon
-        self.assertIsNone(net.connectome.get_neuron_by_idx(7))
+        for lookup, base in (("get_neuron_by_idx", 0), ("get_neuron_by_hbmIdx", 100)):
+            find = getattr(net.connectome, lookup)
+            self.assertIs(find(base + 1), entries["n1"])      # the first match, as the scan
+            self.assertIs(find(base), entries["n0"])          # not the axon
+            self.assertIsNone(find(base + 7))
+        # an older connectome_utils with no HBM lookup gets none added
+        old = types.SimpleNamespace(connectomeDict=entries, get_neuron_by_idx=scan)
+        fd.fast_index_lookup(types.SimpleNamespace(connectome=old))
+        self.assertFalse(hasattr(old, "get_neuron_by_hbmIdx"))
 
     def test_micro_fails_exactly_what_the_planted_bugs_break(self):
         from unittest import mock

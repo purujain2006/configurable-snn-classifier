@@ -107,24 +107,39 @@ def build(axons, conns, out_keys, target, core=0):
     return net, (lambda: net.simpleSim.initialize_sim_vars(net.simpleSim.numNeurons))
 
 
+# connectome_utils' neuron lookups that scan every entry, and the index each
+# one matches
+INDEX_LOOKUPS = (("get_neuron_by_idx", "get_coreTypeIdx"),
+                 ("get_neuron_by_hbmIdx", "get_hbmIdx"))
+
+
 def fast_index_lookup(net):
-    """Replace connectome_utils' get_neuron_by_idx, which scans every entry,
-    with a dictionary built once. hs_api calls it for every neuron at every
-    step when membranes are read: rank 2's 47k neurons made that 2.4 billion
-    comparisons a step, and a record sat for hours after the build. Same
-    answers, None for an index with no neuron, as the scan gives."""
+    """Replace connectome_utils' neuron lookups by index, which scan every
+    entry, with dictionaries built once. hs_api calls one for every neuron at
+    every step when membranes are read: get_neuron_by_idx on simpleSim, and
+    get_neuron_by_hbmIdx on the FPGA in the L6m testing-suite commits. Rank
+    2's 47k neurons made that billions of comparisons a step: the simpleSim
+    record sat for hours after the build, and the FPGA one took 8 minutes a
+    step. Same answers as the scans: the first neuron (not axon) with that
+    index, None when there is none."""
     conn = getattr(net, "connectome", None)
     entries = getattr(conn, "connectomeDict", None)
     if not entries:
         return
-    by_idx = {}
-    for n in entries.values():
+    try:
+        neurons = [n for n in entries.values() if n.get_neuron_type() == "neuron"]
+    except AttributeError:
+        return
+    for lookup, index in INDEX_LOOKUPS:
+        if not hasattr(conn, lookup):
+            continue
         try:
-            if n.get_neuron_type() == "neuron":
-                by_idx.setdefault(n.get_coreTypeIdx(), n)
+            by_idx = {}
+            for n in neurons:
+                by_idx.setdefault(getattr(n, index)(), n)
         except AttributeError:
-            return
-    conn.get_neuron_by_idx = by_idx.get
+            continue
+        setattr(conn, lookup, by_idx.get)
 
 
 def step(net, inputs):
