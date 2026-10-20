@@ -306,7 +306,14 @@ def _real_simplesim(layers, in_shape, items, flush, target="simpleSim", core=0):
     n_cls = len(out_groups[0][0])
     n_neurons = len(conns)
     extra = {"coreID": core} if target == "CRI" else {}
-    net = CRI_network(axons=axons, connections=conns, outputs=out_keys, target=target, **extra)
+    try:
+        net = CRI_network(axons=axons, connections=conns, outputs=out_keys, target=target,
+                          **extra)
+    except TypeError as exc:
+        # an hs_api without the coreID argument runs on core 0
+        if not extra or core != 0 or "coreID" not in str(exc):
+            raise
+        net = CRI_network(axons=axons, connections=conns, outputs=out_keys, target=target)
     del axons, conns
     print(f"  CRI_network built ({(time.time() - t0) / 60:.1f} min)", flush=True)
     clear = None
