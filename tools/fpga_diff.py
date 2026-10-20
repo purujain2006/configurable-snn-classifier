@@ -59,14 +59,26 @@ _HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path = [p for p in sys.path if os.path.abspath(p or ".") != _HERE]
 sys.path.insert(0, ROOT)
 
-WRAP = 2 ** 36                      # a neuron's state word on the FPGA
+WORD = 2 ** 36                      # a neuron's state word in URAM
+MP_BITS = 32                        # its membrane potential: bits 31:0
 PLUS, MINUS = "+", "−"        # outside f-string expressions: Python 3.10 on crisdsc0
 
 
-def signed36(v):
-    """A 36-bit two's-complement value as a Python int."""
-    v = int(v) % WRAP
-    return v - WRAP if v >= WRAP // 2 else v
+def signed_bits(v, bits):
+    """v as a bits-wide two's-complement value."""
+    w = 2 ** bits
+    v = int(v) % w
+    return v - w if v >= w // 2 else v
+
+
+def signed_mp(v):
+    """The membrane potential in a state word, read as hs_api's own
+    read_membrane reads it on the L6m testing-suite commits: bits 31:0,
+    sign-extended. The FPGA's step(membranePotential=True) hands back the raw
+    36-bit word, so a negative membrane read as 36 bits looks like a huge
+    positive one. simpleSim hands back the value itself, which this leaves
+    as it is (simpleSim's membrane is 32 bits too)."""
+    return signed_bits(v, MP_BITS)
 
 
 def leak_arith(v, s):
@@ -74,9 +86,11 @@ def leak_arith(v, s):
     return v - (v >> s)
 
 
-def leak_logical(v, s):
-    """The L6m bug: the shift treats a negative 36-bit word as unsigned."""
-    return signed36(v - ((v % WRAP) >> s))
+def leak_logical(v, s, bits=MP_BITS):
+    """The L6m bug: the shift treats a negative membrane as unsigned. bits is
+    the width shifted: 32 for the membrane hs_api reads, 36 for the whole
+    state word. Nothing documents which, so compare and micro try both."""
+    return signed_bits(v - ((v % 2 ** bits) >> s), bits)
 
 
 # ---------------------------------------------------------------------------
@@ -153,7 +167,10 @@ def step(net, inputs):
 
 
 def run(net, clear, inputs_per_step, keys, out_keys, progress=False):
-    """Membranes (steps x keys), output spikes (steps x out_keys), counters.
+    """Membranes (steps x keys), output spikes (steps x out_keys), counters,
+    and on the FPGA how often each value of a state word's top four bits
+    (35:32, outside the membrane) came back: all 0 or all F for sign
+    extension, anything else means those bits hold something of their own.
     progress prints about ten lines: on the FPGA, reading every membrane back
     takes minutes a step for a network of rank 2's size."""
     t0 = time.time()
@@ -164,12 +181,17 @@ def run(net, clear, inputs_per_step, keys, out_keys, progress=False):
     M = np.zeros((S, len(keys)), np.int64)
     O = np.zeros((S, len(out_keys)), bool)
     counters = []
+    tops = {}
     for t, inp in enumerate(inputs_per_step):
         mem, spikes, counter = step(net, inp)
+        fpga = counter is not None
         for k, v in mem.items():
             i = idx.get(k)
             if i is not None:
-                M[t, i] = signed36(v)
+                M[t, i] = signed_mp(v)
+                if fpga:
+                    top = (int(v) % WORD) >> MP_BITS
+                    tops[top] = tops.get(top, 0) + 1
         for k in spikes:
             j = oidx.get(k)
             if j is not None:
@@ -179,7 +201,7 @@ def run(net, clear, inputs_per_step, keys, out_keys, progress=False):
             took = (time.time() - t0) / 60
             print(f"  step {t + 1}/{S} ({took:.1f} min, about "
                   f"{took / (t + 1) * (S - t - 1):.0f} min left)", flush=True)
-    return M, O, counters
+    return M, O, counters, {f"{k:X}": n for k, n in sorted(tops.items())}
 
 
 # ---------------------------------------------------------------------------
@@ -230,11 +252,12 @@ def record_network(layers, in_shape, frames, flush, target, core=0):
     net, clear = build(axons, conns, out_keys, target, core)
     del axons, conns
     print(f"  network built ({(time.time() - t0) / 60:.1f} min)", flush=True)
-    M, O, counters = run(net, clear, inputs, keys, out_keys, progress=True)
+    M, O, counters, tops = run(net, clear, inputs, keys, out_keys, progress=True)
     print(f"  {len(inputs)} steps recorded ({(time.time() - t0) / 60:.1f} min)", flush=True)
     return {"target": target, "keys": keys, "out_keys": out_keys, "membrane": M,
             "out_spikes": O, "counter": counters, "table": table, "T": T, "flush": flush,
-            "fan_out": fan_out, "bias_fan_out": bias_fan_out, "axon_events": axon_events}
+            "fan_out": fan_out, "bias_fan_out": bias_fan_out, "axon_events": axon_events,
+            "mp_bits": MP_BITS, "word_top_bits": tops}
 
 
 RECORD_ARRAYS = ("membrane", "out_spikes", "counter", "keys", "out_keys", "fan_out")
@@ -255,6 +278,15 @@ def load_record(path):
     rec.update(membrane=z["membrane"], out_spikes=z["out_spikes"], counter=z["counter"],
                keys=[str(k) for k in z["keys"]], out_keys=[str(k) for k in z["out_keys"]],
                fan_out=z["fan_out"] if "fan_out" in z.files else None)
+    if rec.get("target") == "CRI" and "mp_bits" not in rec:
+        # saved before the 32-bit reading: the 36-bit value kept every bit of
+        # the raw word, so it can be read again the way hs_api reads it
+        raw = np.asarray(rec["membrane"], np.int64) % WORD
+        tops, counts = np.unique(raw >> MP_BITS, return_counts=True)
+        mp = raw % 2 ** MP_BITS
+        rec["membrane"] = np.where(mp >= 2 ** (MP_BITS - 1), mp - 2 ** MP_BITS, mp)
+        rec.update(mp_bits=MP_BITS, redecoded=True,
+                   word_top_bits={f"{int(k):X}": int(n) for k, n in zip(tops, counts)})
     return rec
 
 
@@ -290,15 +322,19 @@ def explains_logical(v_prev, ref, hw, shift):
     and after it (the value the simulator leaked into ref is recovered)."""
     if not shift or hw == ref:
         return False
-    if v_prev < 0 and hw - ref == leak_logical(v_prev, shift) - leak_arith(v_prev, shift):
-        return True
-    if shift > 20:                          # the search below is over 2**shift values
-        return False
-    k = 2 ** shift
-    est = (ref * k) // (k - 1)
-    for v in range(est - k - 2, est + k + 3):
-        if v < 0 and leak_arith(v, shift) == ref and leak_logical(v, shift) == hw:
+    for bits in (MP_BITS, 36):             # the shifter's width is not documented
+        def logical(v):
+            return signed_mp(leak_logical(v, shift, bits))
+        if v_prev < 0 and signed_mp(hw - ref - logical(v_prev)
+                                    + leak_arith(v_prev, shift)) == 0:
             return True
+        if shift > 20:                      # the search below is over 2**shift values
+            continue
+        k = 2 ** shift
+        est = (ref * k) // (k - 1)
+        for v in range(est - k - 2, est + k + 3):
+            if v < 0 and leak_arith(v, shift) == ref and logical(v) == hw:
+                return True
     return False
 
 
@@ -471,7 +507,7 @@ def cmd_compare(a):
 
 def steps_to_wrap(v, s, limit=200):
     """Steps of logical-shift leaking, with no input, until a negative
-    membrane wraps past -2**35 and turns positive (and so can fire)."""
+    membrane wraps past -2**31 and turns positive (and so can fire)."""
     for k in range(1, limit + 1):
         v = leak_logical(v, s)
         if v > 0:
@@ -569,7 +605,21 @@ def analyze_one(rec, n_rows=15):
             "out_check": output_mismatches(keys, rec["out_keys"], F, rec["out_spikes"]),
             "class": tot, "pred": pred, "lock": lock, "margin": margin,
             "label": label, "clip": rec.get("clip"), "split": rec.get("split"),
-            "target": rec.get("target")}
+            "target": rec.get("target"), "word_top_bits": rec.get("word_top_bits")}
+
+
+def top_bits_note(tops):
+    """What the top four bits of the FPGA's state words say about them."""
+    total = sum(tops.values()) or 1
+    seen = ", ".join(f"{k}: {100 * n / total:.1f}%" for k, n in tops.items())
+    if set(tops) <= {"0"}:
+        meaning = "the membrane sits in bits 31:0 and the top bits stay clear"
+    elif set(tops) <= {"0", "F"}:
+        meaning = "the word is sign-extended to 36 bits"
+    else:
+        meaning = "those bits hold something other than the membrane"
+    return (f"FPGA state words, top four bits (35:32): {seen}. So {meaning}; membranes "
+            f"here are bits 31:0, sign-extended, as hs_api's read_membrane reads them.")
 
 
 def report_show(res):
@@ -595,6 +645,8 @@ def report_show(res):
         b.append(f'<p class="note">Check: {res["out_check"]:,} output spikes differ from what '
                  f'the membranes imply. On simpleSim that means this reading is wrong; on the '
                  f'FPGA, that spikes were lost or added on the way to the host.</p>')
+    if res.get("word_top_bits"):
+        b.append(f'<p class="note">{esc(top_bits_note(res["word_top_bits"]))}</p>')
     L = res["layers"]
 
     b.append("<h2>Spikes per step</h2><p class=\"sub\">All layer neurons together. The chip "
@@ -627,7 +679,7 @@ def report_show(res):
                  'counted. Records made with this version of record keep it.</p>')
 
     b.append("<h2>Headroom</h2><p class=\"sub\">How close membranes run to threshold, and how "
-             "much of the 36-bit membrane word they use. A neuron-step within 10% of "
+             "much of the 32-bit membrane they use. A neuron-step within 10% of "
              "threshold flips with an error that small.</p>")
     b.append('<div class="card">' + table_html(
         ["layer", "largest threshold", "largest membrane", "neuron-steps within 10% of threshold"],
@@ -662,7 +714,7 @@ def report_show(res):
         b.append("<h2>What the bug would do to the first ones</h2><p class=\"sub\">The "
                  "membrane the simulator holds, what its arithmetic leak leaves next, what a "
                  "logical shift leaves instead, and how many steps of that it takes to wrap "
-                 "past \u22122<sup>35</sup> to a huge positive value, which fires. Until "
+                 "past \u22122<sup>31</sup> to a huge positive value, which fires. Until "
                  "then the neuron sits far below threshold and cannot fire.</p>")
         b.append('<div class="card">' + table_html(
             ["neuron", "where", "step", "membrane", "shift", "simulator leaks to",
@@ -693,6 +745,8 @@ def cmd_show(a):
           f"{100 * res['share_steps']:.0f}% of neuron-steps")
     if res["out_check"]:
         print(f"check: {res['out_check']} output spikes differ from what the membranes imply")
+    if res.get("word_top_bits"):
+        print(top_bits_note(res["word_top_bits"]))
     write(a.out, report_show(res))
     return 0
 
@@ -718,6 +772,8 @@ def text_summary(res, ref, hw):
                  f"added {sum(sp['extra']):,}")
     if sp["out_check_hw"]:
         lines.append(f"  {sp['out_check_hw']} FPGA output spikes disagree with its own membranes")
+    if hw.get("word_top_bits"):
+        lines.append(top_bits_note(hw["word_top_bits"]))
     lines.append(f"output totals per class: sim {res['class_ref']}, fpga {res['class_hw']}")
     lines.append(f"prediction: sim {res['pred_ref']}, fpga {res['pred_hw']}, "
                  f"label {res['label']}")
@@ -732,13 +788,14 @@ NEG_LEAK_DRIVE = 20000
 NEG_LEAK_THETA = 2 ** 30
 
 
-def leak_models(w, s, n, logical, theta=NEG_LEAK_THETA):
+def leak_models(w, s, n, logical, theta=NEG_LEAK_THETA, bits=MP_BITS):
     """A membrane driven by w at step 0 and then left alone, leaked with an
     arithmetic or a logical shift, firing and resetting to 0 above theta (a
     wrapped negative membrane turns huge and positive, and fires):
     {"before": simpleSim's order, fire on the membrane carried in, reset or
     leak, then add the input; "after": add the input, then fire or leak}."""
-    f = leak_logical if logical else leak_arith
+    def f(v, s):
+        return signed_mp(leak_logical(v, s, bits)) if logical else leak_arith(v, s)
     out = {}
     for order in ("after", "before"):
         v, trace = 0, []
@@ -881,7 +938,7 @@ def run_micro(targets=("simpleSim", "CRI"), core=0):
         for target in targets:
             t0 = time.time()
             net, clear = build(axons, conns, outs, target, core)
-            M, O, _ = run(net, clear, sched, keys, outs)
+            M, O, _, _ = run(net, clear, sched, keys, outs)
             recs[target] = {"keys": keys, "out_keys": outs, "membrane": M, "out_spikes": O}
             print(f"{name} on {target}: {len(sched)} steps ({time.time() - t0:.0f}s)",
                   flush=True)
@@ -893,10 +950,15 @@ def run_micro(targets=("simpleSim", "CRI"), core=0):
             if spec[0] == "membrane" and name == "negative_leak" and r:
                 s = int(label.rsplit(" ", 1)[1])
                 w = -NEG_LEAK_DRIVE if label.startswith("negative") else NEG_LEAK_DRIVE
-                arith, logical = leak_models(w, s, len(r), False), leak_models(w, s, len(r), True)
+                arith = leak_models(w, s, len(r), False)
                 order = next((o for o in arith if arith[o] == r), None)
                 row["sim_order"] = order
-                row["matches_logical"] = bool(order and h == logical[order] and r != logical[order])
+                row["matches_logical"] = False
+                for bits in (MP_BITS, 36):
+                    logical = leak_models(w, s, len(r), True, bits=bits)
+                    if order and h == logical[order] and r != logical[order]:
+                        row["matches_logical"], row["logical_bits"] = True, bits
+                        break
             rows.append(row)
         failing = [x["case"] for x in rows if not x["pass"]]
         results.append({"name": name, "question": question, "rows": rows,
@@ -1203,6 +1265,8 @@ def report_compare(res, ref, hw):
          tile("neurons differing at the end", f"{res['differ_at_end']:,}"),
          tile("prediction (sim / FPGA / label)",
               f"{res['pred_ref']} / {res['pred_hw']} / {res['label']}"), "</div>"]
+    if hw.get("word_top_bits"):
+        b.append(f'<p class="note">{esc(top_bits_note(hw["word_top_bits"]))}</p>')
     if res.get("origin_count"):
         b.append(f'<p class="note">At step {res["first"]}, {res["origin_count"]} neurons of '
                  f'{res["origin"]} differ. {res["origin_negative_before"]} of them have a '
@@ -1318,8 +1382,8 @@ def report_micro(results):
                     and isinstance(v[0], int) and len(v) > 6 else v)
             extra = ""
             if row.get("matches_logical"):
-                extra = (f" (matches a logical shift, leak {row['sim_order']} "
-                         f"the step's input)")
+                extra = (f" (matches a {row['logical_bits']}-bit logical shift, leak "
+                         f"{row['sim_order']} the step's input)")
             rows.append((esc(row["case"]), status(row["pass"]) + esc(extra),
                          esc(show(r)), esc(show(h))))
         b.append('<details><summary>Every case</summary><div class="card">'
