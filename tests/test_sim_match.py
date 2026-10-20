@@ -320,6 +320,42 @@ class FpgaDiff(unittest.TestCase):
                      "Membranes over the clip", "prefers-color-scheme: dark"):
             self.assertIn(part, page)
 
+    def test_show_flags_the_neurons_the_planted_leak_hits(self):
+        """show reads one simulator record: the neurons it flags as negative
+        and leaking have to include where compare later finds the bug."""
+        import tempfile
+        from unittest import mock
+        fd = load_fpga_diff()
+        net = build("avg", "flatten", "threshold", True, False, 1, seed=3)
+        layers = integer_layers(net)
+        torch.manual_seed(0)
+        frames = (torch.rand(6, 2, 16, 16) < 0.3).to(torch.uint8)
+        flush = hardware_flush_steps(net)
+        with mock.patch.dict(sys.modules, planted_bug_hs_api(spike_cap=10 ** 9)):
+            ref = fd.record_network(layers, (2, 16, 16), frames, flush, "simpleSim")
+            hw = fd.record_network(layers, (2, 16, 16), frames, flush, "CRI")
+        ref.update(clip=0, label=1, split="val")
+        cmp = fd.analyze(ref, hw)
+        with tempfile.TemporaryDirectory() as d:
+            path, out = os.path.join(d, "ref.npz"), os.path.join(d, "show.html")
+            fd.save_record(path, ref)
+            self.assertEqual(fd.main(["show", path, "-o", out]), 0)
+            with open(out, encoding="utf-8") as f:
+                page = f.read()
+            res = fd.analyze_one(fd.load_record(path))
+        self.assertGreater(res["n_hit"], 0)
+        self.assertLessEqual(res["first_step"], cmp["first"])
+        struck = {r["key"] for r in cmp["rows"] if r["why"] == "negative leak (logical shift)"}
+        self.assertTrue(struck)
+        self.assertLessEqual(struck, set(res["hit_keys"]))
+        for r in res["rows"]:
+            self.assertLess(r["membrane"], 0)
+            self.assertLess(r["bug_next"], r["sim_next"])
+        self.assertEqual(res["pred"], cmp["pred_ref"])
+        for part in ("Negative membranes, by layer and step", "What the bug would do",
+                     "Output spikes per class", "prefers-color-scheme: dark"):
+            self.assertIn(part, page)
+
     def test_neuron_lookup_by_index_is_a_dictionary(self):
         """connectome_utils finds a neuron by index by scanning every entry,
         and hs_api does that for every neuron at every step when membranes

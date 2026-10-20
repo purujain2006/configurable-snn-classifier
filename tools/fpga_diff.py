@@ -10,6 +10,9 @@ tools/match_simplesim.py runs (book the FPGA and check `top` first):
     # the first step and neurons that differ, as text and as an HTML report
     python ~/configurable-snn-classifier/tools/fpga_diff.py compare ~/fpga_run/rec_sim.npz ~/fpga_run/rec_fpga.npz -o ~/fpga_run/fpga_diff.html
 
+    # one record alone, no FPGA needed: which neurons the negative-leak bug can hit
+    python ~/configurable-snn-classifier/tools/fpga_diff.py show ~/fpga_run/rec_sim.npz -o ~/fpga_run/rank2_exposure.html
+
     # tiny networks that each test one suspect, on both targets
     python ~/configurable-snn-classifier/tools/fpga_diff.py micro -o ~/fpga_run/fpga_micro.html --hs-path ~/hs_api ~/hs_bridge ~/connectome_utils
 
@@ -20,6 +23,12 @@ input that differs then (where the error starts), and for its neurons the
 membrane one step before, both values, and a guess at the cause. A negative
 membrane whose FPGA value equals a logical (unsigned) shift instead of an
 arithmetic one is the L6m negative-leak bug.
+
+`show` reads one record and maps where membranes go negative, by layer and
+step. On the L6m FPGA each of those leaks with a logical shift, so this is
+where the bug can act, predicted from the simulator alone; for the first such
+neurons it shows what the bug would leave and how many steps until the value
+wraps to a large positive one and fires.
 
 `micro` builds networks of a few neurons, each asking one question:
 negative membranes leaking at shifts 1 to 7, many spikes in one step (to the
@@ -274,6 +283,17 @@ def classify(v_prev, ref, hw, shift):
     return "value differs"
 
 
+def output_classes(out_keys, table):
+    """class -> [(output column, sign)]: a class scores its positive
+    neuron's spikes minus its negative twin's."""
+    cls = {}
+    for j, k in enumerate(out_keys):
+        _li, sign, ch, pos, *_ = table[k]
+        c = ch if len(table[k][6]) == 1 else ch * table[k][6][1] * table[k][6][2] + pos
+        cls.setdefault(c, []).append((j, sign))
+    return cls
+
+
 def analyze(ref, hw, n_rows=20):
     """Everything the report shows, as plain data."""
     hidx = {k: i for i, k in enumerate(hw["keys"])}
@@ -300,12 +320,7 @@ def analyze(ref, hw, n_rows=20):
     gidx = {g: np.array([i for i, x in enumerate(group_of) if x == g]) for g in group_names}
     share = np.array([[float(D[t, gidx[g]].mean()) for t in range(S)] for g in group_names])
 
-    # output classes: positive neuron spikes minus negative ones
-    cls = {}
-    for j, k in enumerate(out_keys):
-        _li, sign, ch, pos, *_ = table[k]
-        c = ch if len(table[k][6]) == 1 else ch * table[k][6][1] * table[k][6][2] + pos
-        cls.setdefault(c, []).append((j, sign))
+    cls = output_classes(out_keys, table)
     n_cls = len(cls)
     tot_r = [int(sum(Or[:, j].sum() * s for j, s in cls[c])) for c in sorted(cls)]
     tot_h = [int(sum(Oh[:, j].sum() * s for j, s in cls[c])) for c in sorted(cls)]
@@ -372,6 +387,107 @@ def cmd_compare(a):
     res = analyze(ref, hw)
     print(text_summary(res, ref, hw))
     write(a.out, report_compare(res, ref, hw))
+    return 0
+
+
+def steps_to_wrap(v, s, limit=200):
+    """Steps of logical-shift leaking, with no input, until a negative
+    membrane wraps past -2**35 and turns positive (and so can fire)."""
+    for k in range(1, limit + 1):
+        v = leak_logical(v, s)
+        if v > 0:
+            return k
+    return None
+
+
+def analyze_one(rec, n_rows=15):
+    """One record: which neurons have a negative membrane, by layer and
+    step, which is where the L6m negative-leak bug acts."""
+    M, table, keys = rec["membrane"], rec["table"], rec["keys"]
+    S = len(M)
+    group_of = [(table[k][0], table[k][1]) for k in keys]
+    names = sorted(set(group_of), key=lambda g: (g[0], -g[1]))
+    labels = [f"layer {li} {PLUS if s > 0 else MINUS}" for li, s in names]
+    gidx = {g: np.array([i for i, x in enumerate(group_of) if x == g]) for g in names}
+    leaks = np.array([bool(table[k][5]) for k in keys])
+    neg = (M < 0) & leaks[None, :]
+    share = [[float(neg[t, gidx[g]].mean()) for t in range(S)] for g in names]
+    ever = [float(neg[:, gidx[g]].any(axis=0).mean()) for g in names]
+    hit = np.where(neg.any(axis=0))[0]
+    first_t = neg.argmax(axis=0)
+    order = sorted(hit, key=lambda i: (int(first_t[i]), group_of[i][0], int(M[first_t[i], i])))
+    rows = []
+    for i in order[:n_rows]:
+        li, sign, ch, pos, theta, shift, shp = table[keys[i]]
+        t = int(first_t[i])
+        v = int(M[t, i])
+        where = (f"ch {ch}, y {pos // shp[2]}, x {pos % shp[2]}" if len(shp) == 3
+                 else f"unit {ch}")
+        rows.append({"key": keys[i], "where": where, "step": t, "membrane": v, "shift": shift,
+                     "theta": theta, "sim_next": leak_arith(v, shift),
+                     "bug_next": leak_logical(v, shift), "wrap": steps_to_wrap(v, shift)})
+    cls = output_classes(rec["out_keys"], table)
+    O = rec["out_spikes"]
+    tot = [int(sum(O[:, j].sum() * s for j, s in cls[c])) for c in sorted(cls)]
+    return {"steps": S, "n_neurons": len(keys), "labels": labels, "share": share,
+            "ever": ever, "n_hit": int(len(hit)), "hit_keys": [keys[i] for i in hit],
+            "share_steps": float(neg.mean()) if S else 0.0,
+            "first_step": int(first_t[hit].min()) if len(hit) else None, "rows": rows,
+            "class": tot, "pred": int(np.argmax(tot)) if tot else None,
+            "label": rec.get("label"), "clip": rec.get("clip"), "split": rec.get("split"),
+            "target": rec.get("target")}
+
+
+def report_show(res):
+    sub = (f"{res['target']} record of {res['split']} clip {res['clip']} (label {res['label']}), "
+           f"{res['steps']} steps, {res['n_neurons']:,} neurons. On the L6m FPGA a negative "
+           f"membrane leaks with a logical shift, the known bug; this shows which neurons have "
+           f"one, from the simulator alone. FPGA records confirm it with compare.")
+    pct = 100 * res["n_hit"] / max(1, res["n_neurons"])
+    b = ['<div class="tiles">',
+         tile("neurons that go negative", f"{res['n_hit']:,} ({pct:.0f}%)"),
+         tile("first step with one", "none" if res["first_step"] is None
+              else f"step {res['first_step']}"),
+         tile("neuron-steps negative", f"{100 * res['share_steps']:.0f}%"),
+         tile("prediction (sim / label)", f"{res['pred']} / {res['label']}"), "</div>"]
+    b.append("<h2>Negative membranes, by layer and step</h2><p class=\"sub\">Share of each "
+             "layer's leaking neurons whose membrane is negative at that step. Each one is "
+             "leaked with a logical shift on the L6m FPGA.</p>")
+    b.append('<div class="card">' + heat_legend() + heatmap(res["labels"], res["share"]) + "</div>")
+    b.append("<h2>Neurons that go negative at least once</h2><p class=\"sub\">Share of each "
+             "layer's neurons, over the whole clip.</p>")
+    b.append('<div class="card">' + grouped_bars(
+        res["labels"], [("simulator", "--sim", [round(100 * e) for e in res["ever"]])],
+        x_label="layer, percent of its neurons") + "</div>")
+    if res["rows"]:
+        b.append("<h2>What the bug would do to the first ones</h2><p class=\"sub\">The "
+                 "membrane the simulator holds, what its arithmetic leak leaves next, what a "
+                 "logical shift leaves instead, and how many steps of that it takes to wrap "
+                 "past −2<sup>35</sup> to a huge positive value, which fires.</p>")
+        b.append('<div class="card">' + table_html(
+            ["neuron", "where", "step", "membrane", "shift", "simulator leaks to",
+             "logical shift leaves", "steps until it wraps"],
+            [(esc(r["key"]), esc(r["where"]), r["step"], f"{r['membrane']:,}", r["shift"],
+              f"{r['sim_next']:,}", f"{r['bug_next']:,}",
+              "" if r["wrap"] is None else r["wrap"]) for r in res["rows"]],
+            num=(2, 3, 4, 5, 6, 7)) + "</div>")
+    if res["class"]:
+        cats = [str(i) for i in range(len(res["class"]))]
+        b.append("<h2>Output spikes per class</h2><p class=\"sub\">Positive minus negative output "
+                 "spikes over the clip in the simulator; the largest is the prediction.</p>")
+        b.append('<div class="card">' + grouped_bars(
+            cats, [("simulator", "--sim", res["class"])], x_label="class") + "</div>")
+    return page("Where the negative-leak bug can strike", sub, "".join(b))
+
+
+def cmd_show(a):
+    rec = load_record(a.record)
+    res = analyze_one(rec)
+    pct = 100 * res["n_hit"] / max(1, res["n_neurons"])
+    print(f"{res['n_hit']:,} of {res['n_neurons']:,} neurons ({pct:.0f}%) have a negative "
+          f"membrane at some step; first at step {res['first_step']}; "
+          f"{100 * res['share_steps']:.0f}% of neuron-steps")
+    write(a.out, report_show(res))
     return 0
 
 
@@ -1001,6 +1117,9 @@ def main(argv=None):
     c.add_argument("ref", help="the simpleSim record")
     c.add_argument("hw", help="the FPGA record")
     c.add_argument("-o", "--out", default="fpga_diff.html")
+    w = sub.add_parser("show", help="one record: which neurons the negative-leak bug can hit")
+    w.add_argument("record")
+    w.add_argument("-o", "--out", default="fpga_exposure.html")
     m = sub.add_parser("micro", help="tiny networks, one question each, on both targets")
     m.add_argument("--targets", nargs=2, default=["simpleSim", "CRI"])
     m.add_argument("--core", type=int, default=0)
@@ -1012,7 +1131,8 @@ def main(argv=None):
     a = ap.parse_args(argv)
     for d in getattr(a, "hs_path", []):
         sys.path.insert(0, d)
-    return {"record": cmd_record, "compare": cmd_compare, "micro": cmd_micro}[a.cmd](a)
+    return {"record": cmd_record, "compare": cmd_compare, "show": cmd_show,
+            "micro": cmd_micro}[a.cmd](a)
 
 
 if __name__ == "__main__":
