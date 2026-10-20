@@ -187,5 +187,150 @@ class FpgaTarget(unittest.TestCase):
         self.assertEqual([(p, lat) for p, _, lat in out], [(2, None)] * 3)
 
 
+def planted_bug_hs_api(spike_cap=1000):
+    """Stand-in hs_api and hs_bridge modules: a small LIF simulator whose
+    "simpleSim" target is correct and whose "CRI" target has two planted
+    bugs, a logical-shift leak for negative membranes and a cap on spikes per
+    step. tools/fpga_diff.py has to find both."""
+    import types
+    WRAP = 2 ** 36
+    state = {}
+
+    class Model:
+        def __init__(self, kind, theta, _nu, leak):
+            self.kind, self.theta, self.leak = kind, int(theta), int(leak)
+
+    class FakeNet:
+        def __init__(self, axons, connections, outputs, target, **kw):
+            self.axons, self.conns, self.outputs = axons, connections, set(outputs)
+            self.target = target
+            self.reset()
+            self.simpleSim = types.SimpleNamespace(
+                numNeurons=len(connections), initialize_sim_vars=lambda n: self.reset())
+            state["net"] = self
+
+        def reset(self):
+            self.v = {k: 0 for k in self.conns}
+            self.prev = []
+            self.counter = 0
+
+        def leak(self, v, s):
+            if self.target == "CRI" and v < 0:
+                u = (v - ((v % WRAP) >> s)) % WRAP
+                return u - WRAP if u >= WRAP // 2 else u
+            return v - (v >> s)
+
+        def step(self, inputs, membranePotential=False):
+            drive = {}
+            for a in inputs:
+                for post, w in self.axons[a]:
+                    drive[post] = drive.get(post, 0) + w
+            for n in self.prev:
+                for post, w in self.conns[n][0]:
+                    drive[post] = drive.get(post, 0) + w
+            spikes = []
+            for k, (_syn, m) in self.conns.items():
+                if m.kind == "ANN":
+                    v = drive.get(k, 0)
+                    if v > m.theta:
+                        spikes.append(k)
+                    self.v[k] = 0
+                    continue
+                v = self.v[k] + drive.get(k, 0)
+                if v > m.theta:
+                    spikes.append(k)
+                    v = 0
+                else:
+                    v = self.leak(v, m.leak)
+                self.v[k] = v
+            if self.target == "CRI":
+                spikes = spikes[:spike_cap]
+            self.prev = spikes
+            self.counter += 100
+            out = [k for k in spikes if k in self.outputs]
+            mem = list(self.v.items())
+            if self.target == "CRI":
+                return mem, (out, self.counter, 0)
+            return mem, out
+
+    api = types.ModuleType("hs_api.api")
+    api.CRI_network = FakeNet
+    models = types.ModuleType("hs_api.neuron_models")
+    models.LIF_neuron = lambda *a: Model("LIF", *a)
+    models.ANN_neuron = lambda *a: Model("ANN", *a)
+    ctrl = types.ModuleType("hs_bridge.FPGA_Execution.fpga_controller")
+    ctrl.clear = lambda n, dump, core: state["net"].reset()
+    fe = types.ModuleType("hs_bridge.FPGA_Execution")
+    fe.fpga_controller = ctrl
+    return {"hs_api": types.ModuleType("hs_api"), "hs_api.api": api,
+            "hs_api.neuron_models": models, "hs_bridge": types.ModuleType("hs_bridge"),
+            "hs_bridge.FPGA_Execution": fe, "hs_bridge.FPGA_Execution.fpga_controller": ctrl}
+
+
+def load_fpga_diff():
+    import importlib.util
+    spec = importlib.util.spec_from_file_location(
+        "fpga_diff", os.path.join(ROOT, "tools", "fpga_diff.py"))
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+class FpgaDiff(unittest.TestCase):
+    """tools/fpga_diff.py against a stand-in with planted bugs: compare has to
+    name the negative-leak bug where it starts, and micro has to fail exactly
+    the tests the planted bugs break, with the right smallest failing case."""
+
+    def test_compare_finds_the_planted_negative_leak(self):
+        import tempfile
+        from unittest import mock
+        fd = load_fpga_diff()
+        net = build("avg", "flatten", "threshold", True, False, 1, seed=3)
+        layers = integer_layers(net)
+        torch.manual_seed(0)
+        frames = (torch.rand(6, 2, 16, 16) < 0.3).to(torch.uint8)
+        flush = hardware_flush_steps(net)
+        with mock.patch.dict(sys.modules, planted_bug_hs_api(spike_cap=10 ** 9)):
+            ref = fd.record_network(layers, (2, 16, 16), frames, flush, "simpleSim")
+            hw = fd.record_network(layers, (2, 16, 16), frames, flush, "CRI")
+            same = fd.record_network(layers, (2, 16, 16), frames, flush, "simpleSim")
+        self.assertIsNone(fd.analyze(ref, same)["first"])
+        res = fd.analyze(ref, hw)
+        self.assertIsNotNone(res["first"])
+        self.assertGreater(res["origin_logical_shift"], 0, res["rows"][:3])
+        self.assertTrue(all(r["before"] < 0 or r["sim"] < 0 for r in res["rows"]
+                            if r["why"] == "negative leak (logical shift)"))
+        with tempfile.TemporaryDirectory() as d:
+            for name, rec in (("ref.npz", ref), ("hw.npz", hw)):
+                fd.save_record(os.path.join(d, name), rec)
+            back = fd.analyze(fd.load_record(os.path.join(d, "ref.npz")),
+                              fd.load_record(os.path.join(d, "hw.npz")))
+        self.assertEqual(back["first"], res["first"])
+        page = fd.report_compare(res, ref, hw)
+        for part in ("Where the membranes differ", "Output spikes per class",
+                     "Membranes over the clip", "prefers-color-scheme: dark"):
+            self.assertIn(part, page)
+
+    def test_micro_fails_exactly_what_the_planted_bugs_break(self):
+        from unittest import mock
+        fd = load_fpga_diff()
+        with mock.patch.dict(sys.modules, planted_bug_hs_api(spike_cap=1000)):
+            results = {t["name"]: t for t in fd.run_micro(("simpleSim", "CRI"))}
+        self.assertFalse(results["negative_leak"]["pass"])
+        for row in results["negative_leak"]["rows"]:
+            if row["case"].startswith("positive"):
+                self.assertTrue(row["pass"], row["case"])
+            else:
+                self.assertTrue(row["matches_logical"], row["case"])
+        self.assertEqual(results["output_burst"]["first_fail"], "1024 spikes in one step")
+        self.assertEqual(results["internal_burst"]["first_fail"], "1024 spikes in one step")
+        self.assertEqual(results["fan_out"]["first_fail"], "axon to 2048 neurons")
+        self.assertTrue(results["thresholds"]["pass"])
+        self.assertTrue(results["bias_neuron"]["pass"])
+        page = fd.report_micro(list(results.values()))
+        self.assertIn("FPGA micro tests", page)
+        self.assertIn("1024 spikes in one step", page)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
