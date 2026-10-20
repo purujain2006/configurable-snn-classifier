@@ -125,10 +125,19 @@ button.aka-name.on, button.aka-name:hover { background: var(--accent); color: #1
 .set-card .aka p { font-size: 14px; }
 
 /* "Before this section" boxes */
-.prereq { margin: 4px 0 22px; padding: 12px 16px; border: 1px dashed var(--line-strong); font-size: 15px; color: var(--text-dim); }
-.prereq .pq-k { font-family: var(--mono); font-size: 11.5px; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); display: block; margin-bottom: 4px; }
-.prereq ul { margin: 4px 0 0; padding-left: 20px; }
-.prereq li { margin: 3px 0; line-height: 1.55; }
+/* "Forgot some of these?" refreshers, filled from glossary-data.js by tools/site/build_glossary.js */
+.refresh { max-width: 79ch; box-sizing: border-box; margin: 6px 0 22px; border: 1px dashed var(--line-strong); font-size: 15px; color: var(--text-dim); }
+.refresh > summary { cursor: pointer; list-style: none; padding: 9px 14px; display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; line-height: 1.5; }
+.refresh > summary::-webkit-details-marker { display: none; }
+.refresh > summary::before { content: "+"; font-family: var(--mono); color: var(--accent); width: 10px; }
+.refresh[open] > summary::before { content: "−"; }
+.refresh > summary:hover .rf-k { text-decoration: underline; }
+.rf-k { font-family: var(--mono); font-size: 11.5px; letter-spacing: .12em; text-transform: uppercase; color: var(--accent); }
+.rf-list { color: var(--muted); font-size: 14px; }
+.rf-dl { margin: 0; padding: 2px 14px 12px 34px; display: grid; grid-template-columns: max-content 1fr; gap: 7px 16px; }
+.rf-dl dt { color: var(--text); font-weight: 600; }
+.rf-dl dd { margin: 0; line-height: 1.55; }
+@media (max-width: 680px) { .rf-dl { grid-template-columns: 1fr; gap: 2px; padding-left: 14px; } .rf-dl dd { margin-bottom: 8px; } }
 .aka-group { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 8px 0; }
 .aka-gk { font-family: var(--sans); font-size: 13px; font-weight: 600; color: var(--text); min-width: 96px; }
 .aka-desc { min-height: 3.2em; margin: 12px 0 4px !important; padding: 10px 12px; background: rgba(255,255,255,.03); border: 1px solid var(--line-soft); }

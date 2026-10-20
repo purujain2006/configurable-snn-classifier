@@ -36,7 +36,7 @@
 <p>When most of a spiking network is silent, most of the work disappears. That is the promise of neuromorphic hardware: computers that see and hear on a tiny energy budget, close to the sensor. The promise only counts if real networks run on real chips with good accuracy, and that is hard for two reasons.</p>
 <ul>
 <li><strong>The chip has strict rules.</strong> A network trained the usual way breaks them: too many connections into one neuron, numbers too precise to store, operations the chip does not have. Converting such a network afterwards loses accuracy, and often it does not fit at all.</li>
-<li><strong>The choices are enormous.</strong> A network here has about thirty settings, from the size of the input to how each neuron leaks. Trillions of combinations exist, each takes 15 to 25 minutes to train, and no rule of thumb says which will fit and score well.</li>
+<li><strong>The choices are enormous.</strong> A network here has about thirty settings, from the size of the input to how each neuron leaks. Trillions of combinations exist, each one needs a full training run on a GPU to score, and no rule of thumb says which will fit and score well.</li>
 </ul>
 <p>The search answers both. Every network it proposes fits the chip from the start, trains with the chip's arithmetic, and is scored on the chip simulator, so the best one it finds can be deployed exactly as it was measured. Along the way it measures how much each setting matters, which any spiking-network project on this chip can use.</p>
 </section>
@@ -54,15 +54,15 @@
 <table class="tbl">
 <thead><tr><th>Rule</th><th>Value</th><th>What it means for a network</th></tr></thead>
 <tbody>
-<tr><td class="layer-name">input axons</td><td class="num">16,000</td><td>Each input pixel needs one axon per channel. A 128×128 camera with two channels needs 32,768, so frames must be shrunk. The register can count to 16,383, but 16,000 is the most the current FPGA design has run.</td></tr>
+<tr><td class="layer-name">input axons</td><td class="num">16,000</td><td>Each input pixel needs one axon per channel (one for brighter events, one for darker). A 128×128 camera needs 32,768, so frames must be shrunk first.</td></tr>
 <tr><td class="layer-name">fan-in</td><td class="num">8,159</td><td>The most connections one neuron can receive. This is the limit networks break most often.</td></tr>
 <tr><td class="layer-name">fan-out</td><td class="num">4,095</td><td>The most connections one neuron can send (4,096 for an axon).</td></tr>
 <tr><td class="layer-name">weights</td><td class="num">INT16, |w| ≤ 1</td><td>The integer 32,767 stands for 1.0, so weights lie in [−1, 1] in steps of 1/32,767, about 0.00003. A larger weight is clipped to 1.</td></tr>
-<tr><td class="layer-name">threshold</td><td class="num">0 &lt; θ ≤ 1</td><td>Stored on the same grid as the weights.</td></tr>
-<tr><td class="layer-name">leak</td><td class="num">τ = 2, 4, 8, 16, …</td><td>The chip leaks by a bit shift, subtracting V&nbsp;&gt;&gt;&nbsp;k each step, so τ = 2<sup>k</sup>. Any τ that is not a power of two does not exist on the chip.</td></tr>
+<tr><td class="layer-name">threshold</td><td class="num">0 &lt; θ ≤ 1</td><td>θ (theta) is the level a neuron's potential must pass before it fires. It is stored the same way as a weight, so it must lie between 0 and 1.</td></tr>
+<tr><td class="layer-name">leak</td><td class="num">τ = 2, 4, 8, 16, …</td><td>τ (tau) sets how fast a neuron's potential leaks away: each step it loses 1/τ of itself. The chip computes that by halving, the cheapest division a circuit can do, so τ must be a power of two.</td></tr>
 <tr><td class="layer-name">bias</td><td class="num">none built in</td><td>Neurons have no bias term. A bias can be added with a <em>bias neuron</em>: a neuron that fires on every step and connects to every neuron that needs the bias, at the cost of one connection each.</td></tr>
 <tr><td class="layer-name">normalization</td><td class="num">none</td><td>No batch normalization, the layer that rescales each channel during training so deep networks train reliably. Its effect is merged into the weights before deployment, a step called folding (<a href="hardware.html#folding">page G</a>).</td></tr>
-<tr><td class="layer-name">pooling</td><td class="num">folded, or OR neurons</td><td>No pooling operation. An average pool is folded into the next layer's connections, so every neuron in front of it connects straight to that layer, and a 2×2 pool multiplies that layer's fan-in by 4. A max pool of spikes asks whether any input fired, which one neuron with threshold 0 answers exactly, at the cost of one extra step.</td></tr>
+<tr><td class="layer-name">pooling</td><td class="num">folded, or OR neurons</td><td>No pooling step, the usual way to shrink a picture by averaging each 2×2 block or keeping its largest value. Averaging is merged into the next layer, which then needs four times as many connections. Keeping the largest is done by one extra neuron per block, at the cost of one step.</td></tr>
 <tr><td class="layer-name">update order</td><td class="num">fire first</td><td>Fire, reset, leak, then integrate (<a href="basics.html#snn">page A</a>). Each layer delays its output by one step.</td></tr>
 </tbody>
 </table>
@@ -88,7 +88,7 @@
 <div><div class="r-k">HiAER-Spike paper</div><div class="r-v">68.75%</div><div class="r-s">The published result on the same test set.</div></div>
 <div><div class="r-k">Goal</div><div class="r-v">90%</div><div class="r-s">On the test set, with a network that fits the chip.</div></div>
 </div>
-<p>The search on the gesture task has trained 135 networks so far, each for up to 80 epochs, passes over the training data (<a href="pipeline.html#so-far">page C</a>). All 130 that trained to the end fit the chip and agree with the simulator on every validation clip. Its best five were then trained for 300 epochs, and the four that have finished score 80.6% to 86.8% on test. Three things now hold the scores back, and none of them is the chip: overfitting, learning the training people rather than the gestures; clips that may still be too short; and how few runs each number rests on. The networks also do more work than a conventional network so far, the next thing to fix. <a href="results.html">Page H</a> explains each number and how far to trust it.</p>
+<p>The search on the gesture task has trained 135 networks so far, each for up to 80 epochs, passes over the training data (<a href="pipeline.html#so-far">page C</a>). All 130 that trained to the end fit the chip and agree with the simulator on every validation clip; the other five were stopped early on purpose, because they were clearly losing. Its best five were then trained for 300 epochs, and the four that have finished score 80.6% to 86.8% on test. Three things now hold the scores back, and none of them is the chip: overfitting, learning the training people rather than the gestures; clips that may still be too short; and how few runs each number rests on. The networks also do more work than a conventional network so far, the next thing to fix. <a href="results.html">Page H</a> explains each number and how far to trust it.</p>
 </section>
 <section class="reveal" id="map">
 <h2><span class="sec-num">6</span>What each page does</h2>

@@ -58,3 +58,44 @@ ${html}</div>
 `;
 fs.writeFileSync(path.join(DOCS, 'glossary.html'), page);
 console.log(`glossary.html: ${G.length} terms`);
+
+// Refreshers. A reader meets most terms pages before they come back, so a page
+// or section that leans on old terms opens with a folded "Forgot some of these?"
+// box: <details class="refresh" data-terms="id,id,..."></details>. Its contents
+// are written here from the same glossary, so a reworded definition reaches
+// every box. Each term links to the section that explains it, labelled the way
+// the site numbers it (A.4, 0.3, Home).
+const ORDER = ['index.html', 'why.html', 'basics.html', 'data.html', 'pipeline.html', 'settings.html',
+               'bits.html', 'neurons.html', 'hardware.html', 'results.html'];
+const label = {};
+for (const f of ORDER) {
+  const src = fs.readFileSync(path.join(DOCS, f), 'utf8');
+  const re = /<section\b[^>]*\bid="([^"]+)"[^>]*>\s*<h2><span class="sec-num">([^<]+)<\/span>/g;
+  let m;
+  while ((m = re.exec(src))) label[`${f}#${m[1]}`] = f === 'index.html' ? 'Home' : m[2];
+}
+const byId = new Map(window.GLOSSARY.map(g => [g.id, g]));
+const BOX = /<details class="refresh" data-terms="([^"]+)">[\s\S]*?<\/details>/g;
+let boxes = 0;
+for (const f of ORDER) {
+  const file = path.join(DOCS, f);
+  const src = fs.readFileSync(file, 'utf8');
+  const out = src.replace(BOX, (_, ids) => {
+    boxes++;
+    const terms = ids.split(',').map(id => {
+      const g = byId.get(id.trim());
+      if (!g) throw new Error(`${f}: refresher term "${id}" is not in glossary-data.js`);
+      return g;
+    });
+    const items = terms.map(g => {
+      const pg = PAGE[g.see.split('#')[0]];
+      const where = label[g.see] || (pg === 'Home' ? pg : pg ? `Page ${pg}` : 'Glossary');
+      return `<dt>${g.t}</dt><dd>${g.d} <a href="${g.see}">${where}</a></dd>`;
+    }).join('');
+    return `<details class="refresh" data-terms="${ids}"><summary><span class="rf-k">Forgot some of these?</span>` +
+      `<span class="rf-list">${terms.map(g => g.t.replace(/ \(.*\)$/, '')).join(' · ')}</span></summary>` +
+      `<dl class="rf-dl">${items}</dl></details>`;
+  });
+  if (out !== src) fs.writeFileSync(file, out);
+}
+console.log(`refreshers: ${boxes} boxes`);

@@ -98,7 +98,7 @@
 <dl class="kv">
 <dt>connection tables</dt><dd>Each neuron's incoming connections live in a table of fixed size in the chip's memory, which keeps every lookup fast and the circuit simple. So a neuron can receive at most 8,159 connections, its <em>fan-in</em> (<a href="hardware.html#limits">G.3</a>).</dd>
 <dt>16-bit whole numbers</dt><dd>The chip stores one weight per connection, billions of them, so each is a 16-bit whole number instead of a longer decimal one. That halves the memory of the 32-bit numbers networks usually train with and keeps the adders small, at the cost of rounding every weight (<a href="hardware.html#int16">G.4</a>).</dd>
-<dt>a leak by halving</dt><dd>Dividing by a power of two is a bit shift, nearly free in hardware, while general division is costly. So the leak can only be τ = 2, 4, 8, 16 and so on (<a href="neurons.html#leak">F.3</a>).</dd>
+<dt>a leak by halving</dt><dd>Dividing by a power of two is a bit shift, nearly free in hardware, while general division is costly. So τ (tau), the number that sets how fast a neuron's total leaks away, can only be 2, 4, 8, 16 and so on (<a href="neurons.html#leak">F.3</a>).</dd>
 <dt>no normalization step</dt><dd>Batch normalization, a training aid that rescales each layer, would need extra arithmetic on every step. After training it is just a fixed scale and shift, so it can be merged into the weights and thresholds instead (<a href="hardware.html#folding">G.5</a>).</dd>
 <dt>16,000 input lines</dt><dd>Input arrives from outside on a fixed number of lines, called axons, so camera frames have to be shrunk to fit (<a href="data.html#frames">B.2</a>).</dd>
 </dl>
@@ -108,7 +108,7 @@
 
 <section class="reveal" id="search">
 <h2><span class="sec-num">0.8</span>Too many choices: the search</h2>
-<p>The numbers a network learns during training are its weights. The choices made before training, which training cannot change, are called <strong>hyperparameters</strong> (often called settings on this site): the number of layers, the width of each layer, the learning rate and so on. Thirty of them give trillions of combinations, each takes 15 to 25 minutes to train, and they interact, so no rule of thumb picks a good set.</p>
+<p>The numbers a network learns during training are its weights. The choices made before training, which training cannot change, are called <strong>hyperparameters</strong> (often called settings on this site): the number of layers, the width of each layer, the learning rate and so on. Thirty of them give trillions of combinations, each needs a full training run to score, and they interact, so no rule of thumb picks a good set.</p>
 <p>A <strong>hyperparameter search</strong> tries combinations automatically. Each attempt is a <strong>trial</strong>: build the network, check it fits the chip, train it, export it, score it on the simulator. This search starts with a balanced set of trials that tests every option fairly, then uses what scored well to choose what to try next, and stops trials that are clearly losing so the computer's time goes to promising ones. <a href="pipeline.html">Page C</a> follows a trial through every stage and then the search as a whole.</p>
 <div class="callout"><span class="callout-title">The new problem</span><p>Out of hundreds of trials, the best score is partly luck, and a network can score well by memorizing the examples it trained on rather than learning the gesture.</p></div>
 </section>

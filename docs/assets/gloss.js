@@ -1,7 +1,9 @@
 /* gloss.js: hover definitions. The first time a glossary term appears in a
    page's prose it gets a dotted underline; pointing at it, focusing it or
    tapping it shows the definition from glossary-data.js and a link to where
-   the site explains it. */
+   the site explains it. A term explained on an earlier page is underlined
+   again once three sections have passed since its last underline, since a
+   reader meeting it pages later has often forgotten it. */
 (function () {
   "use strict";
   const G = window.GLOSSARY;
@@ -9,7 +11,7 @@
 
   const SKIP = "a, code, pre, kbd, h1, h2, h3, h4, button, label, select, option, output, svg, script, style, " +
     "summary, .nav, .toc, .foot-nav, footer, .site-foot, .aka-head, .aka-sub, .seg, .stat, .kicker, .c-tags, .c-num, " +
-    ".gl, .demo-tag, .demo-title, .verdict-tag, .check-list, .mm-kind, .readout, .formula, .tbl th, .sc-range, .eb-row, .legend";
+    ".gl, .demo-tag, .demo-title, .verdict-tag, .check-list, .mm-kind, .readout, .formula, .tbl th, .sc-range, .eb-row, .legend, .refresh";
   const byAlias = new Map();
   const sens = [], insens = [];
   G.forEach(g => g.a.forEach(a => {
@@ -25,6 +27,12 @@
 
   function lookup(word) { return byAlias.get(word) || byAlias.get(word.toLowerCase()); }
 
+  const ORDER = ["index.html", "why.html", "basics.html", "data.html", "pipeline.html", "settings.html",
+    "bits.html", "neurons.html", "hardware.html", "results.html"];
+  const here = location.pathname.split("/").pop() || "index.html";
+  const hereAt = ORDER.indexOf(here);
+  const fromEarlierPage = g => { const i = ORDER.indexOf(g.see.split("#")[0]); return hereAt > 0 && i >= 0 && i < hereAt; };
+
   function wrap(root) {
     const done = new Set();
     const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
@@ -32,12 +40,21 @@
         if (!n.nodeValue.trim()) return NodeFilter.FILTER_REJECT;
         const p = n.parentElement;
         if (!p || p.closest(SKIP)) return NodeFilter.FILTER_REJECT;
+        // inside a demo, only its description and notes are prose; the rest is controls and output
+        if (p.closest(".demo") && !p.closest(".demo-sub, .demo-note")) return NodeFilter.FILTER_REJECT;
         return NodeFilter.FILTER_ACCEPT;
       }
     });
     const nodes = [];
     while (walker.nextNode()) nodes.push(walker.currentNode);
+    let section = null, k = 0;
+    const lastAt = new Map();          // term id -> section number of its last underline
     nodes.forEach(node => {
+      const sec = node.parentElement.closest("section");
+      if (sec !== section) {
+        section = sec; k++;
+        G.forEach(g => { if (fromEarlierPage(g) && k - (lastAt.has(g.id) ? lastAt.get(g.id) : -9) >= 3) done.delete(g.id); });
+      }
       const text = node.nodeValue;
       const hits = [];
       for (const re of [reS, reI]) {
@@ -53,7 +70,7 @@
       const keep = [];
       let end = -1;
       hits.forEach(h => {
-        if (h.i >= end && !done.has(h.g.id)) { keep.push(h); done.add(h.g.id); end = h.i + h.len; }
+        if (h.i >= end && !done.has(h.g.id)) { keep.push(h); done.add(h.g.id); lastAt.set(h.g.id, k); end = h.i + h.len; }
       });
       if (!keep.length) return;
       const frag = document.createDocumentFragment();

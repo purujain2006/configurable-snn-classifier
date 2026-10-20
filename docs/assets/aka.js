@@ -1,7 +1,7 @@
 /* aka.js: "In the search records" blocks.
    A block names a column of the search's records (val_accuracy, k_1, T, ...),
    gives a worked example, and draws where that name lives: a part of the
-   network, a grid of validation clips, or a training curve.
+   network or a training curve.
 
    Markup:
      <aside class="aka" data-viz="net" data-hl="k_1">
@@ -10,7 +10,7 @@
        <p>worked example</p>
        <div class="aka-viz"></div>
      </aside>
-   data-viz: net | clips | curve. Hovering, focusing or clicking a name button
+   data-viz: net | curve | none. Hovering, focusing or clicking a name button
    with data-hl moves the highlight. Needs learn.js. */
 (function () {
   "use strict";
@@ -332,35 +332,6 @@
     return { set };
   }
 
-  /* clips(el, spec): a grid of clips, `k` of `n` correct. spec.lost marks clips
-     lost between two grids; spec.groups splits the clips by person. */
-  function clips(el, spec) {
-    const n = spec.n, k = spec.k, cols = spec.cols || 24, cell = 11, gapc = 2;
-    const grids = spec.second ? 2 : 1;
-    const rows = Math.ceil(n / cols), gw = cols * (cell + gapc), gh = rows * (cell + gapc);
-    const W = grids === 2 ? gw * 2 + 60 : gw + 20, Hh = gh + 44;
-    const s = L.svg(el, W, Hh, spec.label || "Clips, correct and wrong");
-    const r = L.rng(spec.seed || 7);
-    const order = [...Array(n).keys()].sort(() => r() - 0.5);
-    const correct = new Set(order.slice(0, k));
-    const lost = new Set(order.slice(0, spec.lost || 0));      // correct before, wrong after
-    function grid(x0, label, second) {
-      T(s, x0, 14, label, "lt-b");
-      for (let i = 0; i < n; i++) {
-        const cx = x0 + (i % cols) * (cell + gapc), cyy = 26 + Math.floor(i / cols) * (cell + gapc);
-        const g = spec.groups ? Math.floor(i / (n / spec.groups)) : 0;
-        let ok = correct.has(i);
-        if (second && lost.has(i)) ok = false;
-        const isLost = second && lost.has(i);
-        S("rect", { x: cx, y: cyy, width: cell, height: cell,
-          fill: isLost ? C.red : ok ? C.accent : "rgba(255,255,255,.07)",
-          stroke: spec.groups && g % 2 ? "rgba(255,255,255,.18)" : "none", "stroke-width": 0.8 }, s);
-      }
-    }
-    grid(10, spec.label || "", false);
-    if (grids === 2) grid(gw + 50, spec.second, true);
-  }
-
   /* curve(el): the best trial's validation (amber) and training (pale) accuracy */
   function curve(el, spec) {
     spec = spec || {};
@@ -410,9 +381,6 @@
           });
           const first = names.find(b => b.dataset.hl === box.dataset.hl);
           if (first) { first.classList.add("on"); first.dispatchEvent(new Event("focus")); }
-        } else if (kind === "clips") {
-          clips(viz, { n: +box.dataset.n, k: +box.dataset.k, cols: +box.dataset.cols || 24, label: box.dataset.label,
-            second: box.dataset.second, lost: +box.dataset.lost || 0, groups: +box.dataset.groups || 0, seed: +box.dataset.seed || 7 });
         } else if (kind === "curve") {
           curve(viz, { mark: box.dataset.mark, train: box.dataset.trainline !== "0" });
         }
@@ -420,6 +388,6 @@
     });
   }
 
-  window.Aka = { net, clips, curve, BEST, CURVE, sizes, init };
+  window.Aka = { net, curve, BEST, CURVE, sizes, init };
   L.onReady(() => init());
 })();

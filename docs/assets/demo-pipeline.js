@@ -5,7 +5,7 @@
   const { S, T, C } = L;
 
   L.onReady(() => {
-    [pipe, phases, sim, funnel, block, tpe, asha, finalists, timeline]
+    [pipe, phases, funnel, block, tpe, asha, finalists, timeline]
       .forEach(f => { try { f(); } catch (e) { console.error(f.name, e); } });
   });
 
@@ -187,26 +187,6 @@
     }, { button: document.getElementById("phases-play"), autoplay: false });
     document.getElementById("phases-restart").addEventListener("click", () => { init(); render(); ctrl.play(); });
     init(); render();
-  }
-
-  /* ---------- C.4 simulator (static) ---------- */
-  function sim() {
-    const boxEl = document.getElementById("sim-vis");
-    if (!boxEl) return;
-    const s = L.svg(boxEl, 840, 250, "Trained network and chip simulator produce the same spikes");
-    const r = L.rng(8), n = 8, steps = 40;
-    const sp = [...Array(n)].map((_, i) => [...Array(steps)].map((_, t) => r() < 0.1 + 0.25 * Math.sin((t + i * 3) / 5) ** 2));
-    function raster(y0, label, color) {
-      T(s, 20, y0 + 10, label, "lt-b");
-      for (let i = 0; i < n; i++) for (let t = 0; t < steps; t++) {
-        S("rect", { x: 200 + t * 14, y: y0 + 22 + i * 10, width: 12, height: 8, fill: sp[i][t] ? color : "rgba(255,255,255,.04)" }, s);
-      }
-      T(s, 20, y0 + 34, "8 neurons, 40 steps", "lt-s");
-    }
-    raster(10, "trained network", C.s1);
-    raster(130, "chip simulator", C.accent);
-    T(s, 20, 70, "answer: wave", "lt-m");
-    T(s, 20, 190, "answer: wave", "lt-a");
   }
 
   /* ---------- C.6 shape first (static) ---------- */
@@ -429,7 +409,7 @@
       const { ctx, w, h } = geo;
       ctx.fillStyle = C.bg; ctx.fillRect(0, 0, w, h);
       const padL = 92, X = t => padL + t / Tend * (w - padL - 12);
-      const lanes = [[118, "GPU slot 1"], [150, "GPU slot 2"], [190, "rejected"]];
+      const lanes = [[118, "slot 1"], [150, "slot 2"], [190, "rejected"]];
       ctx.font = "11px 'JetBrains Mono', monospace"; ctx.fillStyle = C.muted; ctx.textAlign = "right";
       lanes.forEach(([y, l]) => ctx.fillText(l, padL - 8, y + 12));
       ctx.fillText("best", padL - 8, 40);
@@ -455,11 +435,12 @@
       ctx.stroke(); ctx.lineWidth = 1;
       best = b;
       ctx.fillStyle = C.muted; ctx.textAlign = "center";
-      for (let hr = 0; hr <= Tend; hr += 12) ctx.fillText(`${hr} h`, X(hr), h - 8);
+      [[0, "start"], [0.5, "time \u2192"], [1, "end"]].forEach(([f, l]) => { ctx.textAlign = f === 0 ? "left" : f === 1 ? "right" : "center"; ctx.fillText(l, X(f * Tend), h - 8); });
+      ctx.textAlign = "center";
       const blockEnd = trials[95] ? trials[95].end : 0;
       if (now >= blockEnd) { ctx.setLineDash([4, 4]); ctx.strokeStyle = C.muted; ctx.beginPath(); ctx.moveTo(X(blockEnd), 100); ctx.lineTo(X(blockEnd), 214); ctx.stroke(); ctx.setLineDash([]); ctx.textAlign = "left"; ctx.fillText("designed block ends", X(blockEnd) + 4, 108); }
       const done = trials.filter(t => t.end <= now).length;
-      document.getElementById("tl-readout").innerHTML = `hour <b>${Math.floor(now)}</b> · ${done} trials trained · ${rejects.filter(t => t <= now).length} rejected · best so far <b>${b ? b.toFixed(3) : "-"}</b>`;
+      document.getElementById("tl-readout").innerHTML = `<b>${Math.round(100 * now / Tend)}%</b> of the way · ${done} trials trained · ${rejects.filter(t => t <= now).length} rejected · best so far <b>${b ? b.toFixed(3) : "-"}</b>`;
     }
     const ctrl = L.loop(canvas, dt => { now = Math.min(Tend, now + dt * Tend / 14); draw(); return now < Tend; },
       { button: document.getElementById("tl-play"), autoplay: false });

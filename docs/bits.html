@@ -23,7 +23,7 @@
 </header>
 <main class="with-toc">
 <div class="wrap">
-<div class="prereq"><span class="pq-k">Before this page</span><ul><li><a href="index.html#rules">Home: the chip's rules</a>: input axons and the 16,000 limit.</li><li><a href="data.html#frames">B.2 From events to frames</a>: how events become frames.</li><li><a href="basics.html#work">A.9 Why spikes can save work</a>: what a SynOp is.</li></ul></div>
+<details class="refresh" data-terms="axon,event,frame,timestep,synop,int16"><summary><span class="rf-k">Forgot some of these?</span><span class="rf-list">axon · event · frame · timestep · SynOp · INT16</span></summary><dl class="rf-dl"><dt>axon</dt><dd>An input line that carries spikes into the chip from outside. The chip has 16,000, so the input frame must be small enough to fit. <a href="index.html#rules">Home</a></dd><dt>event</dt><dd>One report from an event camera pixel: where, when, and whether it got brighter or darker. <a href="data.html#camera">B.1</a></dd><dt>frame</dt><dd>One slice of a recording, holding the events from a short stretch of time. A clip of T frames runs for T steps. <a href="data.html#frames">B.2</a></dd><dt>timestep</dt><dd>One tick of the clock in a spiking network. Every layer updates once per step. <a href="basics.html#snn">A.5</a></dd><dt>SynOp (synaptic operation)</dt><dd>One spike adding one weight to one neuron: the unit of work on a spiking chip, used as a stand-in for energy. <a href="basics.html#work">A.9</a></dd><dt>INT16 (16-bit integer)</dt><dd>A whole number stored in 16 bits, from −32,767 to 32,767. Every weight and threshold on the chip is one, with 32,767 standing for 1.0. <a href="hardware.html#int16">G.4</a></dd></dl></details>
 
 
 <section class="reveal" id="one-bit">

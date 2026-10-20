@@ -9,7 +9,7 @@ clip.
 This guide is the how-to. For why the tool works the way it does, see the
 website: https://purujain2006.github.io/configurable-snn-classifier/
 
-Commands are written for tcsh on the cluster. Each one is a single line.
+Each command is a single line, so it works in any shell (bash, zsh or tcsh).
 
 ## Contents
 
@@ -35,14 +35,16 @@ Commands are written for tcsh on the cluster. Each one is a single line.
 | install, once per machine | `python main.py check` | minutes |
 | preview a network's size and fit, no GPU needed | `python main.py summary -c CONFIG` | seconds |
 | preflight, whenever the config or the code changes | `python main.py preflight -c CONFIG` | about 15 minutes |
-| search | `python main.py search -c CONFIG` | a day or more |
+| search | `python main.py search -c CONFIG` | hours to days, depending on the GPUs |
 | look at results while it runs | `python tools/analysis/top_trials.py RESULTS` | seconds |
 | retrain the best trials of a stopped search | `python main.py finalists -c CONFIG --top 3` | hours |
 | which options help | `python main.py study -c CONFIG --from-best RESULTS/best_finalist.json` | hours |
 | train the winner long, get a test score | `python main.py single -c CONFIG --from-best RESULTS/best_finalist.json --epochs 300` | hours |
 
 `CONFIG` is a file in `configs/`, and `RESULTS` is the folder named by
-`run.results_dir` in it, for example `results/dvs128_search05`.
+`run.results_dir` in it, for example `results/dvs128_search05`. The times are
+rough and scale with your hardware: more or faster GPUs shorten every step that
+trains.
 
 ## 2. Install
 
@@ -72,7 +74,7 @@ python main.py check
 
 Every line should say `ok` except, possibly, `hs_api`.
 
-If you copy the code to the cluster by hand rather than with git, copy the
+If you copy the code to another machine by hand rather than with git, copy the
 whole `snnsearch/` folder. If you commit with `git commit -a`, new files are
 left out; `git add` them first. The preflight catches a missing file.
 
@@ -176,7 +178,7 @@ anything else, or pulling new code, asks for a new one. `--skip-preflight` on
 
 ## 6. Run the search
 
-The search must keep running after you log out. Use tmux:
+On a remote machine, the search must keep running after you log out. Use tmux:
 
 ```
 tmux new -s search
@@ -551,7 +553,7 @@ All run on a laptop in a few minutes. Two more:
   through Ray on synthetic data (about 5 minutes, needs ray and optuna). Run it
   after any change to `search.py`, `scheduling.py`, `study.py` or `streaming.py`.
 * `python tools/checks/train_and_verify.py CONFIG` trains a dozen networks on
-  real data and checks each against the simulator (on the cluster).
+  real data and checks each against the simulator (on a machine with the dataset and a GPU).
 
 `node tests/test_snn_port.js` checks the website's arithmetic against Python,
 and `node tools/site/validate_pages.js` the website's structure.
