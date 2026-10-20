@@ -118,5 +118,72 @@ class SimMatch(unittest.TestCase):
                 self.assertEqual(mismatches, 0, "exact_copy")
 
 
+class FpgaTarget(unittest.TestCase):
+    """tools/match_simplesim.py --hs-target CRI runs clips on the FPGA through
+    hs_api. Without hardware, stand-in hs_api and hs_bridge modules check the
+    plumbing: the core reaches CRI_network, the chip is cleared before every
+    clip, step()'s (spikes, latency, hbm_access) is read, and output spikes
+    become predictions."""
+
+    def run_stub(self, target):
+        import importlib.util
+        import types
+        from unittest import mock
+        spec = importlib.util.spec_from_file_location(
+            "match_simplesim", os.path.join(ROOT, "tools", "match_simplesim.py"))
+        ms = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(ms)
+        calls = {"clear": [], "kwargs": None, "inits": 0}
+
+        class FakeNet:
+            def __init__(self, axons, connections, outputs, target, **kw):
+                calls["kwargs"] = {"target": target, **kw}
+                self.outputs = outputs
+                self.n_cls = len(outputs) // (2 if any("-" in str(k) for k in outputs) else 1)
+                self.simpleSim = types.SimpleNamespace(
+                    numNeurons=len(connections),
+                    initialize_sim_vars=lambda n: calls.__setitem__("inits", calls["inits"] + 1))
+
+            def step(self, inputs):
+                spikes = [self.outputs[2]]       # class 2 fires every step
+                return (spikes, 7, 0) if target == "CRI" else spikes
+
+        api = types.ModuleType("hs_api.api")
+        api.CRI_network = FakeNet
+        models = types.ModuleType("hs_api.neuron_models")
+        models.LIF_neuron = models.ANN_neuron = lambda *a: ("neuron", a)
+        ctrl = types.ModuleType("hs_bridge.FPGA_Execution.fpga_controller")
+        ctrl.clear = lambda n, dump, core: calls["clear"].append((n, dump, core))
+        fe = types.ModuleType("hs_bridge.FPGA_Execution")
+        fe.fpga_controller = ctrl
+        mods = {"hs_api": types.ModuleType("hs_api"), "hs_api.api": api,
+                "hs_api.neuron_models": models,
+                "hs_bridge": types.ModuleType("hs_bridge"),
+                "hs_bridge.FPGA_Execution": fe,
+                "hs_bridge.FPGA_Execution.fpga_controller": ctrl}
+        net = build("avg", "flatten", "threshold", False, False, 1, seed=0)
+        layers = integer_layers(net)
+        clips = [(torch.zeros(4, 2, 16, 16, dtype=torch.uint8), 0) for _ in range(3)]
+        with mock.patch.dict(sys.modules, mods):
+            out = ms._real_simplesim(layers, (2, 16, 16), clips, flush=2,
+                                     target=target, core=5)
+        return out, calls
+
+    def test_fpga_path(self):
+        out, calls = self.run_stub("CRI")
+        self.assertEqual(calls["kwargs"], {"target": "CRI", "coreID": 5})
+        self.assertEqual(len(calls["clear"]), 3)
+        self.assertTrue(all(core == 5 and not dump for _n, dump, core in calls["clear"]))
+        self.assertEqual([p for p, _, _ in out], [2, 2, 2])
+        self.assertEqual([lat for _, _, lat in out], [7.0, 7.0, 7.0])
+        self.assertEqual(len(out[0][1]), 4 + 2)          # T steps plus the flush
+
+    def test_simplesim_path_is_unchanged(self):
+        out, calls = self.run_stub("simpleSim")
+        self.assertEqual(calls["kwargs"], {"target": "simpleSim"})
+        self.assertEqual((calls["clear"], calls["inits"]), ([], 3))
+        self.assertEqual([(p, lat) for p, _, lat in out], [(2, None)] * 3)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

@@ -275,20 +275,27 @@ def _torch_preds(net, items, device, flush, batch=16):
     return preds
 
 
-def _real_simplesim(layers, in_shape, items, flush):
-    """Run clips through hs_api's own simple_sim, on the full network.
+def _real_simplesim(layers, in_shape, items, flush, target="simpleSim", core=0):
+    """Run clips through hs_api on the full network: its own simple_sim, or
+    with target "CRI" the FPGA itself (on a host with hs_bridge and a flashed
+    bitstream).
 
     Slow and memory-hungry by construction: hs_api stores every synapse as a
     Python object. Measured on a smaller net it costs ~600 bytes and ~50 us
     per synapse to build, so rank1 (239M synapses) needs on the order of
     150 GB of RAM and a few hours before the first clip runs.
+
+    Returns [(pred, per-step output rows, mean latency per step or None)].
+    On the FPGA, step() returns (spikes, latency, hbm_access); the latency is
+    kept, and membranes are cleared between clips with fpga_controller.clear,
+    as hs_api's own hardware tests do.
     """
     import torch
     from snnsearch.hs_export import unroll_to_hs_api, input_axons
     from hs_api.api import CRI_network
 
     t0 = time.time()
-    print("real simpleSim: unrolling the network into hs_api dictionaries", flush=True)
+    print(f"hs_api {target}: unrolling the network into hs_api dictionaries", flush=True)
     axons, conns, groups = unroll_to_hs_api(layers, in_shape)
     n_syn = sum(len(v) for v in axons.values()) + sum(len(v[0]) for v in conns.values())
     print(f"  {len(axons)} axons, {len(conns)} neurons, {n_syn:,} synapses "
@@ -297,9 +304,21 @@ def _real_simplesim(layers, in_shape, items, flush):
     out_groups = groups[-1]
     out_keys = [k for keys, _sign in out_groups for k in keys]
     n_cls = len(out_groups[0][0])
-    net = CRI_network(axons=axons, connections=conns, outputs=out_keys, target="simpleSim")
+    n_neurons = len(conns)
+    extra = {"coreID": core} if target == "CRI" else {}
+    net = CRI_network(axons=axons, connections=conns, outputs=out_keys, target=target, **extra)
     del axons, conns
     print(f"  CRI_network built ({(time.time() - t0) / 60:.1f} min)", flush=True)
+    clear = None
+    if target == "CRI":
+        from hs_bridge.FPGA_Execution import fpga_controller
+        # padding to whole groups of 32 per neuron model adds neurons; clear them too
+        try:
+            n_neurons = sum(1 for n in net.connectome.connectomeDict.values()
+                            if n.get_neuron_type() == "neuron")
+        except AttributeError:
+            pass
+        clear = lambda: fpga_controller.clear(n_neurons, False, core)     # noqa: E731
 
     pos = {k: (i, sign) for keys, sign in out_groups for i, k in enumerate(keys)}
     bits = layers[0].get("input_bits", 1)
@@ -307,20 +326,30 @@ def _real_simplesim(layers, in_shape, items, flush):
     for ci, (frames, _label) in enumerate(items):
         t1 = time.time()
         # fresh membranes per clip, as Christopher's DVS example clears the FPGA
-        net.simpleSim.initialize_sim_vars(net.simpleSim.numNeurons)
+        if clear is not None:
+            clear()
+        else:
+            net.simpleSim.initialize_sim_vars(net.simpleSim.numNeurons)
         counts = [0] * n_cls
-        per_step = []
+        per_step, latency = [], []
         for t in range(frames.shape[0] + flush):
             inputs = input_axons(frames[t], bits) if t < frames.shape[0] else []
             row = [0] * n_cls
-            for k in net.step(inputs):
+            out = net.step(inputs)
+            if isinstance(out, tuple):          # the FPGA: (spikes, latency, hbm_access)
+                out, lat = out[0], out[1]
+                latency.append(lat)
+            for k in out:
                 i, sign = pos[k]
                 row[i] += sign
                 counts[i] += sign
             per_step.append(row)
         pred = int(torch.tensor(counts).argmax().item())
-        results.append((pred, per_step))
-        print(f"  clip {ci}: predicted {pred} ({time.time() - t1:.0f}s)", flush=True)
+        mean_lat = (sum(float(x) for x in latency) / len(latency)) if latency else None
+        results.append((pred, per_step, mean_lat))
+        print(f"  clip {ci}: predicted {pred} ({time.time() - t1:.0f}s"
+              + (f", latency {mean_lat:.0f} per step" if mean_lat is not None else "") + ")",
+              flush=True)
     return results
 
 
@@ -433,19 +462,31 @@ def compare(args):
         if args.real_simplesim:
             k = min(args.real_simplesim, len(frames))
             in_shape = (spec["input"].C, spec["input"].resize_to, spec["input"].resize_to)
-            real = _real_simplesim(layers, in_shape, clips[split][:k], flush)
+            real = _real_simplesim(layers, in_shape, clips[split][:k], flush,
+                                   target=args.hs_target, core=args.core)
             # every output spike at every timestep, not only the argmax
-            r_pred = [p for p, _ in real]
+            r_pred = [p for p, _, _ in real]
             dis_r = [i for i in range(k) if r_pred[i] != p_sim[i]]
-            exact = [i for i, (_, steps) in enumerate(real) if steps != sim_steps[i]]
-            print(f"\n[{split}] real hs_api simpleSim on {k} clips")
+            exact = [i for i, (_, steps, _) in enumerate(real) if steps != sim_steps[i]]
+            acc_r = sum(a == b for a, b in zip(r_pred, labels[:k])) / k
+            acc_sk = sum(a == b for a, b in zip(p_sim[:k], labels[:k])) / k
+            lats = [lat for _, _, lat in real if lat is not None]
+            where = "the FPGA (CRI)" if args.hs_target == "CRI" else "real hs_api simpleSim"
+            print(f"\n[{split}] {where} on {k} clips")
+            print(f"  accuracy                                {acc_r:.4f} "
+                  f"(IntegerSim on the same clips {acc_sk:.4f})")
             print(f"  predictions differing from IntegerSim   {len(dis_r)}"
                   + (f"  clips {dis_r}" if dis_r else ""))
             print(f"  clips whose output spike trains differ  {len(exact)}"
                   + (f"  clips {exact}" if exact else "  (identical at every step)"))
+            if lats:
+                print(f"  mean latency per step                   {sum(lats) / len(lats):.0f}")
             report["splits"][split]["real_simplesim"] = {
-                "n": k, "pred": r_pred, "pred_disagreements_vs_integersim": dis_r,
-                "output_train_mismatch_clips": exact}
+                "target": args.hs_target, "n": k, "pred": r_pred, "accuracy": acc_r,
+                "integersim_accuracy_same_clips": acc_sk,
+                "pred_disagreements_vs_integersim": dis_r,
+                "output_train_mismatch_clips": exact,
+                "mean_latency_per_step": (sum(lats) / len(lats)) if lats else None}
 
     with open(args.out, "w") as fh:
         json.dump(report, fh, indent=1)
@@ -468,6 +509,10 @@ def main():
     ap.add_argument("--real-simplesim", type=int, default=0, metavar="K",
                     help="also run the first K clips of each split through hs_api's own "
                          "simple_sim on the FULL network (~150 GB RAM, hours)")
+    ap.add_argument("--hs-target", default="simpleSim", choices=["simpleSim", "CRI"],
+                    help="where --real-simplesim runs its clips: hs_api's simple_sim, or "
+                         "CRI, the FPGA (crisdsc0: book it, flash the bitstream first)")
+    ap.add_argument("--core", type=int, default=0, help="FPGA core for --hs-target CRI")
     ap.add_argument("--tau", type=int, default=None,
                     help="power-of-two tau to deploy with, on every layer")
     ap.add_argument("--split", default="both", choices=["val", "test", "both"])
