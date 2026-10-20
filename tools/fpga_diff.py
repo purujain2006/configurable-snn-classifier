@@ -137,8 +137,11 @@ def step(net, inputs):
     return {k: int(v) for k, v in mem}, list(spikes), counter
 
 
-def run(net, clear, inputs_per_step, keys, out_keys):
-    """Membranes (steps x keys), output spikes (steps x out_keys), counters."""
+def run(net, clear, inputs_per_step, keys, out_keys, progress=False):
+    """Membranes (steps x keys), output spikes (steps x out_keys), counters.
+    progress prints about ten lines: on the FPGA, reading every membrane back
+    takes minutes a step for a network of rank 2's size."""
+    t0 = time.time()
     clear()
     idx = {k: i for i, k in enumerate(keys)}
     oidx = {k: i for i, k in enumerate(out_keys)}
@@ -157,6 +160,10 @@ def run(net, clear, inputs_per_step, keys, out_keys):
             if j is not None:
                 O[t, j] = True
         counters.append(np.nan if counter is None else float(counter))
+        if progress and ((t + 1) % max(1, S // 10) == 0 or t == 0 or t + 1 == S):
+            took = (time.time() - t0) / 60
+            print(f"  step {t + 1}/{S} ({took:.1f} min, about "
+                  f"{took / (t + 1) * (S - t - 1):.0f} min left)", flush=True)
     return M, O, counters
 
 
@@ -208,7 +215,7 @@ def record_network(layers, in_shape, frames, flush, target, core=0):
     net, clear = build(axons, conns, out_keys, target, core)
     del axons, conns
     print(f"  network built ({(time.time() - t0) / 60:.1f} min)", flush=True)
-    M, O, counters = run(net, clear, inputs, keys, out_keys)
+    M, O, counters = run(net, clear, inputs, keys, out_keys, progress=True)
     print(f"  {len(inputs)} steps recorded ({(time.time() - t0) / 60:.1f} min)", flush=True)
     return {"target": target, "keys": keys, "out_keys": out_keys, "membrane": M,
             "out_spikes": O, "counter": counters, "table": table, "T": T, "flush": flush,
