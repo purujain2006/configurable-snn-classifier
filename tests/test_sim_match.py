@@ -146,7 +146,8 @@ class FpgaTarget(unittest.TestCase):
 
             def step(self, inputs):
                 spikes = [self.outputs[2]]       # class 2 fires every step
-                return (spikes, 7, 0) if target == "CRI" else spikes
+                calls["counter"] = calls.get("counter", 0) + 7     # runs on, like the FPGA's
+                return (spikes, calls["counter"], 0) if target == "CRI" else spikes
 
         api = types.ModuleType("hs_api.api")
         api.CRI_network = FakeNet
@@ -175,6 +176,7 @@ class FpgaTarget(unittest.TestCase):
         self.assertEqual(len(calls["clear"]), 3)
         self.assertTrue(all(core == 5 and not dump for _n, dump, core in calls["clear"]))
         self.assertEqual([p for p, _, _ in out], [2, 2, 2])
+        # the counter's increase within a clip, not its running value
         self.assertEqual([lat for _, _, lat in out], [7.0, 7.0, 7.0])
         self.assertEqual(len(out[0][1]), 4 + 2)          # T steps plus the flush
 

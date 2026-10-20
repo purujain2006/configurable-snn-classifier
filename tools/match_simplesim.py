@@ -285,10 +285,13 @@ def _real_simplesim(layers, in_shape, items, flush, target="simpleSim", core=0):
     per synapse to build, so rank1 (239M synapses) needs on the order of
     150 GB of RAM and a few hours before the first clip runs.
 
-    Returns [(pred, per-step output rows, mean latency per step or None)].
-    On the FPGA, step() returns (spikes, latency, hbm_access); the latency is
-    kept, and membranes are cleared between clips with fpga_controller.clear,
-    as hs_api's own hardware tests do.
+    Returns [(pred, per-step output rows, counter units per step or None)].
+    On the FPGA, step() returns (spikes, counter, hbm_access). The counter
+    runs on across steps and clips (a first run averaged it raw and reported
+    a number that grew with every clip), so the cost of a step is its
+    increase, taken within a clip so the clear between clips is not counted.
+    Membranes are cleared between clips with fpga_controller.clear, as
+    hs_api's own hardware tests do.
     """
     import torch
     from snnsearch.hs_export import unroll_to_hs_api, input_axons
@@ -352,11 +355,12 @@ def _real_simplesim(layers, in_shape, items, flush, target="simpleSim", core=0):
                 counts[i] += sign
             per_step.append(row)
         pred = int(torch.tensor(counts).argmax().item())
-        mean_lat = (sum(float(x) for x in latency) / len(latency)) if latency else None
-        results.append((pred, per_step, mean_lat))
+        steps_cost = [float(b) - float(a) for a, b in zip(latency, latency[1:])]
+        per_step_cost = (sum(steps_cost) / len(steps_cost)) if steps_cost else None
+        results.append((pred, per_step, per_step_cost))
         print(f"  clip {ci}: predicted {pred} ({time.time() - t1:.0f}s"
-              + (f", latency {mean_lat:.0f} per step" if mean_lat is not None else "") + ")",
-              flush=True)
+              + (f", {per_step_cost:.0f} counter units per step"
+                 if per_step_cost is not None else "") + ")", flush=True)
     return results
 
 
@@ -487,13 +491,13 @@ def compare(args):
             print(f"  clips whose output spike trains differ  {len(exact)}"
                   + (f"  clips {exact}" if exact else "  (identical at every step)"))
             if lats:
-                print(f"  mean latency per step                   {sum(lats) / len(lats):.0f}")
+                print(f"  counter units per step (mean of clips)  {sum(lats) / len(lats):.0f}")
             report["splits"][split]["real_simplesim"] = {
                 "target": args.hs_target, "n": k, "pred": r_pred, "accuracy": acc_r,
                 "integersim_accuracy_same_clips": acc_sk,
                 "pred_disagreements_vs_integersim": dis_r,
                 "output_train_mismatch_clips": exact,
-                "mean_latency_per_step": (sum(lats) / len(lats)) if lats else None}
+                "counter_units_per_step": (sum(lats) / len(lats)) if lats else None}
 
     with open(args.out, "w") as fh:
         json.dump(report, fh, indent=1)
