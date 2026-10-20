@@ -24,11 +24,14 @@ membrane one step before, both values, and a guess at the cause. A negative
 membrane whose FPGA value equals a logical (unsigned) shift instead of an
 arithmetic one is the L6m negative-leak bug.
 
-`show` reads one record and maps where membranes go negative, by layer and
-step. On the L6m FPGA each of those leaks with a logical shift, so this is
-where the bug can act, predicted from the simulator alone; for the first such
-neurons it shows what the bug would leave and how many steps until the value
-wraps to a large positive one and fires.
+`show` reads one record and reports every neuron, by layer and step: spikes
+(read off the membranes, since a neuron fires at a step when its membrane
+the step before is above threshold), bursts per step, firing rates, silent
+and always-on neurons, synaptic events, how close membranes run to threshold,
+when the prediction settles, and where membranes go negative. On the L6m
+FPGA each negative membrane leaks with a logical shift, so that map is where
+the bug can act, predicted from the simulator alone. `compare` adds, per
+layer, the spikes the FPGA missed and the ones it added.
 
 `micro` builds networks of a few neurons, each asking one question:
 negative membranes leaking at shifts 1 to 7, many spikes in one step (to the
@@ -186,7 +189,8 @@ def neuron_table(layers, in_shape):
 
 def record_network(layers, in_shape, frames, flush, target, core=0):
     """Run one clip on target, step by step, and keep every layer neuron's
-    membrane and every output spike."""
+    membrane and every output spike, plus each neuron's fan-out so a report
+    can count the synaptic events the chip handles."""
     from snnsearch.hs_export import unroll_to_hs_api, input_axons
     t0 = time.time()
     axons, conns, groups = unroll_to_hs_api(layers, in_shape)
@@ -195,34 +199,40 @@ def record_network(layers, in_shape, frames, flush, target, core=0):
     out_keys = [k for ks, _sign in groups[-1] for k in ks]
     print(f"{target}: {len(axons)} axons, {len(conns)} neurons "
           f"({(time.time() - t0) / 60:.1f} min to unroll)", flush=True)
-    net, clear = build(axons, conns, out_keys, target, core)
-    del axons, conns
-    print(f"  network built ({(time.time() - t0) / 60:.1f} min)", flush=True)
     bits = int(layers[0].get("input_bits", 1) or 1)
     T = int(frames.shape[0])
     inputs = [input_axons(frames[t], bits) for t in range(T)] + [[] for _ in range(flush)]
+    fan_out = np.array([len(conns[k][0]) for k in keys], np.int64)
+    bias_fan_out = int(sum(len(c[0]) for k, c in conns.items() if k not in table))
+    axon_events = int(sum(len(axons[a]) for step_in in inputs for a in step_in))
+    net, clear = build(axons, conns, out_keys, target, core)
+    del axons, conns
+    print(f"  network built ({(time.time() - t0) / 60:.1f} min)", flush=True)
     M, O, counters = run(net, clear, inputs, keys, out_keys)
     print(f"  {len(inputs)} steps recorded ({(time.time() - t0) / 60:.1f} min)", flush=True)
     return {"target": target, "keys": keys, "out_keys": out_keys, "membrane": M,
-            "out_spikes": O, "counter": counters, "table": table, "T": T, "flush": flush}
+            "out_spikes": O, "counter": counters, "table": table, "T": T, "flush": flush,
+            "fan_out": fan_out, "bias_fan_out": bias_fan_out, "axon_events": axon_events}
+
+
+RECORD_ARRAYS = ("membrane", "out_spikes", "counter", "keys", "out_keys", "fan_out")
 
 
 def save_record(path, rec):
-    np.savez_compressed(
-        path, membrane=rec["membrane"], out_spikes=rec["out_spikes"],
-        counter=np.asarray(rec["counter"], float),
-        keys=np.asarray(rec["keys"]), out_keys=np.asarray(rec["out_keys"]),
-        meta=np.asarray(json.dumps({k: v for k, v in rec.items()
-                                    if k not in ("membrane", "out_spikes", "counter",
-                                                 "keys", "out_keys")})))
+    arrays = {k: np.asarray(rec[k]) for k in RECORD_ARRAYS if rec.get(k) is not None}
+    arrays["counter"] = np.asarray(rec["counter"], float)
+    np.savez_compressed(path, meta=np.asarray(json.dumps(
+        {k: v for k, v in rec.items() if k not in RECORD_ARRAYS})), **arrays)
     print(f"wrote {path}")
 
 
 def load_record(path):
+    """A saved record. Records from before fan-out was kept have fan_out None."""
     z = np.load(path, allow_pickle=False)
     rec = json.loads(str(z["meta"]))
     rec.update(membrane=z["membrane"], out_spikes=z["out_spikes"], counter=z["counter"],
-               keys=[str(k) for k in z["keys"]], out_keys=[str(k) for k in z["out_keys"]])
+               keys=[str(k) for k in z["keys"]], out_keys=[str(k) for k in z["out_keys"]],
+               fan_out=z["fan_out"] if "fan_out" in z.files else None)
     return rec
 
 
@@ -270,17 +280,17 @@ def explains_logical(v_prev, ref, hw, shift):
     return False
 
 
-def classify(v_prev, ref, hw, shift):
-    """A guess at why one neuron's FPGA membrane differs at its first step."""
+def classify(v_prev, ref, hw, shift, theta=None):
+    """A guess at why one neuron's FPGA membrane differs at its first step.
+    Every membrane matched the step before, so both targets fired the same
+    neurons; what is left is the leak, the reset, or the input arriving."""
     if explains_logical(v_prev, ref, hw, shift):
         return "negative leak (logical shift)"
     if v_prev < 0 or ref < 0:
         return "negative membrane, not the logical-shift pattern"
-    if ref == 0 and hw != 0:
-        return "simulator reset it (spiked), FPGA did not"
-    if hw == 0 and ref != 0:
-        return "FPGA reset it, simulator did not"
-    return "value differs"
+    if theta is not None and v_prev > theta:
+        return "fired this step: reset or input differs"
+    return "input differs (spikes lost or added on the way in)"
 
 
 def output_classes(out_keys, table):
@@ -292,6 +302,44 @@ def output_classes(out_keys, table):
         c = ch if len(table[k][6]) == 1 else ch * table[k][6][1] * table[k][6][2] + pos
         cls.setdefault(c, []).append((j, sign))
     return cls
+
+
+def layer_groups(table, keys):
+    """(group of each neuron, group names, labels, index arrays) for each
+    layer's positive and negative neuron groups, positive first."""
+    group_of = [(table[k][0], table[k][1]) for k in keys]
+    names = sorted(set(group_of), key=lambda g: (g[0], -g[1]))
+    labels = [f"layer {li} {PLUS if s > 0 else MINUS}" for li, s in names]
+    gidx = {g: np.array([i for i, x in enumerate(group_of) if x == g]) for g in names}
+    return group_of, names, labels, gidx
+
+
+def thresholds(table, keys):
+    """Each neuron's threshold; an OR-pool neuron fires above 0."""
+    return np.array([0 if table[k][4] is None else table[k][4] for k in keys], np.int64)
+
+
+def spikes_from_membranes(M, th):
+    """Every neuron's spikes, read off its recorded membranes. simpleSim, like
+    the chip, fires on the membrane carried into a step (phase one) and
+    reports the membrane after that step's input (phase two), so a neuron
+    fires at step t exactly when its recorded membrane at t - 1 is above its
+    threshold. Membranes start at 0."""
+    F = np.zeros(M.shape, bool)
+    if len(M):
+        F[0] = th < 0
+        F[1:] = M[:-1] > th[None, :]
+    return F
+
+
+def output_mismatches(keys, out_keys, F, O):
+    """Output spikes the membranes imply that the record lacks, or the reverse.
+    0 for simpleSim; on the FPGA, a spike its own membrane called for that
+    never reached the host, or one that did with no membrane behind it."""
+    col = {k: i for i, k in enumerate(keys)}
+    idx = [col[k] for k in out_keys if k in col]
+    S = min(len(F), len(O))
+    return int((F[:S][:, idx] != np.asarray(O[:S], bool)[:, :len(idx)]).sum())
 
 
 def analyze(ref, hw, n_rows=20):
@@ -314,11 +362,20 @@ def analyze(ref, hw, n_rows=20):
     bad = np.where(D.any(axis=1) | Ds)[0]
     first = int(bad[0]) if len(bad) else None
 
-    group_of = [(table[k][0], table[k][1]) for k in keys]
-    group_names = sorted(set(group_of), key=lambda g: (g[0], -g[1]))     # + before -
-    labels = [f"layer {li} {PLUS if s > 0 else MINUS}" for li, s in group_names]
-    gidx = {g: np.array([i for i, x in enumerate(group_of) if x == g]) for g in group_names}
+    group_of, group_names, labels, gidx = layer_groups(table, keys)
     share = np.array([[float(D[t, gidx[g]].mean()) for t in range(S)] for g in group_names])
+    # spikes of every neuron on both targets, from the membranes
+    th = thresholds(table, keys)
+    Fr, Fh = spikes_from_membranes(Mr, th), spikes_from_membranes(Mh, th)
+    missed, extra = Fr & ~Fh, Fh & ~Fr
+    spikes = {"sim": [int(Fr[:, gidx[g]].sum()) for g in group_names],
+              "fpga": [int(Fh[:, gidx[g]].sum()) for g in group_names],
+              "missed": [int(missed[:, gidx[g]].sum()) for g in group_names],
+              "extra": [int(extra[:, gidx[g]].sum()) for g in group_names],
+              "missed_step": missed.sum(axis=1).astype(int).tolist(),
+              "extra_step": extra.sum(axis=1).astype(int).tolist(),
+              "out_check_ref": output_mismatches(keys, out_keys, Fr, Or),
+              "out_check_hw": output_mismatches(keys, out_keys, Fh, Oh)}
 
     cls = output_classes(out_keys, table)
     n_cls = len(cls)
@@ -331,7 +388,7 @@ def analyze(ref, hw, n_rows=20):
            "pred_hw": int(np.argmax(tot_h)) if n_cls else None,
            "label": ref.get("label"), "clip": ref.get("clip"),
            "differ_at_end": int(D[-1].sum()) if S else 0,
-           "rows": [], "scatter": [], "traces": [], "origin": None}
+           "rows": [], "scatter": [], "traces": [], "origin": None, "spikes": spikes}
     if first is None:
         return out
 
@@ -349,7 +406,7 @@ def analyze(ref, hw, n_rows=20):
         li, sign, ch, pos, theta, shift, shp = table[keys[i]]
         v_prev = int(Mr[first - 1, i]) if first > 0 else 0
         r, h = int(Mr[first, i]), int(Mh[first, i])
-        why = classify(v_prev, r, h, shift)
+        why = classify(v_prev, r, h, shift, theta)
         neg += v_prev < 0 or r < 0
         match += why == "negative leak (logical shift)"
         if len(out["rows"]) < n_rows:
@@ -401,14 +458,68 @@ def steps_to_wrap(v, s, limit=200):
 
 
 def analyze_one(rec, n_rows=15):
-    """One record: which neurons have a negative membrane, by layer and
-    step, which is where the L6m negative-leak bug acts."""
-    M, table, keys = rec["membrane"], rec["table"], rec["keys"]
+    """One record, every neuron: spikes, activity, headroom and the decision by
+    layer and step, and which neurons have a negative membrane, which is where
+    the L6m negative-leak bug acts."""
+    M, table, keys = np.asarray(rec["membrane"], np.int64), rec["table"], rec["keys"]
     S = len(M)
-    group_of = [(table[k][0], table[k][1]) for k in keys]
-    names = sorted(set(group_of), key=lambda g: (g[0], -g[1]))
-    labels = [f"layer {li} {PLUS if s > 0 else MINUS}" for li, s in names]
-    gidx = {g: np.array([i for i, x in enumerate(group_of) if x == g]) for g in names}
+    group_of, names, labels, gidx = layer_groups(table, keys)
+    th = thresholds(table, keys)
+    F = spikes_from_membranes(M, th)
+    per_step = F.sum(axis=1).astype(int)
+    layers = []
+    for g, lab in zip(names, labels):
+        ix = gidx[g]
+        Fg, Mg, tg = F[:, ix], M[:, ix], th[ix]
+        counts, per_neuron = Fg.sum(axis=1), Fg.sum(axis=0)
+        lif = tg > 0
+        near = np.abs(Mg[:, lif] - tg[lif]) <= 0.1 * tg[lif]
+        peak_v = int(np.abs(Mg).max()) if Mg.size else 0
+        th_max = int(tg.max()) if lif.any() else None
+        layers.append({
+            "label": lab, "neurons": int(len(ix)), "spikes": int(counts.sum()),
+            "rate": float(Fg.mean()) if Fg.size else 0.0,
+            "silent": float((per_neuron == 0).mean()) if len(ix) else 0.0,
+            "busy": float((per_neuron >= 0.9 * S).mean()) if len(ix) else 0.0,
+            "mean_step": float(counts.mean()) if S else 0.0,
+            "peak_step": int(counts.max()) if S else 0, "peak_at": int(counts.argmax()) if S else 0,
+            "near": float(near.mean()) if near.size else None,
+            "peak_v": peak_v, "peak_v_bits": peak_v.bit_length() + 1,
+            "th_max": th_max, "th_bits": None if th_max is None else th_max.bit_length() + 1})
+    events = None
+    if rec.get("fan_out") is not None:
+        fo = np.asarray(rec["fan_out"], np.int64)
+        neuron_ev = int((F.astype(np.int64) @ fo).sum())
+        bias_ev = int(rec.get("bias_fan_out", 0)) * S
+        axon_ev = int(rec.get("axon_events", 0))
+        events = {"neurons": neuron_ev, "bias": bias_ev, "axons": axon_ev,
+                  "total": neuron_ev + bias_ev + axon_ev}
+
+    # the decision: running output totals per class
+    cls = output_classes(rec["out_keys"], table)
+    O = np.asarray(rec["out_spikes"], np.int64)
+    if cls:
+        per_cls = np.stack([sum(O[:, j] * s for j, s in cls[c]) for c in sorted(cls)], axis=1)
+    else:
+        per_cls = np.zeros((S, 0), np.int64)
+    cum = np.cumsum(per_cls, axis=0)
+    tot = [int(v) for v in cum[-1]] if S and cls else []
+    pred = int(np.argmax(tot)) if tot else None
+    leads = []
+    for row in cum:
+        top = np.flatnonzero(row == row.max()) if row.size else []
+        leads.append(int(top[0]) if len(top) == 1 else -1)
+    lock = None
+    if pred is not None and leads[-1] == pred:
+        lock = S - 1
+        while lock > 0 and leads[lock - 1] == pred:
+            lock -= 1
+    label = rec.get("label")
+    margin = None
+    if label is not None and 0 <= label < cum.shape[1] and cum.shape[1] > 1:
+        margin = (cum[:, label] - np.delete(cum, label, axis=1).max(axis=1)).astype(int).tolist()
+
+    # negative membranes, where the L6m leak bug acts
     leaks = np.array([bool(table[k][5]) for k in keys])
     neg = (M < 0) & leaks[None, :]
     share = [[float(neg[t, gidx[g]].mean()) for t in range(S)] for g in names]
@@ -426,44 +537,111 @@ def analyze_one(rec, n_rows=15):
         rows.append({"key": keys[i], "where": where, "step": t, "membrane": v, "shift": shift,
                      "theta": theta, "sim_next": leak_arith(v, shift),
                      "bug_next": leak_logical(v, shift), "wrap": steps_to_wrap(v, shift)})
-    cls = output_classes(rec["out_keys"], table)
-    O = rec["out_spikes"]
-    tot = [int(sum(O[:, j].sum() * s for j, s in cls[c])) for c in sorted(cls)]
     return {"steps": S, "n_neurons": len(keys), "labels": labels, "share": share,
             "ever": ever, "n_hit": int(len(hit)), "hit_keys": [keys[i] for i in hit],
             "share_steps": float(neg.mean()) if S else 0.0,
             "first_step": int(first_t[hit].min()) if len(hit) else None, "rows": rows,
-            "class": tot, "pred": int(np.argmax(tot)) if tot else None,
-            "label": rec.get("label"), "clip": rec.get("clip"), "split": rec.get("split"),
+            "per_step": per_step.tolist(), "spikes": int(F.sum()),
+            "burst": int(per_step.max()) if S else 0,
+            "burst_at": int(per_step.argmax()) if S else 0, "layers": layers, "events": events,
+            "out_check": output_mismatches(keys, rec["out_keys"], F, rec["out_spikes"]),
+            "class": tot, "pred": pred, "lock": lock, "margin": margin,
+            "label": label, "clip": rec.get("clip"), "split": rec.get("split"),
             "target": rec.get("target")}
 
 
 def report_show(res):
-    sub = (f"{res['target']} record of {res['split']} clip {res['clip']} (label {res['label']}), "
-           f"{res['steps']} steps, {res['n_neurons']:,} neurons. On the L6m FPGA a negative "
-           f"membrane leaks with a logical shift, the known bug; this shows which neurons have "
-           f"one, from the simulator alone. FPGA records confirm it with compare.")
+    name = res["target"]
+    color = "--fpga" if name == "CRI" else "--sim"
+    sub = (f"{name} record of {res['split']} clip {res['clip']} (label {res['label']}), "
+           f"{res['steps']} steps, {res['n_neurons']:,} neurons. Every spike here is read off "
+           f"the membranes: a neuron fires at a step when its membrane the step before is "
+           f"above threshold.")
     pct = 100 * res["n_hit"] / max(1, res["n_neurons"])
+    ev = res["events"]
     b = ['<div class="tiles">',
-         tile("neurons that go negative", f"{res['n_hit']:,} ({pct:.0f}%)"),
-         tile("first step with one", "none" if res["first_step"] is None
-              else f"step {res['first_step']}"),
-         tile("neuron-steps negative", f"{100 * res['share_steps']:.0f}%"),
-         tile("prediction (sim / label)", f"{res['pred']} / {res['label']}"), "</div>"]
+         tile("prediction / label", f"{res['pred']} / {res['label']}"),
+         tile("prediction settles", "never" if res["lock"] is None else f"step {res['lock']}"),
+         tile("spikes in the clip", f"{res['spikes']:,}"),
+         tile("largest burst", f"{res['burst']:,} at step {res['burst_at']}"),
+         tile("synaptic events", "not recorded" if ev is None else compact(ev["total"])),
+         tile("neurons that go negative", f"{res['n_hit']:,} ({pct:.0f}%)"), "</div>"]
+    if res["out_check"] == 0:
+        b.append('<p class="note">Check: the output spikes the membranes imply match the '
+                 'recorded ones at every step.</p>')
+    else:
+        b.append(f'<p class="note">Check: {res["out_check"]:,} output spikes differ from what '
+                 f'the membranes imply. On simpleSim that means this reading is wrong; on the '
+                 f'FPGA, that spikes were lost or added on the way to the host.</p>')
+    L = res["layers"]
+
+    b.append("<h2>Spikes per step</h2><p class=\"sub\">All layer neurons together. The chip "
+             "moves a step's spikes through its spike FIFOs at once, so large bursts are where "
+             "dropped spikes would show; the micro report's burst tests find the size where "
+             "the FPGA starts dropping them.</p>")
+    b.append('<div class="card">' + line_chart([(name, color, res["per_step"])])
+             + "<details><summary>By layer</summary>" + table_html(
+                 ["layer", "neurons", "spikes per step", "most in one step", "at step"],
+                 [(esc(r["label"]), f"{r['neurons']:,}", f"{r['mean_step']:,.0f}",
+                   f"{r['peak_step']:,}", r["peak_at"]) for r in L], num=(1, 2, 3, 4))
+             + "</details></div>")
+
+    b.append("<h2>Activity by layer</h2><p class=\"sub\">Share of each layer's neurons that "
+             "fire at a step, averaged over the clip.</p>")
+    b.append('<div class="card">' + grouped_bars(
+        [r["label"] for r in L], [(name, color, [round(100 * r["rate"], 1) for r in L])],
+        x_label="layer, percent firing per step") + table_html(
+        ["layer", "neurons", "spikes in the clip", "firing per step", "never fire",
+         "fire on 90% of steps or more"],
+        [(esc(r["label"]), f"{r['neurons']:,}", f"{r['spikes']:,}", f"{100 * r['rate']:.1f}%",
+          f"{100 * r['silent']:.0f}%", f"{100 * r['busy']:.0f}%") for r in L],
+        num=(1, 2, 3, 4, 5)) + "</div>")
+    if ev is not None:
+        b.append(f'<p class="note">Synaptic events in the clip: {ev["total"]:,}, each one a '
+                 f'synapse the chip applies. {ev["neurons"]:,} come from layer spikes, '
+                 f'{ev["axons"]:,} from input axons, {ev["bias"]:,} from bias neurons.</p>')
+    else:
+        b.append('<p class="note">This record has no fan-out, so synaptic events are not '
+                 'counted. Records made with this version of record keep it.</p>')
+
+    b.append("<h2>Headroom</h2><p class=\"sub\">How close membranes run to threshold, and how "
+             "much of the 36-bit membrane word they use. A neuron-step within 10% of "
+             "threshold flips with an error that small.</p>")
+    b.append('<div class="card">' + table_html(
+        ["layer", "largest threshold", "largest membrane", "neuron-steps within 10% of threshold"],
+        [(esc(r["label"]), "" if r["th_max"] is None else f"{r['th_max']:,} ({r['th_bits']} bits)",
+          f"{r['peak_v']:,} ({r['peak_v_bits']} bits)",
+          "" if r["near"] is None else f"{100 * r['near']:.1f}%") for r in L],
+        num=(1, 2, 3)) + "</div>")
+
+    if res["margin"] is not None:
+        settle = ("" if res["lock"] is None else
+                  f" The prediction stops changing at step {res['lock']} of {res['steps']}.")
+        b.append("<h2>Decision over time</h2><p class=\"sub\">The label's running output total "
+                 "minus the best other class's. Above zero, stopping at that step would answer "
+                 f"correctly.{settle}</p>")
+        b.append('<div class="card">' + line_chart(
+            [(name, color, res["margin"])], hlines=[(0, "tie")]) + "</div>")
+
     b.append("<h2>Negative membranes, by layer and step</h2><p class=\"sub\">Share of each "
              "layer's leaking neurons whose membrane is negative at that step. Each one is "
-             "leaked with a logical shift on the L6m FPGA.</p>")
-    b.append('<div class="card">' + heat_legend() + heatmap(res["labels"], res["share"]) + "</div>")
+             "leaked with a logical shift on the L6m FPGA, the known bug. "
+             f"{res['n_hit']:,} neurons ({pct:.0f}%) go negative at some step"
+             + ("" if res["first_step"] is None else f", first at step {res['first_step']}")
+             + f"; {100 * res['share_steps']:.0f}% of neuron-steps are negative.</p>")
+    b.append('<div class="card">' + heat_legend()
+             + heatmap(res["labels"], res["share"], what="negative") + "</div>")
     b.append("<h2>Neurons that go negative at least once</h2><p class=\"sub\">Share of each "
              "layer's neurons, over the whole clip.</p>")
     b.append('<div class="card">' + grouped_bars(
-        res["labels"], [("simulator", "--sim", [round(100 * e) for e in res["ever"]])],
+        res["labels"], [(name, color, [round(100 * e) for e in res["ever"]])],
         x_label="layer, percent of its neurons") + "</div>")
     if res["rows"]:
         b.append("<h2>What the bug would do to the first ones</h2><p class=\"sub\">The "
                  "membrane the simulator holds, what its arithmetic leak leaves next, what a "
                  "logical shift leaves instead, and how many steps of that it takes to wrap "
-                 "past −2<sup>35</sup> to a huge positive value, which fires.</p>")
+                 "past \u22122<sup>35</sup> to a huge positive value, which fires. Until "
+                 "then the neuron sits far below threshold and cannot fire.</p>")
         b.append('<div class="card">' + table_html(
             ["neuron", "where", "step", "membrane", "shift", "simulator leaks to",
              "logical shift leaves", "steps until it wraps"],
@@ -473,20 +651,26 @@ def report_show(res):
             num=(2, 3, 4, 5, 6, 7)) + "</div>")
     if res["class"]:
         cats = [str(i) for i in range(len(res["class"]))]
-        b.append("<h2>Output spikes per class</h2><p class=\"sub\">Positive minus negative output "
-                 "spikes over the clip in the simulator; the largest is the prediction.</p>")
+        b.append("<h2>Output spikes per class</h2><p class=\"sub\">Positive minus negative "
+                 "output spikes over the clip; the largest is the prediction.</p>")
         b.append('<div class="card">' + grouped_bars(
-            cats, [("simulator", "--sim", res["class"])], x_label="class") + "</div>")
-    return page("Where the negative-leak bug can strike", sub, "".join(b))
+            cats, [(name, color, res["class"])], x_label="class") + "</div>")
+    return page("One clip, every neuron", sub, "".join(b))
 
 
 def cmd_show(a):
-    rec = load_record(a.record)
-    res = analyze_one(rec)
+    res = analyze_one(load_record(a.record))
     pct = 100 * res["n_hit"] / max(1, res["n_neurons"])
+    settles = "never settles" if res["lock"] is None else f"settles at step {res['lock']}"
+    print(f"prediction {res['pred']} (label {res['label']}), {settles}")
+    print(f"{res['spikes']:,} spikes; largest burst {res['burst']:,} at step {res['burst_at']}")
+    if res["events"] is not None:
+        print(f"{res['events']['total']:,} synaptic events")
     print(f"{res['n_hit']:,} of {res['n_neurons']:,} neurons ({pct:.0f}%) have a negative "
           f"membrane at some step; first at step {res['first_step']}; "
           f"{100 * res['share_steps']:.0f}% of neuron-steps")
+    if res["out_check"]:
+        print(f"check: {res['out_check']} output spikes differ from what the membranes imply")
     write(a.out, report_show(res))
     return 0
 
@@ -506,6 +690,12 @@ def text_summary(res, ref, hw):
             lines.append(f"  {r['key']:14s} {r['where']:22s} shift {r['shift']}: "
                          f"before {r['before']:>12,}  sim {r['sim']:>12,}  "
                          f"fpga {r['fpga']:>14,}  {r['why']}")
+    sp = res["spikes"]
+    lines.append(f"spikes (read off the membranes): sim {sum(sp['sim']):,}, "
+                 f"fpga {sum(sp['fpga']):,}; the FPGA missed {sum(sp['missed']):,} and "
+                 f"added {sum(sp['extra']):,}")
+    if sp["out_check_hw"]:
+        lines.append(f"  {sp['out_check_hw']} FPGA output spikes disagree with its own membranes")
     lines.append(f"output totals per class: sim {res['class_ref']}, fpga {res['class_hw']}")
     lines.append(f"prediction: sim {res['pred_ref']}, fpga {res['pred_hw']}, "
                  f"label {res['label']}")
@@ -524,7 +714,8 @@ def leak_models(w, s, n, logical, theta=NEG_LEAK_THETA):
     """A membrane driven by w at step 0 and then left alone, leaked with an
     arithmetic or a logical shift, firing and resetting to 0 above theta (a
     wrapped negative membrane turns huge and positive, and fires):
-    {"after": leak in the input's own step, "before": leak first, then add}."""
+    {"before": simpleSim's order, fire on the membrane carried in, reset or
+    leak, then add the input; "after": add the input, then fire or leak}."""
     f = leak_logical if logical else leak_arith
     out = {}
     for order in ("after", "before"):
@@ -532,9 +723,7 @@ def leak_models(w, s, n, logical, theta=NEG_LEAK_THETA):
         for t in range(n):
             drive = w if t == 0 else 0
             if order == "before":
-                v = f(v, s) + drive
-                if v > theta:
-                    v = 0
+                v = f(0 if v > theta else v, s) + drive
             else:
                 v += drive
                 v = 0 if v > theta else f(v, s)
@@ -839,20 +1028,21 @@ def line_chart(series, width=600, height=220, x_label="step", hlines=(), title="
     return "".join(p)
 
 
-def heatmap(row_labels, values, cell=14, x_label="step"):
-    """values: rows x columns in 0..1, the share of neurons that differ."""
+def heatmap(row_labels, values, cell=14, x_label="step", what="differ"):
+    """values: rows x columns in 0..1, the share of neurons that differ (or,
+    with what="negative", that have a negative membrane)."""
     rows, cols = len(values), max((len(r) for r in values), default=0)
     ml, mt, mb = 88, 4, 30
     width, height = ml + cols * cell + 8, mt + rows * cell + mb
     p = [f'<svg class="heat" viewBox="0 0 {width} {height}" width="{width}" role="img" '
-         f'aria-label="share of neurons that differ, by layer and step">']
+         f'aria-label="share of neurons that {what}, by layer and step">']
     for r, lab in enumerate(row_labels):
         p.append(f'<text x="{ml - 6}" y="{mt + r * cell + cell - 2}" text-anchor="end">{esc(lab)}</text>')
         for c, v in enumerate(values[r]):
             fill = "var(--zero)" if v == 0 else f"var(--seq-{bin_of(v)})"
             p.append(f'<rect x="{ml + c * cell}" y="{mt + r * cell}" width="{cell - 1}" '
                      f'height="{cell - 1}" rx="2" fill="{fill}"><title>{esc(lab)}, step {c}: '
-                     f'{100 * v:.1f}% differ</title></rect>')
+                     f'{100 * v:.1f}% {what}</title></rect>')
     for c in ticks(0, cols - 1, 8):
         if 0 <= c <= cols - 1:
             p.append(f'<text x="{ml + c * cell + cell / 2:.1f}" y="{mt + rows * cell + 14}" '
@@ -1000,6 +1190,31 @@ def report_compare(res, ref, hw):
              "neurons whose FPGA membrane differs from the simulator's, at every step.</p>")
     b.append('<div class="card">' + heat_legend()
              + heatmap(res["labels"], res["share"]) + "</div>")
+    sp = res["spikes"]
+    only_sim, only_fpga = f"only in {sim_name} (missed)", f"only on {fpga_name} (extra)"
+    b.append("<h2>Spikes the FPGA missed and added</h2><p class=\"sub\">Every neuron's spikes, "
+             "read off the membranes on both targets. Missed spikes are neurons the FPGA kept "
+             "below threshold, as the leak bug does to negative membranes; extra spikes are "
+             "membranes that ran above it. A spike dropped on its way to other neurons shows "
+             "up one layer later, as missed spikes there.</p>")
+    b.append('<div class="card">' + legend([(only_sim, "--sim"), (only_fpga, "--fpga")])
+             + grouped_bars(res["labels"], [(only_sim, "--sim", sp["missed"]),
+                                            (only_fpga, "--fpga", sp["extra"])],
+                            x_label="layer, spikes over the clip")
+             + line_chart([(only_sim, "--sim", sp["missed_step"]),
+                           (only_fpga, "--fpga", sp["extra_step"])])
+             + "<details><summary>Table</summary>" + table_html(
+                 ["layer", f"{sim_name} spikes", f"{fpga_name} spikes", "missed", "extra"],
+                 [(esc(lab), f"{r:,}", f"{h:,}", f"{m:,}", f"{e:,}") for lab, r, h, m, e in
+                  zip(res["labels"], sp["sim"], sp["fpga"], sp["missed"], sp["extra"])],
+                 num=(1, 2, 3, 4)) + "</details></div>")
+    if sp["out_check_hw"]:
+        b.append(f'<p class="note">{sp["out_check_hw"]:,} of the FPGA\'s recorded output spikes '
+                 f'disagree with what its own output membranes imply: spikes lost or added '
+                 f'between the neuron and the host.</p>')
+    else:
+        b.append('<p class="note">The FPGA\'s recorded output spikes match what its own output '
+                 'membranes imply, so its output neurons fire as their membranes say.</p>')
     if res["class_ref"]:
         cats = [str(i) for i in range(len(res["class_ref"]))]
         b.append("<h2>Output spikes per class</h2><p class=\"sub\">Positive minus negative "

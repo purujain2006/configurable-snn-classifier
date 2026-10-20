@@ -22,6 +22,7 @@ import unittest
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 
+import numpy as np
 import torch
 
 from snnsearch.config import (InputSpec, EncoderSpec, OutputSpec, DownsampleSpec,
@@ -220,8 +221,9 @@ def planted_bug_hs_api(spike_cap=1000):
 
         def reset(self):
             self.v = {k: 0 for k in self.conns}
-            self.prev = []
             self.counter = 0
+            self.fired = []          # every neuron that fired, per step, before the cap
+            self.events = 0          # synapses applied
 
         def leak(self, v, s):
             if self.target == "CRI" and v < 0:
@@ -230,31 +232,27 @@ def planted_bug_hs_api(spike_cap=1000):
             return v - (v >> s)
 
         def step(self, inputs, membranePotential=False):
-            drive = {}
-            for a in inputs:
-                for post, w in self.axons[a]:
-                    drive[post] = drive.get(post, 0) + w
-            for n in self.prev:
-                for post, w in self.conns[n][0]:
-                    drive[post] = drive.get(post, 0) + w
+            # simpleSim's order: phase one fires on the membrane carried in,
+            # resets what fired and leaks the rest (memoryless neurons reset);
+            # phase two adds the input axons and the spikes just fired
             spikes = []
             for k, (_syn, m) in self.conns.items():
-                if m.kind == "ANN":
-                    v = drive.get(k, 0)
-                    if v > m.theta:
-                        spikes.append(k)
-                    self.v[k] = 0
-                    continue
-                v = self.v[k] + drive.get(k, 0)
+                v = self.v[k]
                 if v > m.theta:
                     spikes.append(k)
                     v = 0
-                else:
-                    v = self.leak(v, m.leak)
-                self.v[k] = v
+                self.v[k] = 0 if m.kind == "ANN" else self.leak(v, m.leak)
+            self.fired.append(set(spikes))
             if self.target == "CRI":
                 spikes = spikes[:spike_cap]
-            self.prev = spikes
+            for a in inputs:
+                self.events += len(self.axons[a])
+                for post, w in self.axons[a]:
+                    self.v[post] += w
+            for n in spikes:
+                self.events += len(self.conns[n][0])
+                for post, w in self.conns[n][0]:
+                    self.v[post] += w
             self.counter += 100
             out = [k for k in spikes if k in self.outputs]
             mem = list(self.v.items())
@@ -264,6 +262,7 @@ def planted_bug_hs_api(spike_cap=1000):
 
     api = types.ModuleType("hs_api.api")
     api.CRI_network = FakeNet
+    api.last_net = lambda: state["net"]
     models = types.ModuleType("hs_api.neuron_models")
     models.LIF_neuron = lambda *a: Model("LIF", *a)
     models.ANN_neuron = lambda *a: Model("ANN", *a)
@@ -304,7 +303,17 @@ class FpgaDiff(unittest.TestCase):
             hw = fd.record_network(layers, (2, 16, 16), frames, flush, "CRI")
             same = fd.record_network(layers, (2, 16, 16), frames, flush, "simpleSim")
         self.assertIsNone(fd.analyze(ref, same)["first"])
+        sp = fd.analyze(ref, same)["spikes"]
+        self.assertEqual(sum(sp["missed"]) + sum(sp["extra"]), 0)
         res = fd.analyze(ref, hw)
+        sp = res["spikes"]
+        self.assertGreater(sum(sp["missed"]) + sum(sp["extra"]), 0)
+        self.assertEqual((sp["out_check_ref"], sp["out_check_hw"]), (0, 0))
+        # an output spike lost on its way to the host: the membranes still call for it
+        cut = dict(hw, out_spikes=hw["out_spikes"].copy())
+        t, j = (int(x) for x in np.argwhere(cut["out_spikes"])[0])
+        cut["out_spikes"][t, j] = False
+        self.assertEqual(fd.analyze(ref, cut)["spikes"]["out_check_hw"], 1)
         self.assertIsNotNone(res["first"])
         self.assertGreater(res["origin_logical_shift"], 0, res["rows"][:3])
         self.assertTrue(all(r["before"] < 0 or r["sim"] < 0 for r in res["rows"]
@@ -316,7 +325,8 @@ class FpgaDiff(unittest.TestCase):
                               fd.load_record(os.path.join(d, "hw.npz")))
         self.assertEqual(back["first"], res["first"])
         page = fd.report_compare(res, ref, hw)
-        for part in ("Where the membranes differ", "Output spikes per class",
+        for part in ("Where the membranes differ", "Spikes the FPGA missed and added",
+                     "Output spikes per class",
                      "Membranes over the clip", "prefers-color-scheme: dark"):
             self.assertIn(part, page)
 
@@ -333,8 +343,13 @@ class FpgaDiff(unittest.TestCase):
         flush = hardware_flush_steps(net)
         with mock.patch.dict(sys.modules, planted_bug_hs_api(spike_cap=10 ** 9)):
             ref = fd.record_network(layers, (2, 16, 16), frames, flush, "simpleSim")
+            sim_net = sys.modules["hs_api.api"].last_net()
             hw = fd.record_network(layers, (2, 16, 16), frames, flush, "CRI")
         ref.update(clip=0, label=1, split="val")
+        F = fd.spikes_from_membranes(ref["membrane"], fd.thresholds(ref["table"], ref["keys"]))
+        keys = set(ref["keys"])
+        self.assertEqual([{k for k, f in zip(ref["keys"], row) if f} for row in F],
+                         [fired & keys for fired in sim_net.fired])
         cmp = fd.analyze(ref, hw)
         with tempfile.TemporaryDirectory() as d:
             path, out = os.path.join(d, "ref.npz"), os.path.join(d, "show.html")
@@ -344,6 +359,11 @@ class FpgaDiff(unittest.TestCase):
                 page = f.read()
             res = fd.analyze_one(fd.load_record(path))
         self.assertGreater(res["n_hit"], 0)
+        self.assertEqual(res["out_check"], 0)
+        self.assertGreater(res["spikes"], 0)
+        self.assertEqual(sum(r["spikes"] for r in res["layers"]), res["spikes"])
+        self.assertEqual(res["events"]["total"], sim_net.events)
+        self.assertIsNone(fd.analyze_one(dict(ref, fan_out=None))["events"])  # older records
         self.assertLessEqual(res["first_step"], cmp["first"])
         struck = {r["key"] for r in cmp["rows"] if r["why"] == "negative leak (logical shift)"}
         self.assertTrue(struck)
@@ -352,7 +372,8 @@ class FpgaDiff(unittest.TestCase):
             self.assertLess(r["membrane"], 0)
             self.assertLess(r["bug_next"], r["sim_next"])
         self.assertEqual(res["pred"], cmp["pred_ref"])
-        for part in ("Negative membranes, by layer and step", "What the bug would do",
+        for part in ("Spikes per step", "Activity by layer", "Headroom", "Decision over time",
+                     "Negative membranes, by layer and step", "What the bug would do",
                      "Output spikes per class", "prefers-color-scheme: dark"):
             self.assertIn(part, page)
 
