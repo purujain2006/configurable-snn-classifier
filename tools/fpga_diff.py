@@ -411,6 +411,19 @@ def micro_tests():
     schedule is the axon keys driven at each step; cases is a list of
     (label, function(rec) -> comparable summary)."""
     from snnsearch.hs_export import hs_lif_neuron, hs_bias_neuron
+    # One model object per (threshold, shift), shared by every neuron that
+    # uses it, as hs_export.unroll_to_hs_api does. hs_api tells models apart
+    # by object, pads each model's neurons to a multiple of 32, and hs_bridge
+    # sends the padded neuron count in 17 bits: a model per neuron turned
+    # 4096 neurons into 131,072 and the FPGA load failed.
+    shared = {}
+
+    def lif(theta, shift):
+        key = (int(theta), int(shift))
+        if key not in shared:
+            shared[key] = hs_lif_neuron(*key)
+        return shared[key]
+
     NO_LEAK = 63               # shift 63: no leak for any positive membrane
     BIG = NEG_LEAK_THETA
     tests = []
@@ -422,7 +435,7 @@ def micro_tests():
         for tag, w in (("neg", -NEG_LEAK_DRIVE), ("pos", NEG_LEAK_DRIVE)):
             k = f"{tag}{s}"
             axons["A0"].append((k, w))
-            conns[k] = ([], hs_lif_neuron(BIG, s))
+            conns[k] = ([], lif(BIG, s))
     sched = [["A0"]] + [[] for _ in range(11)]
     cases = []
     for s in range(1, 8):
@@ -438,10 +451,10 @@ def micro_tests():
     for name, hop in (("output_burst", False), ("internal_burst", True)):
         n = max(sizes)
         axons = {f"B{i}": [(f"b{i}", 1)] for i in range(n)}
-        conns = {f"b{i}": ([(f"c{i}", 1)] if hop else [], hs_lif_neuron(0, NO_LEAK))
+        conns = {f"b{i}": ([(f"c{i}", 1)] if hop else [], lif(0, NO_LEAK))
                  for i in range(n)}
         if hop:
-            conns.update({f"c{i}": ([], hs_lif_neuron(0, NO_LEAK)) for i in range(n)})
+            conns.update({f"c{i}": ([], lif(0, NO_LEAK)) for i in range(n)})
         outs = [f"c{i}" if hop else f"b{i}" for i in range(n)]
         sched, cases, window = [], [], 4
         for N in sizes:
@@ -459,14 +472,14 @@ def micro_tests():
     for K in ks:
         axons[f"F{K}"] = [(f"f{K}_{j}", 1) for j in range(K)]
         for j in range(K):
-            conns[f"f{K}_{j}"] = ([], hs_lif_neuron(0, NO_LEAK))
+            conns[f"f{K}_{j}"] = ([], lif(0, NO_LEAK))
             outs.append(f"f{K}_{j}")
         start = len(sched)
         sched += [[f"F{K}"], [], []]
         cases.append((f"axon to {K} neurons", ("spikes", start, start + 3, f"f{K}_")))
     axons["G"] = [("g", 1)]
-    conns["g"] = ([(f"h{j}", 1) for j in range(4095)], hs_lif_neuron(0, NO_LEAK))
-    conns.update({f"h{j}": ([], hs_lif_neuron(0, NO_LEAK)) for j in range(4095)})
+    conns["g"] = ([(f"h{j}", 1) for j in range(4095)], lif(0, NO_LEAK))
+    conns.update({f"h{j}": ([], lif(0, NO_LEAK)) for j in range(4095)})
     outs += [f"h{j}" for j in range(4095)]
     start = len(sched)
     sched += [["G"], [], [], []]
@@ -477,7 +490,7 @@ def micro_tests():
     # 5. thresholds past 16 and 17 bits
     thetas = [32767, 2 ** 17 + 5, 2 ** 20 + 1]
     axons = {f"T{i}": [(f"t{i}", 32767)] for i in range(len(thetas))}
-    conns = {f"t{i}": ([], hs_lif_neuron(th, NO_LEAK)) for i, th in enumerate(thetas)}
+    conns = {f"t{i}": ([], lif(th, NO_LEAK)) for i, th in enumerate(thetas)}
     sched = [[f"T{i}" for i in range(len(thetas))] for _ in range(40)]
     cases = [(f"threshold {th:,}", ("first_spike", f"t{i}")) for i, th in enumerate(thetas)]
     cases += [(f"threshold {th:,}: membrane", ("membrane", f"t{i}"))
@@ -487,7 +500,7 @@ def micro_tests():
 
     # 6. an always-on bias neuron driving a counter neuron
     axons = {"Z": []}
-    conns = {"bias": ([("u", 1)], hs_bias_neuron()), "u": ([], hs_lif_neuron(3, NO_LEAK))}
+    conns = {"bias": ([("u", 1)], hs_bias_neuron()), "u": ([], lif(3, NO_LEAK))}
     sched = [[] for _ in range(20)]
     tests.append(("bias_neuron", "Does an always-on bias neuron fire every step?",
                   axons, conns, ["u"], sched,

@@ -204,6 +204,15 @@ def planted_bug_hs_api(spike_cap=1000):
         def __init__(self, axons, connections, outputs, target, **kw):
             self.axons, self.conns, self.outputs = axons, connections, set(outputs)
             self.target = target
+            if target == "CRI":
+                # as on crisdsc0: hs_api pads each model object's neurons to a
+                # multiple of 32, and hs_bridge sends the total in 17 bits
+                per_model = {}
+                for _syn, m in connections.values():
+                    per_model[id(m)] = per_model.get(id(m), 0) + 1
+                padded = sum(-(-n // 32) * 32 for n in per_model.values())
+                if padded >= 2 ** 17:
+                    raise ValueError(f"Insufficient bit width=17: {padded} neurons")
             self.reset()
             self.simpleSim = types.SimpleNamespace(
                 numNeurons=len(connections), initialize_sim_vars=lambda n: self.reset())
