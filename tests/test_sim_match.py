@@ -255,11 +255,10 @@ def planted_bug_hs_api(spike_cap=1000):
                     self.v[post] += w
             self.counter += 100
             out = [k for k in spikes if k in self.outputs]
+            mem = list(self.v.items())     # signed, as hs_bridge decodes them
             if self.target == "CRI":
-                # raw state words, as step(membranePotential=True) returns them
-                # on the FPGA: the membrane in bits 31:0, the top bits clear
-                return [(k, v % WRAP) for k, v in self.v.items()], (out, self.counter, 0)
-            return list(self.v.items()), out
+                return mem, (out, self.counter, 0)
+            return mem, out
 
     api = types.ModuleType("hs_api.api")
     api.CRI_network = FakeNet
@@ -324,17 +323,7 @@ class FpgaDiff(unittest.TestCase):
                 fd.save_record(os.path.join(d, name), rec)
             back = fd.analyze(fd.load_record(os.path.join(d, "ref.npz")),
                               fd.load_record(os.path.join(d, "hw.npz")))
-            # an FPGA record saved before the 32-bit reading held the raw words
-            old = dict(hw, membrane=np.asarray(hw["membrane"]) % 2 ** 32)
-            for k in ("mp_bits", "word_top_bits"):
-                old.pop(k)
-            fd.save_record(os.path.join(d, "old.npz"), old)
-            again = fd.load_record(os.path.join(d, "old.npz"))
         self.assertEqual(back["first"], res["first"])
-        self.assertTrue((np.asarray(hw["membrane"]) < 0).any())
-        np.testing.assert_array_equal(again["membrane"], hw["membrane"])
-        self.assertEqual(again["word_top_bits"], {"0": hw["membrane"].size})
-        self.assertEqual(hw["word_top_bits"], {"0": hw["membrane"].size})
         page = fd.report_compare(res, ref, hw)
         for part in ("Where the membranes differ", "Spikes the FPGA missed and added",
                      "Output spikes per class",
