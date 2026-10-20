@@ -320,6 +320,34 @@ class FpgaDiff(unittest.TestCase):
                      "Membranes over the clip", "prefers-color-scheme: dark"):
             self.assertIn(part, page)
 
+    def test_neuron_lookup_by_index_is_a_dictionary(self):
+        """connectome_utils finds a neuron by index by scanning every entry,
+        and hs_api does that for every neuron at every step when membranes
+        are read; build() swaps in a dictionary with the same answers."""
+        import types
+        fd = load_fpga_diff()
+
+        class Entry:
+            def __init__(self, kind, idx):
+                self.kind, self.idx = kind, idx
+
+            def get_neuron_type(self):
+                return self.kind
+
+            def get_coreTypeIdx(self):
+                return self.idx
+
+        entries = {"A0": Entry("axon", 0), "n0": Entry("neuron", 0), "n1": Entry("neuron", 1)}
+
+        def scan(idx):
+            raise AssertionError("the slow scan was called")
+        conn = types.SimpleNamespace(connectomeDict=entries, get_neuron_by_idx=scan)
+        net = types.SimpleNamespace(connectome=conn)
+        fd.fast_index_lookup(net)
+        self.assertIs(net.connectome.get_neuron_by_idx(1), entries["n1"])
+        self.assertIs(net.connectome.get_neuron_by_idx(0), entries["n0"])     # not the axon
+        self.assertIsNone(net.connectome.get_neuron_by_idx(7))
+
     def test_micro_fails_exactly_what_the_planted_bugs_break(self):
         from unittest import mock
         fd = load_fpga_diff()

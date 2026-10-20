@@ -83,6 +83,7 @@ def build(axons, conns, out_keys, target, core=0):
         if not extra or core != 0 or "coreID" not in str(exc):
             raise
         net = CRI_network(axons=axons, connections=conns, outputs=out_keys, target=target)
+    fast_index_lookup(net)
     if target == "CRI":
         from hs_bridge.FPGA_Execution import fpga_controller
         try:
@@ -92,6 +93,26 @@ def build(axons, conns, out_keys, target, core=0):
             n = len(conns)
         return net, (lambda: fpga_controller.clear(n, False, core))
     return net, (lambda: net.simpleSim.initialize_sim_vars(net.simpleSim.numNeurons))
+
+
+def fast_index_lookup(net):
+    """Replace connectome_utils' get_neuron_by_idx, which scans every entry,
+    with a dictionary built once. hs_api calls it for every neuron at every
+    step when membranes are read: rank 2's 47k neurons made that 2.4 billion
+    comparisons a step, and a record sat for hours after the build. Same
+    answers, None for an index with no neuron, as the scan gives."""
+    conn = getattr(net, "connectome", None)
+    entries = getattr(conn, "connectomeDict", None)
+    if not entries:
+        return
+    by_idx = {}
+    for n in entries.values():
+        try:
+            if n.get_neuron_type() == "neuron":
+                by_idx.setdefault(n.get_coreTypeIdx(), n)
+        except AttributeError:
+            return
+    conn.get_neuron_by_idx = by_idx.get
 
 
 def step(net, inputs):
