@@ -218,7 +218,8 @@ def neuron_table(layers, in_shape):
                 ch = j // per_ch
                 table[f"L{li}{tag}_{j}"] = [li, sign, ch, j % per_ch,
                                             None if orpool else int(th[ch]),
-                                            None if orpool else int(L["leak"][ch]), shp]
+                                            None if orpool or L["if_neuron"]
+                                            else int(L["leak"][ch]), shp]
     return table
 
 
@@ -273,12 +274,15 @@ def load_record(path):
 
 def cmd_record(a):
     import torch
-    from snnsearch.hs_export import load_deployed, integer_layers, make_chip_faithful
+    from snnsearch.hs_export import (load_deployed, integer_layers, make_chip_faithful,
+                                     as_if_neurons)
     from snnsearch.train import hardware_flush_steps
     net, spec, _ = load_deployed(a.ckpt, "cpu")
     flush = hardware_flush_steps(net)
     make_chip_faithful(net, a.tau)
     layers = integer_layers(net)
+    if a.if_neurons:
+        layers = as_if_neurons(layers)
     saved = torch.load(a.clips, weights_only=False)
     if a.split not in saved["splits"]:
         raise SystemExit(f"{a.clips} has no {a.split!r} split")
@@ -287,7 +291,7 @@ def cmd_record(a):
     side = inp.resize_to or inp.H
     rec = record_network(layers, (inp.C, side, side), frames[a.clip], flush, a.target, a.core)
     rec.update(clip=a.clip, label=int(labels[a.clip]), split=a.split,
-               ckpt=os.path.abspath(a.ckpt))
+               ckpt=os.path.abspath(a.ckpt), if_neurons=bool(a.if_neurons))
     save_record(a.out, rec)
     return 0
 
@@ -773,7 +777,7 @@ def micro_tests():
     """(name, question, axons, connections, outputs, schedule, cases). The
     schedule is the axon keys driven at each step; cases is a list of
     (label, function(rec) -> comparable summary)."""
-    from snnsearch.hs_export import hs_lif_neuron, hs_bias_neuron
+    from snnsearch.hs_export import hs_lif_neuron, hs_bias_neuron, hs_if_neuron
     # One model object per (threshold, shift), shared by every neuron that
     # uses it, as hs_export.unroll_to_hs_api does. hs_api tells models apart
     # by object, pads each model's neurons to a multiple of 32, and hs_bridge
@@ -869,6 +873,23 @@ def micro_tests():
                   axons, conns, ["u"], sched,
                   [("counter neuron spike steps", ("spike_steps", "u")),
                    ("counter neuron membrane", ("membrane", "u"))]))
+
+    # 7. IF neurons, which have no leak, so the negative-leak bug cannot act
+    try:
+        hold, fire = hs_if_neuron(BIG), hs_if_neuron(30000)
+    except ImportError:                    # an hs_api without IF_neuron
+        print("hs_api has no IF_neuron; skipping the if_neuron test", flush=True)
+        return tests
+    axons = {"I0": [("if_neg", -NEG_LEAK_DRIVE), ("if_pos", NEG_LEAK_DRIVE)],
+             "I1": [("if_fire", NEG_LEAK_DRIVE)]}
+    conns = {"if_neg": ([], hold), "if_pos": ([], hold), "if_fire": ([], fire)}
+    sched = [["I0", "I1"], ["I1"]] + [[] for _ in range(10)]
+    tests.append(("if_neuron", "Does an IF neuron hold its membrane, negative or positive, "
+                  "and fire once it passes threshold?", axons, conns, ["if_fire"], sched,
+                  [("negative membrane holds", ("membrane", "if_neg")),
+                   ("positive membrane holds", ("membrane", "if_pos")),
+                   ("spike steps", ("spike_steps", "if_fire")),
+                   ("membrane of the one that fires", ("membrane", "if_fire"))]))
     return tests
 
 
@@ -1361,6 +1382,8 @@ def main(argv=None):
     r.add_argument("--clips", required=True, help="a match_simplesim.py --save-clips file")
     r.add_argument("--split", default="val")
     r.add_argument("--clip", type=int, default=0)
+    r.add_argument("--if-neurons", action="store_true",
+                   help="deploy every leaking layer as hs_api IF neurons (no leak)")
     r.add_argument("--target", default="simpleSim", choices=["simpleSim", "CRI"])
     r.add_argument("--core", type=int, default=0)
     r.add_argument("--tau", type=int, default=None)

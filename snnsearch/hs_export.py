@@ -317,6 +317,7 @@ def _normalize(L):
     L.setdefault("threshold_neg", None)
     L.setdefault("bias", None)
     L.setdefault("memoryless", L["kind"] == "orpool")
+    L.setdefault("if_neuron", False)
     L.setdefault("input_bits", 1)
     n = L["w"].shape[0] if "w" in L else 1
     leak = L.get("leak", 0)
@@ -326,6 +327,19 @@ def _normalize(L):
     if L["signed"] and L["threshold_neg"] is None:
         L["threshold_neg"] = L["threshold"]
     return L
+
+
+def as_if_neurons(layers):
+    """The same layers deployed as IF neurons (hs_api's IF_neuron): every
+    leaking layer keeps its weights and thresholds and loses its leak, so the
+    L6m bitstream's negative-leak bug (a logical shift) has nothing to act
+    on. OR pools and other memoryless layers stay as they are. A network
+    trained with a slow leak (tau 128 leaks 1/128 a step) may lose little."""
+    out = []
+    for L in layers:
+        L = _normalize(L)
+        out.append(dict(L, if_neuron=not L["memoryless"]))
+    return out
 
 
 # ---------------------------------------------------------------------------
@@ -354,7 +368,8 @@ class IntegerSim:
     def __init__(self, layers, in_shape, device="cpu"):
         layers = [_normalize(L) for L in layers]
         for L in layers:
-            if L["kind"] != "orpool" and any(lk is None for lk in L["leak"]):
+            if (L["kind"] != "orpool" and not L["if_neuron"]
+                    and any(lk is None for lk in L["leak"])):
                 raise ValueError(
                     f"tau={L.get('tau')} includes a value that is not a power of two, so "
                     f"simpleSim cannot represent it (its leak is v // 2**leak). Pass a "
@@ -372,7 +387,9 @@ class IntegerSim:
                   for L in layers]
         self.th = [shaped(L["threshold"], L) for L in layers]
         self.th_neg = [shaped(L["threshold_neg"], L) if L["signed"] else None for L in layers]
-        self.div = [shaped([2.0 ** lk for lk in L["leak"]], L) for L in layers]
+        # an IF layer divides by infinity: floor(V / inf) is 0 (or -0), no leak
+        self.div = [shaped([math.inf if L["if_neuron"] else 2.0 ** lk for lk in L["leak"]], L)
+                    for L in layers]
         self.b = [shaped(L["bias"], L) if L["bias"] is not None else None for L in layers]
 
     def _drive(self, idx, x):
@@ -520,6 +537,13 @@ def hs_lif_neuron(threshold, leak):
     """
     from hs_api.neuron_models import LIF_neuron
     return LIF_neuron(int(threshold), -17, int(leak))
+
+
+def hs_if_neuron(threshold):
+    """hs_api's IF_neuron (model 3): no leak at all, noise off. Only on
+    commits that have it; crisdsc0's L6m-testing-suite (e1de47e) does."""
+    from hs_api.neuron_models import IF_neuron
+    return IF_neuron(int(threshold), -17)
 
 
 def hs_bias_neuron():
@@ -682,9 +706,10 @@ def unroll_to_hs_api(layers, in_shape, neuron_model_factory=None):
             models = {}
             for j, k in enumerate(keys):
                 ch = j // per_ch
-                key = (int(th[ch]), int(L["leak"][ch]))
+                key = (int(th[ch]), None if L["if_neuron"] else int(L["leak"][ch]))
                 if key not in models:
-                    models[key] = neuron_model_factory(*key)
+                    models[key] = (hs_if_neuron(key[0]) if L["if_neuron"]
+                                   else neuron_model_factory(*key))
                 connections[k] = ([], models[key])
 
     # bias neurons: +b into positive neurons, -b into negative ones

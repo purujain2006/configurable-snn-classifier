@@ -29,7 +29,7 @@ from snnsearch.config import (InputSpec, EncoderSpec, OutputSpec, DownsampleSpec
                               HeadSpec, NeuronSpec, TrainSpec)
 from snnsearch.model import build_model
 from snnsearch.neuron import HardwareLIFNode, OrPool
-from snnsearch.hs_export import integer_layers, IntegerSim, exact_copy
+from snnsearch.hs_export import integer_layers, IntegerSim, exact_copy, as_if_neurons
 from snnsearch.train import hardware_flush_steps
 
 torch.backends.cudnn.allow_tf32 = False
@@ -241,7 +241,8 @@ def planted_bug_hs_api(spike_cap=1000):
                 if v > m.theta:
                     spikes.append(k)
                     v = 0
-                self.v[k] = 0 if m.kind == "ANN" else self.leak(v, m.leak)
+                self.v[k] = (0 if m.kind == "ANN" else v if m.kind == "IF"
+                             else self.leak(v, m.leak))
             self.fired.append(set(spikes))
             if self.target == "CRI":
                 spikes = spikes[:spike_cap]
@@ -266,6 +267,7 @@ def planted_bug_hs_api(spike_cap=1000):
     models = types.ModuleType("hs_api.neuron_models")
     models.LIF_neuron = lambda *a: Model("LIF", *a)
     models.ANN_neuron = lambda *a: Model("ANN", *a)
+    models.IF_neuron = lambda theta, nu=-17: Model("IF", theta, nu, 0)
     ctrl = types.ModuleType("hs_bridge.FPGA_Execution.fpga_controller")
     ctrl.clear = lambda n, dump, core: state["net"].reset()
     fe = types.ModuleType("hs_bridge.FPGA_Execution")
@@ -377,6 +379,32 @@ class FpgaDiff(unittest.TestCase):
                      "Output spikes per class", "prefers-color-scheme: dark"):
             self.assertIn(part, page)
 
+    def test_if_neurons_dodge_the_planted_leak(self):
+        """The same network deployed as IF neurons: hs_api gets IF models for
+        every leaking layer, IntegerSim matches its simpleSim membrane for
+        membrane, and the planted negative-leak bug has nothing to act on."""
+        from unittest import mock
+        fd = load_fpga_diff()
+        net = build("avg", "flatten", "threshold", True, False, 1, seed=3)
+        layers = as_if_neurons(integer_layers(net))
+        self.assertTrue(all(L["if_neuron"] != L["memoryless"] for L in layers))
+        torch.manual_seed(0)
+        frames = (torch.rand(6, 2, 16, 16) < 0.3).to(torch.uint8)
+        flush = hardware_flush_steps(net)
+        with mock.patch.dict(sys.modules, planted_bug_hs_api(spike_cap=10 ** 9)):
+            ref = fd.record_network(layers, (2, 16, 16), frames, flush, "simpleSim")
+            kinds = {m.kind for _syn, m in sys.modules["hs_api.api"].last_net().conns.values()}
+            hw = fd.record_network(layers, (2, 16, 16), frames, flush, "CRI")
+        self.assertIn("IF", kinds)
+        self.assertNotIn("LIF", kinds)
+        self.assertTrue((np.asarray(ref["membrane"]) < 0).any())    # negatives to leak
+        self.assertIsNone(fd.analyze(ref, hw)["first"])
+        sim = IntegerSim(layers, (2, 16, 16))
+        rows = [np.concatenate([v.flatten().numpy() for v, _s in groups])
+                for groups, _out in sim.steps(frames, flush)]
+        np.testing.assert_array_equal(np.array(rows, np.int64), ref["membrane"])
+        self.assertEqual(fd.analyze_one(ref)["n_hit"], 0)       # nothing leaks
+
     def test_neuron_lookup_by_index_is_a_dictionary(self):
         """connectome_utils finds a neuron by index by scanning every entry,
         and hs_api does that for every neuron at every step when membranes
@@ -433,6 +461,7 @@ class FpgaDiff(unittest.TestCase):
         self.assertEqual(results["fan_out"]["first_fail"], "axon to 2048 neurons")
         self.assertTrue(results["thresholds"]["pass"])
         self.assertTrue(results["bias_neuron"]["pass"])
+        self.assertTrue(results["if_neuron"]["pass"])
         page = fd.report_micro(list(results.values()))
         self.assertIn("FPGA micro tests", page)
         self.assertIn("1024 spikes in one step", page)

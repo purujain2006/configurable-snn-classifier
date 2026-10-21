@@ -387,7 +387,7 @@ def _per_layer_torch(net, frames, device, flush):
 def compare(args):
     import torch
     from snnsearch.hs_export import (load_deployed, integer_layers, IntegerSim,
-                                     make_chip_faithful)
+                                     make_chip_faithful, as_if_neurons)
     from snnsearch.train import hardware_flush_steps
 
     # TF32 convolutions round the membrane to ~3 significant digits, which is
@@ -406,6 +406,8 @@ def compare(args):
               f"scale {L['scale']} threshold {L['threshold'].min()}..{L['threshold'].max()}")
 
     bad_tau = [L["tau"] for L in trained if L["leak"] is None]
+    if args.if_neurons:
+        bad_tau = []                       # IF neurons have no leak, so no tau to fit
     if bad_tau and args.tau is None:
         raise SystemExit(
             f"\nThe checkpoint trained tau {sorted(set(bad_tau))}, and simpleSim's "
@@ -417,7 +419,7 @@ def compare(args):
     if args.save_clips:
         save_clips(clips, spec, args)
     report = {"ckpt": args.ckpt, "tau": args.tau, "trained_tau": [L["tau"] for L in trained],
-              "flush_steps": flush, "splits": {}}
+              "if_neurons": bool(args.if_neurons), "flush_steps": flush, "splits": {}}
 
     if bad_tau or args.tau is not None:
         # the trained model as-is, so the cost of changing tau is on record
@@ -430,6 +432,11 @@ def compare(args):
 
     make_chip_faithful(net, args.tau)
     layers = integer_layers(net)
+    if args.if_neurons:
+        layers = as_if_neurons(layers)
+        print("\ndeploying every leaking layer as IF neurons (no leak); SpikingJelly below "
+              "is still the trained LIF model, so its disagreements measure what the leak "
+              "was worth")
     sim = IntegerSim(layers, (spec["input"].C, spec["input"].resize_to, spec["input"].resize_to),
                      device=device)
 
@@ -524,6 +531,9 @@ def main():
                     help="where --real-simplesim runs its clips: hs_api's simple_sim, or "
                          "CRI, the FPGA (crisdsc0: book it, flash the bitstream first)")
     ap.add_argument("--core", type=int, default=0, help="FPGA core for --hs-target CRI")
+    ap.add_argument("--if-neurons", action="store_true",
+                    help="deploy every leaking layer as hs_api IF neurons: same weights and "
+                         "thresholds, no leak (avoids the L6m negative-leak bug)")
     ap.add_argument("--tau", type=int, default=None,
                     help="power-of-two tau to deploy with, on every layer")
     ap.add_argument("--split", default="both", choices=["val", "test", "both"])
