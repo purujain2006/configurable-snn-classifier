@@ -58,7 +58,65 @@ def subject_ids(dataset):
     return ids
 
 
-def split_indices(dataset, val_fraction=0.15, seed=1, val_split="subject"):
+def split_settings(cfg):
+    """The split_indices arguments a run config names, so every tool that
+    rebuilds a run's validation set reads the same settings."""
+    s = cfg["search"]
+    return {"seed": cfg["run"].get("seed", 1), "val_split": s.get("val_split", "subject"),
+            "folds": int(s.get("val_folds") or 0), "fold": int(s.get("val_fold") or 0)}
+
+
+def subject_folds(ids, folds, seed=1):
+    """`folds` lists of people, together every person once, with near-equal
+    clip counts.
+
+    The people are shuffled by `seed` and dealt out one at a time, each to the
+    fold with the fewest clips so far. People differ in clip count (DVS128
+    Gesture has 2 to 5 recordings each), so that can leave folds a person
+    apart; moving one person to a smaller fold, or swapping two, while that
+    evens the sizes out, closes most of it.
+    """
+    count = {}
+    for s in ids:
+        count[s] = count.get(s, 0) + 1
+    people = sorted(count)
+    if not 2 <= folds <= len(people):
+        raise SystemExit(f"search.val_folds is {folds}; it needs 2 to {len(people)} "
+                         f"(this training set has {len(people)} people)")
+    random.Random(seed).shuffle(people)
+    groups, sizes = [[] for _ in range(folds)], [0] * folds
+    for p in people:
+        j = min(range(folds), key=lambda g: (sizes[g], g))
+        groups[j].append(p)
+        sizes[j] += count[p]
+    while True:
+        # Moving d clips from fold i to a fold `gap` clips smaller lowers the
+        # sum of squared sizes by 2 d (gap - d), so it helps when 0 < d < gap,
+        # and as the sum falls with every move, this ends.
+        best = None
+        for i in range(folds):
+            for j in range(folds):
+                gap = sizes[i] - sizes[j]
+                for a in groups[i]:
+                    for b in groups[j] + [None]:
+                        d = count[a] - (count[b] if b is not None else 0)
+                        if 0 < d < gap and (best is None or d * (gap - d) > best[0]):
+                            best = (d * (gap - d), i, j, a, b)
+        if best is None:
+            return [sorted(g) for g in groups]
+        _, i, j, a, b = best
+        groups[i].remove(a)
+        groups[j].append(a)
+        sizes[i] -= count[a]
+        sizes[j] += count[a]
+        if b is not None:
+            groups[j].remove(b)
+            groups[i].append(b)
+            sizes[j] -= count[b]
+            sizes[i] += count[b]
+
+
+def split_indices(dataset, val_fraction=0.15, seed=1, val_split="subject", folds=0, fold=0):
     """(train_idx, val_idx, held_out_subjects) for carving val out of train.
 
     "subject" holds out whole people. The test set is six people absent from
@@ -68,8 +126,30 @@ def split_indices(dataset, val_fraction=0.15, seed=1, val_split="subject"):
 
     "clip" is the old split, kept so checkpoints scored with it can be
     re-scored on the same clips.
+
+    `folds` = k > 0 is k-fold cross-subject validation (search.val_folds): the
+    people are split into k groups by subject_folds and group `fold` is
+    validation. One fixed set of people can be easier or harder than average,
+    which moves every score it gives; over k folds every training person is
+    held out once.
     """
     n = len(dataset)
+    if folds:
+        if val_split != "subject":
+            raise SystemExit("search.val_folds holds out people, so it needs "
+                             f"search.val_split 'subject', not {val_split!r}")
+        ids = subject_ids(dataset)
+        if ids is None:
+            raise SystemExit("search.val_folds needs a person id in every clip's file "
+                             "name (e.g. user07_led_3.npz), and this dataset has none; "
+                             "set search.val_folds to 0")
+        if not 0 <= fold < folds:
+            raise SystemExit(f"search.val_fold is {fold}; with {folds} folds it is 0 to "
+                             f"{folds - 1}")
+        held_set = set(subject_folds(ids, folds, seed)[fold])
+        train_idx = [i for i, s in enumerate(ids) if s not in held_set]
+        val_idx = [i for i, s in enumerate(ids) if s in held_set]
+        return train_idx, val_idx, sorted(held_set)
     if val_split == "subject":
         ids = subject_ids(dataset)
         if ids is None:
@@ -100,7 +180,8 @@ def split_indices(dataset, val_fraction=0.15, seed=1, val_split="subject"):
 
 def build_dataloaders(bundle: DatasetBundle, batch_size: int, encoder=None,
                       val_fraction: float = 0.15, num_workers: int = 0,
-                      seed: int = 1, val_split: str = "subject"):
+                      seed: int = 1, val_split: str = "subject",
+                      folds: int = 0, fold: int = 0):
     """Returns (train_loader, val_loader, test_loader).
 
     `encoder` is applied inside the collate step rather than as a dataset
@@ -109,10 +190,12 @@ def build_dataloaders(bundle: DatasetBundle, batch_size: int, encoder=None,
     """
     _require_torch()
 
-    train_idx, val_idx, held = split_indices(bundle.train, val_fraction, seed, val_split)
+    train_idx, val_idx, held = split_indices(bundle.train, val_fraction, seed, val_split,
+                                             folds, fold)
     if held is not None:
-        print(f"loaders   : validation = subjects {held} "
-              f"({len(val_idx)} clips), none of them in train")
+        print(f"loaders   : validation = "
+              + (f"fold {fold} of {folds}, " if folds else "")
+              + f"subjects {held} ({len(val_idx)} clips), none of them in train")
     train_set = Subset(bundle.train, train_idx)
     val_set = Subset(bundle.train, val_idx)
 

@@ -39,6 +39,7 @@ Each command is a single line, so it works in any shell (bash, zsh or tcsh).
 | look at results while it runs | `python tools/analysis/top_trials.py RESULTS` | seconds |
 | retrain the best trials of a stopped search | `python main.py finalists -c CONFIG --top 3` | hours |
 | which options help | `python main.py study -c CONFIG --from-best RESULTS/best_finalist.json` | hours |
+| choose between finished networks on every person (k folds) | `python main.py single -c CONFIG --from-best RESULTS/best_finalist.json --epochs 300 --folds 5` | k times one `single` |
 | train the winner long, get a test score | `python main.py single -c CONFIG --from-best RESULTS/best_finalist.json --epochs 300` | hours |
 
 `CONFIG` is a file in `configs/`, and `RESULTS` is the folder named by
@@ -282,7 +283,11 @@ Validation and test are different people, so a run can score higher on test
 than on validation when the validation people are harder to read. This shows
 it person by person, one column per checkpoint, and checks that its overall
 scores equal the ones in each `single.json`. A person has about 50 clips, so a
-pattern every checkpoint shares means more than one number.
+pattern every checkpoint shares means more than one number. A folder of fold
+runs (`single --folds`, section 9) counts as one checkpoint: each fold's
+network is scored on the people it held out, so every training person gets a
+score from a network that never trained on them. Fold runs have no test
+column.
 
 Accuracy and SynOps when the chip gets only the first k of a clip's T frames:
 
@@ -355,6 +360,52 @@ the run.
 
 `--train key=value` changes one training setting for an experiment, for
 example `--train weight_decay=1e-3`; every change is printed.
+
+### Choose between networks on every person: k folds
+
+Validation is one fixed set of people: on DVS128 Gesture, `run.seed` 1 holds
+out people 6, 10, 17 and 21 (216 clips). People differ in how hard they are to
+read, and three of those four score below the test average for every network,
+so validation reads about 6 points low, and another draw of people would move
+every score. To choose between a few finished networks without that luck,
+score each one with k-fold cross-subject validation:
+
+```
+python main.py single -c configs/dvs128_search05.yaml --from-best results/search05_top5/rank1/trial.json --epochs 300 --folds 5 --results-dir results/search05_folds/rank1
+```
+
+`--folds 5` splits the training people into 5 groups of near-equal clip counts
+(`search.val_folds`; shuffled by `run.seed`, so every network gets the same
+groups) and trains the network 5 times, one after another: each time one group
+is validation and the other people train. Every training person is held out
+exactly once. Each fold is an ordinary `single` run in `RESULTS/fold0` to
+`fold4`, and after each fold `RESULTS/folds.json` is rewritten from the fold
+folders: per fold its validation people, `hw_val_accuracy` and the last
+epoch's training accuracy, then the mean over folds with its standard error
+and the score pooled over every clip. It also warns when the folds did not
+all train the same network and recipe. Fold runs never score the test set
+(`single.json` says `test_skipped`).
+
+It costs k times the training of one run, per network: 5 folds of a 300-epoch
+replay take as long as five 300-epoch replays. So it is for the finalists and
+networks you are choosing between, not for search trials. To spread the folds
+over GPUs, train one fold per GPU with `--fold`; each finishing fold rewrites
+`folds.json` with every fold done so far, and lists the missing ones:
+
+```
+env CUDA_VISIBLE_DEVICES=0 python main.py single -c configs/dvs128_search05.yaml --from-best results/search05_top5/rank1/trial.json --epochs 300 --folds 5 --fold 0 --results-dir results/search05_folds/rank1
+```
+
+For several training seeds as well, give each seed its own folder, for
+example `--train seed=1001 --results-dir results/search05_folds/rank1_seed1001`.
+Compare networks by their mean over folds: a gap smaller than about twice the
+two standard errors combined is a tie. Then train the chosen one on the usual
+split and open the test set once, as above. Every training person's accuracy
+across the folds:
+
+```
+python tools/analysis/per_subject.py -c configs/dvs128_search05.yaml results/search05_folds/rank1 results/search05_folds/rank2
+```
 
 ## 10. Check on the chip's simulator
 
@@ -449,6 +500,8 @@ Any other key is passed to the dataset function, for example `download: true`.
 | `num_workers` | 4 | data-loading processes per trial |
 | `cpu_per_trial` | none (`num_workers` + 1) | CPU cores reserved per trial |
 | `val_split` | `subject` | `subject` holds out whole people (when the dataset names them); `clip` draws clips at random |
+| `val_folds` | 0 | k-fold cross-subject validation for chosen networks (section 9): 2 or more splits the training people into that many groups of near-equal clip counts, shuffled by `run.seed`; 0 keeps the one `val_split` split. Needs a person id in every clip's file name (`user07_led_3.npz`). `single --folds K` sets it and trains every fold |
+| `val_fold` | 0 | which fold is validation when `val_folds` is set, 0 to `val_folds` - 1 (`single --fold I`) |
 | `target` | 0.975 | accuracy to call out in the log when reached |
 | `require` | `[]` | regularizers every trial uses: `conv_dropout`, `rate_penalty`, `augment` |
 | `max_failures` | 3 | retries for a trial that crashes |
@@ -597,6 +650,7 @@ python tests/test_frame_cache.py
 python tests/test_synops.py
 python tests/test_recount_synops.py
 python tests/test_per_subject.py
+python tests/test_val_folds.py
 python tests/test_early_exit.py
 python tests/test_docs.py
 python tests/smoke_test.py

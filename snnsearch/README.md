@@ -28,7 +28,7 @@ through them.
 | `quantgrid.py` | rounding weights, biases and thresholds to the INT16 grid, differentiably |
 | `model.py` | `SpikingCNN`: the network built from the plan |
 | `encoders.py` | turns input into spikes or B-bit levels (events pass through; images become levels) |
-| `data/` | datasets, the frame cache, and the train/val/test loaders (val holds out whole subjects) |
+| `data/` | datasets, the frame cache, and the train/val/test loaders (val holds out whole subjects, or one of k folds of them) |
 | `augment.py` | training-time shifts, cutout, dropped inputs and flips, the same at every timestep |
 | `train.py` | the training loop (rate or TET loss, seeding) and `forward_over_time`, the forward pass every number comes from |
 
@@ -50,6 +50,7 @@ through them.
 | `search.py` | the Ray trial, the Optuna/ASHA wiring, re-scoring the finalists with new seeds, and `run_jobs` for fixed lists of runs |
 | `scheduling.py` | early stopping that never cuts the balanced block |
 | `study.py` | `main.py study`: one option flipped at a time on a chosen network, trained in full |
+| `folds.py` | `single --folds k`: a chosen network trained once per cross-subject fold, and `folds.json`, validation per fold with its mean and standard error |
 | `streaming.py` | writes each trial to `leaderboard.csv` and `trials.jsonl` as it finishes |
 | `results.py` | the results directory and the end-of-search trial table |
 | `report.py` | `report.html` |

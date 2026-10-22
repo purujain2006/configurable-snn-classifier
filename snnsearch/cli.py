@@ -39,6 +39,8 @@ def _overrides(args):
     if getattr(args, "skip_preflight", False): o["search"]["skip_preflight"] = True
     if getattr(args, "epochs", None):        o["search"]["epochs"] = args.epochs
     if getattr(args, "gpu_fraction", None):  o["search"]["gpu_fraction"] = args.gpu_fraction
+    if getattr(args, "folds", None) is not None: o["search"]["val_folds"] = args.folds
+    if getattr(args, "fold", None) is not None:  o["search"]["val_fold"] = args.fold
     if getattr(args, "results_dir", None):   o["run"]["results_dir"] = args.results_dir
     if getattr(args, "objective", None):     o["objective"]["mode"] = args.objective
     if getattr(args, "synops_budget", None): o["objective"]["synops_budget"] = args.synops_budget
@@ -107,6 +109,14 @@ def build_parser():
                         "trial, and every override is printed, because a run that "
                         "silently differs from the config it names is the bug this "
                         "project spent a week on.")
+    o.add_argument("--folds", type=int, metavar="K",
+                   help="k-fold cross-subject validation (search.val_folds): train "
+                        "once per fold, one after another, in RESULTS/fold<i>, and "
+                        "write RESULTS/folds.json (validation per fold, mean and "
+                        "standard error). Costs k trainings; the test set is not scored.")
+    o.add_argument("--fold", type=int, metavar="I",
+                   help="train only fold I (search.val_fold), e.g. one fold per GPU; "
+                        "needs --folds or search.val_folds")
 
     r = sub.add_parser("search", help="the automated search")
     _add_common(r)
@@ -176,12 +186,16 @@ def main(argv=None):
 
     if args.mode == "single":
         from .pipeline import run_single
-        return run_single(cfg, ckpt=args.ckpt,
-                          from_best=getattr(args, "from_best", None),
-                          epochs=getattr(args, "epochs", None),
-                          input_overrides={"T": getattr(args, "T", None),
-                                           "resize_to": getattr(args, "resize_to", None)},
-                          train_overrides=_kv_pairs(getattr(args, "train", None)))
+        kwargs = dict(ckpt=args.ckpt, from_best=getattr(args, "from_best", None),
+                      epochs=getattr(args, "epochs", None),
+                      input_overrides={"T": getattr(args, "T", None),
+                                       "resize_to": getattr(args, "resize_to", None)},
+                      train_overrides=_kv_pairs(getattr(args, "train", None)))
+        folds = single_folds(cfg, args)
+        if folds is None:
+            return run_single(cfg, **kwargs)
+        from .folds import run_folds
+        return run_folds(cfg, folds, **kwargs)
 
     if args.mode == "search":
         from .pipeline import run_search_mode
@@ -204,6 +218,24 @@ def main(argv=None):
         return 0
 
     return 1
+
+
+def single_folds(cfg, args):
+    """The folds a `single` run trains, or None for the one split.
+
+    --fold I trains fold I; --folds K alone trains all K; with neither, a
+    config that sets search.val_folds trains its search.val_fold.
+    """
+    k = cfg["search"].get("val_folds") or 0
+    if not k:
+        if getattr(args, "fold", None) is not None:
+            raise SystemExit("--fold needs --folds K or search.val_folds in the config")
+        return None
+    if getattr(args, "fold", None) is not None:
+        return [args.fold]
+    if getattr(args, "folds", None) is not None:
+        return list(range(k))
+    return [cfg["search"].get("val_fold") or 0]
 
 
 def _summary(cfg, args):

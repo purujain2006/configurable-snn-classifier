@@ -72,6 +72,11 @@ DEFAULTS = {
         # does. "clip" is the split every run before October 2026 used, kept
         # only to re-score old checkpoints on the clips they were selected on.
         "val_split": "subject",
+        # k-fold cross-subject validation for scoring a chosen network: k > 0
+        # splits the training people into k groups of near-equal clip counts
+        # (shuffled by run.seed) and group val_fold is validation. 0 keeps the
+        # single split above. `single --folds k` trains every fold in turn.
+        "val_folds": 0, "val_fold": 0,
         # Trials at the start in which every option of every on/off or
         # either/or choice appears equally often (spaces.balanced_points).
         "balanced_trials": 0,
@@ -248,6 +253,12 @@ def _validate(cfg):
         raise SystemExit(
             "objective.mode is 'weighted' but objective.weight is 0, which is the\n"
             "  same as 'accuracy'. Set a weight, or use 'pareto' to defer the choice.")
+    k, i = cfg["search"].get("val_folds") or 0, cfg["search"].get("val_fold") or 0
+    if not isinstance(k, int) or k < 0 or k == 1:
+        raise SystemExit(f"search.val_folds must be 0 (one split) or 2 or more, got {k!r}")
+    if k and (not isinstance(i, int) or not 0 <= i < k):
+        raise SystemExit(f"search.val_fold must be 0 to {k - 1} "
+                         f"(search.val_folds is {k}), got {i!r}")
     gf = cfg["search"].get("gpu_fraction", 1.0)
     if not (0 < gf <= 1):
         raise SystemExit(f"search.gpu_fraction must be in (0, 1], got {gf}")

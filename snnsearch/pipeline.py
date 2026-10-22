@@ -14,7 +14,7 @@ from . import runconfig
 from .config import (InputSpec, EncoderSpec, OutputSpec, DownsampleSpec,
                      HeadSpec, NeuronSpec, TrainSpec)
 from .data import build_dataset
-from .data.loaders import build_dataloaders
+from .data.loaders import build_dataloaders, split_settings, subject_ids
 from .encoders import build_encoder
 from ._torch import _require_torch, torch
 
@@ -231,9 +231,7 @@ def make_loaders(cfg, bundle, encoder, spec, quiet=False):
     """Build the three dataloaders for an already-resolved spec."""
     workers = cfg["search"].get("num_workers", 0)
     loaders = build_dataloaders(bundle, batch_size=spec["input"].N, encoder=encoder,
-                                num_workers=workers,
-                                seed=cfg["run"].get("seed", 1),
-                                val_split=cfg["search"].get("val_split", "subject"))
+                                num_workers=workers, **split_settings(cfg))
     # A trial and its replay must see the same number of gradient steps per
     # epoch. If these differ the two are not the same experiment, whatever the
     # configs say, and comparing their curves is meaningless.
@@ -335,6 +333,23 @@ def load_flat_config(path):
     return flat
 
 
+def split_record(cfg, bundle, loaders):
+    """Which clips validated a run, for single.json, so a tool can rebuild the
+    same validation set: the split settings, and the people and clip counts
+    read off the loaders it trained with."""
+    settings = split_settings(cfg)
+    rec = {"val_split": settings["val_split"], "seed": settings["seed"],
+           "val_folds": settings["folds"],
+           "val_fold": settings["fold"] if settings["folds"] else None}
+    sets = [getattr(loader, "dataset", None) for loader in loaders[:2]]
+    if len(sets) == 2 and all(hasattr(s, "indices") for s in sets):
+        ids = subject_ids(bundle.train)
+        by_person = ids is not None and settings["val_split"] == "subject"
+        rec.update(val_people=sorted({ids[i] for i in sets[1].indices}) if by_person else None,
+                   val_clips=len(sets[1].indices), train_clips=len(sets[0].indices))
+    return rec
+
+
 def trained_summary(cfg, bundle, encoder, spec) -> str:
     """What a `single` run trained, line by line, from the resolved spec and
     the network plan, so strides, pools and map sizes are the ones built."""
@@ -408,6 +423,7 @@ def run_single(cfg, ckpt="best.pth", from_best=None, epochs=None,
             print(f"override  : {key}={val} from the command line, "
                   f"replacing the value recorded in {os.path.basename(from_best)}")
     bundle, encoder, loaders, spec = prepare(cfg, flat_config=flat)
+    split = split_record(cfg, bundle, loaders)
     out = results_dir(cfg)
     # A replayed trial brings its own epoch count; an explicit flag still wins.
     if flat is None:
@@ -475,8 +491,14 @@ def run_single(cfg, ckpt="best.pth", from_best=None, epochs=None,
     # after a 100-epoch run, discarding every metric at the moment they were
     # about to be written. Each stage now records its own failure and the
     # results file is written regardless.
-    for label, fn in (("synops", lambda: measure_run_synops(res, loaders, spec)),
-                      ("test", lambda: evaluate_on_test(res, loaders))):
+    stages = [("synops", lambda: measure_run_synops(res, loaders, spec))]
+    if split["val_folds"]:
+        # A fold run is for choosing a network, which is done on validation;
+        # its test score would be one more number to choose by.
+        res["test_skipped"] = "fold run: scored on validation only"
+    else:
+        stages.append(("test", lambda: evaluate_on_test(res, loaders)))
+    for label, fn in stages:
         try:
             res.update(fn())
         except Exception as exc:
@@ -504,6 +526,7 @@ def run_single(cfg, ckpt="best.pth", from_best=None, epochs=None,
         wall_minutes=round(mins, 2),
         config_file=cfg.get("_source"),
         replayed_from=from_best,
+        split=split,
         trained=trained_summary(cfg, bundle, encoder, spec),
         config=config,
     )
