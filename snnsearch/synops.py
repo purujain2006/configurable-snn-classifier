@@ -12,6 +12,14 @@ One SynOp is one accumulate at a downstream neuron. It is the quantity a
 neuromorphic chip spends energy on, and it is comparable across platforms
 because it counts events rather than seconds or watts.
 
+The fan-out is the one the chip stores, as hs_export writes it: an average
+pool or GAP has no neurons and is folded into the next layer, so each neuron
+in front of it keeps its own synapses; a signed unit is two neurons, and a
+spike reaches both neurons of every signed unit it feeds; an OR pool is a
+layer of neurons with one synapse from each input; padding and zero weights
+hold no synapse. So SynOps is the number of synaptic events HiAER-Spike
+delivers for the clip.
+
 WHAT THIS IS NOT
 
 SynOps is not joules. Real energy also includes memory traffic, data movement
@@ -26,6 +34,9 @@ WHY IT IS WORTH REPORTING ANYWAY
     against Loihi and SpiNNaker results without owning either.
   * The dense-equivalent ratio below states the case for spiking at all: how
     many multiply-accumulates an ANN of the same shape would have performed.
+    That denominator is the ANN's, one pass with one MAC per weight per
+    output (cost.py "macs"): no folded pools, no second neuron per sign. It
+    is not the chip's synapse count, which cost.py reports as "connections".
 """
 
 import math
@@ -34,26 +45,32 @@ from ._torch import torch, F
 
 
 class SynOpsCounter:
-    """Accumulates input-driven operations at each weight layer.
+    """Accumulates the synaptic events each chip layer receives.
 
     Attach with `attach(net)`, run evaluation, then read `.summary(plan)`.
     Hooks are removed by `detach()`; the context-manager form does both.
 
-    Counting happens under no_grad and adds one reduction per layer per
-    timestep, so the overhead is negligible next to the forward pass itself.
+    Counting happens under no_grad and adds one multiply and one reduction per
+    layer per timestep, so the overhead is negligible next to the forward pass.
     """
 
     def __init__(self):
-        self.ops = {}           # weight layer name -> accumulate operations
-        self.dense_macs = {}    # weight layer name -> dense MACs over all calls
+        self.ops = {}           # chip layer name -> synaptic events delivered to it
+        self.ceiling = {}       # chip layer name -> events if every source fired every call
         self.spikes = {}        # spiking layer name -> spikes emitted
-        self.spike_elements = {}  # spiking layer name -> neuron-timesteps
-        self.calls = {}         # weight layer name -> forward calls
+        self.spike_elements = {}  # spiking layer name -> unit-timesteps
+        self.calls = {}         # chip layer name -> forward calls
+        self.pool_area = {}     # weight layer name -> pre-pool values behind each input value
         self.samples = 0
-        # id(tensor) -> (tensor, events behind each element, sources per element)
+        # id(tensor) -> (tensor, events behind each element, sources per
+        # element, pool area folded into it)
         self._mag = {}
         self._or_prev = {}      # OR pool name -> what it emits next step, as |spikes|
         self._input_problem = None  # why the input has no on-chip form, if it has none
+        self._layers = []       # chip layers in order: kind, module, neuron
+        self._targets = {}      # weight layer name -> neurons per target unit (2 if signed)
+        self._or_signed = {}    # OR pool name -> whether it pools a signed layer
+        self._fanout = {}       # weight layer name -> (key, synapses of each input value)
         self._handles = []
 
     # ---- collection -----------------------------------------------------
@@ -68,16 +85,27 @@ class SynOpsCounter:
         reported 73.2M SynOps against a hard ceiling of 44.9M.
 
         So fan-out is no longer looked up. Each Conv2d and Linear knows its own
-        arithmetic, and at hook time its input tensor says how much of that
-        arithmetic a spike actually triggered. Nothing is paired, nothing can
-        slide, and the number cannot exceed the layer's own dense cost.
+        synapses, and at hook time its input tensor says which of them a spike
+        actually fired: every input value's activity times that value's own
+        fan-out, from the layer's nonzero weights (_value_fanout). That is
+        exact at a border, where a padded window reaches fewer outputs, and
+        after pruning, where a zero weight is no synapse.
 
         Signed spikes are +1 or -1, and each is one event, so activity is
-        counted on magnitudes. Behind a pool that is not enough: the average
+        counted on magnitudes. A spike from a signed unit is one of its two
+        neurons firing, and that neuron has synapses to both neurons of every
+        signed unit it feeds, so a layer whose neurons are signed receives
+        twice the events. Behind a pool magnitudes are not enough: the average
         of a +1 and a -1 is 0, and so is OR(+) - OR(-) when both fired. So the
         pooling and flatten layers are hooked too, and carry |spikes| beside
-        the values: a weight layer counts what the same network would with
-        every spike positive. For 0/1 spikes that is the tensor itself.
+        the values.
+
+        An average pool or GAP has no neurons on chip. hs_export folds it into
+        the next layer, so each neuron in front of the pool keeps its own
+        synapses and every one of its spikes fires them. The pool hooks carry
+        the SUM of |spikes| in each window: the next layer's events, and its
+        ceiling, grow by the pool's area (4 for 2x2, H*W for GAP). An OR pool
+        is a layer of neurons, and its inputs' synapses count as its events.
 
         B-bit input (net.input_bits > 1) arrives as levels 0 to 2**B - 1, but
         the chip carries each value on B axons, one per bit (hs_export). So
@@ -90,17 +118,34 @@ class SynOpsCounter:
         except Exception:                     # pragma: no cover - torch absent
             return self
         self.detach()
+        self._layers, self._targets, self._or_signed, self._fanout = [], {}, {}, {}
         bits = int(getattr(net, "input_bits", 1) or 1)
         if bits > 1:
             self._handles.append(net.register_forward_pre_hook(self._make_input_hook(bits)))
+        # Module order is layer order, as hs_export.integer_layers reads it: a
+        # weight layer's neurons are the next spiking node, and an OR pool
+        # pools the last one.
+        current, last_node = None, None
         for name, mod in net.named_modules():
             if isinstance(mod, (_nn.Conv2d, _nn.Linear)):
+                current = {"kind": "conv" if isinstance(mod, _nn.Conv2d) else "linear",
+                           "module": name, "neuron": None}
+                self._layers.append(current)
+                self._targets[name] = 1
                 self._handles.append(
                     mod.register_forward_hook(self._make_op_hook(name)))
             elif isinstance(mod, HardwareLIFNode):
+                if current is not None and current["neuron"] is None:
+                    current["neuron"] = name
+                    if getattr(mod, "signed", False):
+                        self._targets[current["module"]] = 2
+                last_node = mod
                 self._handles.append(
                     mod.register_forward_hook(self._make_spike_hook(name)))
             elif OrPool is not None and isinstance(mod, OrPool):
+                current = {"kind": "orpool", "module": name, "neuron": name}
+                self._layers.append(current)
+                self._or_signed[name] = bool(getattr(last_node, "signed", False))
                 pre, post = self._make_or_hooks(name)
                 self._handles.append(mod.register_forward_pre_hook(pre))
                 self._handles.append(mod.register_forward_hook(post))
@@ -118,37 +163,72 @@ class SynOpsCounter:
         kh, kw = mod.kernel_size
         return out.numel() * (mod.in_channels // mod.groups) * kh * kw
 
+    def _value_fanout(self, name, mod, x):
+        """Synapses of each input value of `mod`: the outputs it reaches
+        through a nonzero weight.
+
+        Linear: the nonzero weights in the value's column. Conv2d: the
+        gradient of sum(conv(x, w != 0)) with respect to x, which counts each
+        input position once per output window that covers it through a
+        nonzero tap, so padding and stride are exact. Computed once per input
+        shape and weight version, in float64, as (C, H, W) or (in_features,).
+        """
+        from torch import nn as _nn
+        w = mod.weight
+        shape = tuple(x.shape[-1:]) if isinstance(mod, _nn.Linear) else tuple(x.shape[-3:])
+        key = (shape, w._version, w.data_ptr(), x.device)
+        cached = self._fanout.get(name)
+        if cached is not None and cached[0] == key:
+            return cached[1]
+        nz = (w.detach() != 0).to(torch.float64)
+        if isinstance(mod, _nn.Linear):
+            fan = nz.sum(0)
+        else:
+            oh, ow = F.conv2d(torch.zeros((1,) + shape, dtype=torch.float64, device=w.device),
+                              nz, stride=mod.stride, padding=mod.padding,
+                              dilation=mod.dilation, groups=mod.groups).shape[-2:]
+            fan = torch.nn.grad.conv2d_input(
+                (1,) + shape, nz,
+                torch.ones(1, mod.out_channels, oh, ow, dtype=torch.float64, device=w.device),
+                stride=mod.stride, padding=mod.padding, dilation=mod.dilation,
+                groups=mod.groups)[0]
+        fan = fan.to(x.device)
+        self._fanout[name] = (key, fan)
+        return fan
+
     def _make_op_hook(self, name):
         def hook(mod, inp, out):
             x = inp[0]
             if x is None or x.numel() == 0:
                 return
             with torch.no_grad():
+                # Every input value's events times its own fan-out. Exact for
+                # Linear and Conv2d alike, signed or not, behind any pool:
+                # the magnitude already holds every spike folded into it.
+                mag, sources, area = self._magnitude(x)
+                fan = self._value_fanout(name, mod, x)
+                targets = self._targets.get(name, 1)
+                events = float((mag.to(torch.float64) * fan).sum().item())
+                self.ops[name] = self.ops.get(name, 0.0) + events * targets
+                # The ceiling: every source fires on this call. Count the
+                # actual tensor shape on EVERY invocation. This includes the
+                # batch/time axes in multi-step mode and handles uneven final
+                # batches without confusing calls with timesteps. B-bit input
+                # is B axons per value, and a pooled value is `area` neurons,
+                # each with its own synapses.
                 dense = self._dense_macs(mod, x, out)
-                # The share of the dense arithmetic that a spike drove. Exact
-                # for Linear with spike input, signed or not; Conv2d uses a
-                # mean-activity estimate (padding and stride can vary a spike's
-                # fan-out). Fractional inputs, including average pooling,
-                # retain their activity rather than being rounded to binary
-                # spikes.
-                mag, sources = self._magnitude(x)
-                active = float(mag.sum(dtype=torch.float64).item()) / float(x.numel())
-                self.ops[name] = self.ops.get(name, 0.0) + active * dense
-                # Count the actual tensor shape on EVERY invocation. This
-                # includes the batch/time axes in multi-step mode and handles
-                # uneven final batches without confusing calls with timesteps.
-                # B-bit input is B axons per value, each with its own synapse.
-                self.dense_macs[name] = self.dense_macs.get(name, 0) + dense * sources
+                self.ceiling[name] = self.ceiling.get(name, 0) + dense * sources * targets
+                self.pool_area[name] = area
                 self.calls[name] = self.calls.get(name, 0) + 1
         return hook
 
     def _make_spike_hook(self, name):
         def hook(_mod, _inp, out):
             # `out` is the spike tensor: 0 or 1, or 0, +1 or -1 for a signed
-            # unit (two chip neurons, out = spike - spike_neg). Every nonzero
-            # is one spike, so sum |out| == spike count, and the firing rate
-            # is spikes per unit per step. Reported for the firing rate; it no
-            # longer feeds the SynOps total.
+            # unit (two chip neurons, out = spike - spike_neg; only one of the
+            # two can fire in a step). Every nonzero is one spike, so sum |out|
+            # == spike count, and the firing rate is spikes per unit per step.
+            # Reported per layer; the SynOps come from the next layer's input.
             with torch.no_grad():
                 self.spikes[name] = self.spikes.get(name, 0) + float(
                     out.abs().sum(dtype=torch.float64).item())
@@ -159,14 +239,14 @@ class SynOpsCounter:
         return hook
 
     def _magnitude(self, x):
-        """(events behind each element of x, sources per element).
+        """(events behind each element of x, sources per element, pool area).
 
-        What a hook recorded for x, else (|x|, 1). The stored reference keeps
-        the tensor alive, so its id cannot be reused while the entry exists.
-        Each entry is read once.
+        What a hook recorded for x, else (|x|, 1, 1). The stored reference
+        keeps the tensor alive, so its id cannot be reused while the entry
+        exists. Each entry is read once.
         """
         entry = self._mag.pop(id(x), None)
-        return (entry[1], entry[2]) if entry is not None else (x.abs(), 1)
+        return entry[1:] if entry is not None else (x.abs(), 1, 1)
 
     def _make_input_hook(self, bits):
         """The network's B-bit input as the chip sends it: a spike per set bit."""
@@ -184,29 +264,46 @@ class SynOpsCounter:
                     return
                 v = x.to(torch.int64)
                 mag = sum((v >> k) & 1 for k in range(bits)).to(x.dtype)
-            self._mag[id(x)] = (x, mag, bits)
+            self._mag[id(x)] = (x, mag, bits, 1)
         return hook
 
     def _pass_hook(self, mod, inp, out):
-        """Average pooling, GAP and flatten: run the same layer on |spikes|.
+        """Average pooling, GAP and flatten: the events behind each output.
 
-        forward() rather than mod(...), so this hook does not fire again.
+        On chip the average pool is not there (hs_export folds it into the
+        next layer), so an output value stands for the k*k neurons of its
+        window, each with its own synapses. It carries their SUM of |spikes|:
+        the layer's own mean times its area, run with forward() rather than
+        mod(...), so this hook does not fire again. Flatten only reshapes.
         """
+        from torch import nn as _nn
         if not inp or not torch.is_tensor(inp[0]):
             return
+        x = inp[0]
+        if isinstance(mod, _nn.AvgPool2d):
+            ks = mod.kernel_size
+            area = ks * ks if isinstance(ks, int) else ks[0] * ks[1]
+        elif isinstance(mod, _nn.AdaptiveAvgPool2d):
+            # GAP: the whole map behind each value
+            area = (x.shape[-2] * x.shape[-1]) // (out.shape[-2] * out.shape[-1])
+        else:
+            area = 1
         with torch.no_grad():
-            mag, sources = self._magnitude(inp[0])
+            mag, sources, folded = self._magnitude(x)
             mag = mod.forward(mag)
-        self._mag[id(out)] = (out, mag, sources)
+            if area > 1:
+                mag = mag * area
+        self._mag[id(out)] = (out, mag, sources * area, folded * area)
 
     def _make_or_hooks(self, name):
-        """OR pooling on |spikes|: one event per window that held a spike.
+        """OR pooling: one OR neuron per window and sign.
 
-        On chip a signed OR pool is one OR neuron per sign, so a window where
-        both signs fired in one step is two events; this counts one, as the
-        network with every spike positive would, and keeps every input's
-        activity at most 1 so the dense ceiling stays a hard bound. The OR
-        neurons emit one step late (neuron.OrPool), and so does this.
+        Each input value has one synapse to the OR neuron of its window and
+        sign, so the pool's events are the |spikes| it reads. It emits one
+        spike per window and sign that held a spike: a window where both
+        signs fired in one step emits two, so a signed OR pool's output has
+        two sources per value. The OR neurons emit one step late
+        (neuron.OrPool), and so does this.
         """
         def pre(mod, _inp):
             if mod.prev is None:              # reset_net: a new sample starts
@@ -215,22 +312,40 @@ class SynOpsCounter:
         def post(mod, inp, out):
             if not inp or not torch.is_tensor(inp[0]):
                 return
+            x = inp[0]
             k, s = mod.kernel_size, mod.stride
+            multi = mod.step_mode == "m"
             with torch.no_grad():
-                src, sources = self._magnitude(inp[0])
+                entry = self._mag.pop(id(x), None)
+                src, sources, _folded = entry[1:] if entry is not None else (x.abs(), 1, 1)
+                flat = src.flatten(0, 1) if multi else src
+                # one synapse per input per window it sits in
+                reached = F.avg_pool2d(flat, k, s) * (k * k)
+                self.ops[name] = self.ops.get(name, 0.0) + float(
+                    reached.sum(dtype=torch.float64).item())
+                self.ceiling[name] = self.ceiling.get(name, 0) + reached.numel() * k * k * sources
+                self.calls[name] = self.calls.get(name, 0) + 1
+                if entry is None and self._or_signed.get(name, False):
+                    xs = x.flatten(0, 1) if multi else x
+                    now = F.max_pool2d(F.relu(xs), k, s) + F.max_pool2d(F.relu(-xs), k, s)
+                    sources = 2
+                else:
+                    now = F.max_pool2d(flat, k, s)
                 last = self._or_prev.get(name)
-                if mod.step_mode == "m":
-                    T, N = src.shape[:2]
-                    now = F.max_pool2d(src.flatten(0, 1), k, s)
+                if multi:
+                    T, N = x.shape[:2]
                     now = now.reshape(T, N, *now.shape[1:])
                     first = torch.zeros_like(now[0]) if last is None else last
                     mag = torch.cat([first.unsqueeze(0), now[:-1]], dim=0)
                     self._or_prev[name] = now[-1]
                 else:
-                    now = F.max_pool2d(src, k, s)
                     mag = torch.zeros_like(now) if last is None else last
                     self._or_prev[name] = now
-            self._mag[id(out)] = (out, mag, sources)
+                # the OR neurons' own spikes, for the per-layer report
+                self.spikes[name] = self.spikes.get(name, 0) + float(
+                    mag.sum(dtype=torch.float64).item())
+                self.spike_elements[name] = self.spike_elements.get(name, 0) + mag.numel()
+            self._mag[id(out)] = (out, mag, sources, 1)
         return pre, post
 
     def detach(self):
@@ -249,10 +364,11 @@ class SynOpsCounter:
 
     def reset(self):
         self.ops.clear()
-        self.dense_macs.clear()
+        self.ceiling.clear()
         self.spikes.clear()
         self.spike_elements.clear()
         self.calls.clear()
+        self.pool_area.clear()
         self._mag.clear()
         self._or_prev.clear()
         self._input_problem = None
@@ -265,16 +381,22 @@ class SynOpsCounter:
     def summary(self, plan=None, cost_rows=None):
         """SynOps per sample, the firing rate, and the dense-equivalent ratio.
 
-        `cost_rows` is only used for the one-pass ANN comparison. Both the
-        SynOps total and its dense ceiling come from the weight layers' actual
-        inputs/outputs, so neither depends on matching a cost table to modules.
+        `cost_rows` (cost.count_neurons_and_synapses) is only used for the
+        one-pass ANN comparison, the chip's synapse total, and each layer's
+        chip neurons and synapses in `layers`. The SynOps total and its
+        ceiling come from the weight layers' actual inputs/outputs, so neither
+        depends on matching a cost table to modules.
+
+        `firing_rate` and `spikes_per_sample` are over the LIF layers, every
+        spike over every unit-step; OR pools are reported in `layers` only.
         """
         if not self.samples:
             return {"synops_per_sample": None, "reason": "no samples counted"}
 
         synops = sum(self.ops.values())
-        total_spikes = sum(self.spikes.values())
-        total_elements = sum(self.spike_elements.values())
+        lif = [n for n in self.spikes if n not in self._or_signed]
+        total_spikes = sum(self.spikes[n] for n in lif)
+        total_elements = sum(self.spike_elements.get(n, 0) for n in lif)
         per_layer = {name: {"synops_per_sample": ops / self.samples,
                             "calls": self.calls.get(name, 0)}
                      for name, ops in self.ops.items()}
@@ -283,47 +405,84 @@ class SynOpsCounter:
             elements = self.spike_elements.get(name, 0)
             per_layer[name]["firing_rate"] = sp / elements if elements else None
 
-        # Sum each invocation's dense work BEFORE normalizing by samples.
+        # Sum each invocation's ceiling BEFORE normalizing by samples.
         # A cost-table total times max(calls) gets looser as more batches are
         # measured and gets too tight when one call contains multiple timesteps.
         # Checking each layer also catches an impossible layer hidden by silent
         # layers elsewhere in the network. No cost table is needed for safety.
         problems = [self._input_problem] if self._input_problem else []
         for name, ops in self.ops.items():
-            dense = self.dense_macs.get(name)
-            if dense is None:
+            ceiling = self.ceiling.get(name)
+            if ceiling is None:
                 problems.append(f"layer {name!r}: missing dense MAC ceiling")
             elif not math.isfinite(ops) or ops < 0:
                 problems.append(f"layer {name!r}: invalid SynOps total {ops}")
-            elif ops > dense + max(1.0, dense) * 1e-6:
+            elif ops > ceiling + max(1.0, ceiling) * 1e-6:
                 problems.append(
                     f"layer {name!r}: {ops / self.samples:,.0f} SynOps/sample "
-                    f"exceeds the dense ceiling of {dense / self.samples:,.0f}")
+                    f"exceeds the dense ceiling of {ceiling / self.samples:,.0f}")
             else:
                 continue
             per_layer[name]["synops_per_sample"] = None
-
-        ceiling = sum(self.dense_macs.values()) / self.samples
 
         out = {
             "samples": self.samples,
             "spikes_per_sample": total_spikes / self.samples,
             "firing_rate": total_spikes / total_elements if total_elements else None,
             "synops_per_sample": None if problems else synops / self.samples,
-            "synops_ceiling_per_sample": ceiling,
+            "synops_ceiling_per_sample": sum(self.ceiling.values()) / self.samples,
             "per_layer": per_layer,
+            "layers": self._layer_rows(per_layer, cost_rows),
         }
 
-        # An ANN of the same shape performs one multiply-accumulate per
-        # connection per inference, whether or not anything was active.
         if cost_rows:
-            dense = sum(r.get("connections", 0) for r in cost_rows)
+            # An ANN of the same shape performs one multiply-accumulate per
+            # weight per output per inference, whether or not anything was
+            # active. The chip's synapses are a different count: folded
+            # pools, two neurons per signed unit, B axons per input value.
+            dense = sum(r.get("macs", 0) for r in cost_rows)
             out["dense_macs_per_inference"] = dense
+            out["chip_synapses"] = sum(r.get("connections", 0) for r in cost_rows)
             if dense:
                 out["synops_over_dense"] = None if problems else (synops / self.samples) / dense
         if problems:
             out["reason"] = "invalid SynOps measurement: " + "; ".join(problems)
         return out
+
+    def _layer_rows(self, per_layer, cost_rows=None):
+        """One row per chip layer, in order: what reaches it and what it fires.
+
+        synops_per_sample   events its synapses receive (from the previous
+                            layer's spikes, or the input axons)
+        spikes_per_sample   spikes its own neurons emit, and firing_rate per
+                            unit and step; None for a layer without neurons
+        input_pool_area     neurons folded into each of its input values
+        chip_neurons, chip_synapses   from cost_rows, when its chip layers
+                            (rows with neurons) match these one for one
+        """
+        chip = [r for r in (cost_rows or ()) if r.get("neurons")]
+
+        def kind(r):
+            name = r.get("layer", "")
+            return "conv" if name.startswith("conv") else "orpool" if name.startswith("pool") \
+                else "linear"
+        paired = (len(chip) == len(self._layers)
+                  and all(kind(r) == L["kind"] for r, L in zip(chip, self._layers)))
+        rows = []
+        for i, L in enumerate(self._layers):
+            got = per_layer.get(L["module"], {})
+            fired = per_layer.get(L["neuron"], {}) if L["neuron"] else {}
+            row = {"layer": i, "kind": L["kind"], "module": L["module"], "neuron": L["neuron"],
+                   "input_pool_area": self.pool_area.get(L["module"], 1),
+                   "synops_per_sample": got.get("synops_per_sample"),
+                   "synops_ceiling_per_sample": self.ceiling.get(L["module"], 0) / self.samples,
+                   "spikes_per_sample": fired.get("spikes_per_sample"),
+                   "firing_rate": fired.get("firing_rate")}
+            if paired:
+                row["chip_neurons"] = chip[i]["neurons"]
+                row["chip_synapses"] = chip[i]["connections"]
+            rows.append(row)
+        return rows
 
 
 def measure_synops(net, loader, device, spec=None, max_batches=None):

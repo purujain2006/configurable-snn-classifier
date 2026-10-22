@@ -291,8 +291,8 @@ python tools/analysis/recount_synops.py -c configs/dvs128_search05.yaml results/
 ```
 
 A run measures SynOps once, when it finishes. When the counter is corrected
-later, as it was for signed spikes, the old figure in `single.json` stays
-wrong. This rebuilds each saved network exactly as it was scored, runs the
+later, as it was for signed spikes and for layers behind an average pool, the
+old figure in `single.json` stays wrong. This rebuilds each saved network exactly as it was scored, runs the
 validation clips through the current counter, and prints the new figure next
 to the old one. No training.
 
@@ -468,13 +468,52 @@ Only for `single` without `--from-best`: the network to train, as fields of
 | `synops_reference` | none | for `weighted` |
 | `weight` | 0 | for `weighted` |
 
-SynOps is the number of synaptic operations per sample, the usual proxy for a
-spiking network's energy. A signed spike, +1 or -1, counts as one event, so a
-signed network reports the same SynOps as an unsigned one with the same spikes.
-With `input_bits` B > 1 each input value is B axons, one per bit, so the first
-layer counts one event per set bit and its ceiling is B times larger. Before
-2026-10-17 a -1 cancelled a +1 and a level counted as its value: signed or
-multi-bit trials of Search 04 and earlier runs report SynOps wrong, or none.
+SynOps is the number of synaptic events per sample, the usual proxy for a
+spiking network's energy. It counts what HiAER-Spike does with the network as
+hs_export lays it out: every spike times the synapses of the neuron that fired.
+
+- An average pool or GAP has no neurons on chip. It is folded into the next
+  layer, which reads every neuron in front of the pool, each through its own
+  synapses. So a layer behind a 2x2 pool counts 4 times what its pooled input
+  suggests, and a head behind GAP H x W times.
+- A signed spike, +1 or -1, is one neuron firing. It reaches both neurons of
+  every signed unit it feeds, so a signed layer receives twice the events.
+- A max pool is a layer of OR neurons: one event per spike into it, one spike
+  per window and sign out of it.
+- With `input_bits` B > 1 each input value is B axons, one per bit: one event
+  per set bit.
+- Padding and zero weights hold no synapse, so pruning lowers SynOps.
+
+Old figures are low. Before 2026-10-20 a layer behind an average pool or GAP
+was counted from the pooled mean, and a signed layer like an unsigned one:
+Search 05 rank2's conv1, signed behind a 2x2 pool, by about 8 times. Before
+2026-10-17 a -1 cancelled a +1 and a level counted as its value. Recount saved
+networks with `tools/analysis/recount_synops.py` (section 7).
+
+`single.json` and each record in `trials.jsonl` carry:
+
+| field | meaning |
+|---|---|
+| `synops_per_sample` | synaptic events per clip, all layers |
+| `synops_layers` | one row per chip layer, in order (below) |
+| `chip_synapses` | synapses the chip stores, with every weight nonzero; the leaderboard's `connections` |
+| `dense_macs_per_inference` | multiply-accumulates of an ANN of the same shape in one pass: one per weight per output, no folded pools, no second neuron per sign |
+| `synops_over_dense` | `synops_per_sample` over `dense_macs_per_inference` |
+
+Each row of `synops_layers`: `kind` (conv, linear or orpool), `module` and
+`neuron` (the PyTorch modules), `input_pool_area` (neurons folded into each
+input value: 4 behind a 2x2 average pool), `synops_per_sample` (events its
+synapses receive, from the previous layer's spikes or the input),
+`synops_ceiling_per_sample` (if every source fired every step),
+`spikes_per_sample` and `firing_rate` (what its own neurons fire; the rate is
+spikes per unit per step), `chip_neurons` and `chip_synapses`.
+
+`firing_rate` in the training records (`trial_progress.jsonl`,
+`progress.jsonl`, `trials.jsonl`, the leaderboard) is something else: the
+unweighted mean over the spiking layers, the output layer excluded, of each
+layer's rate, so a small layer counts as much as a large one. It is recorded
+only when the firing-rate penalty is on. The per-layer rates of the deployed
+network are in `synops_layers`.
 
 ### limits
 

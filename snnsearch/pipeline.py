@@ -302,10 +302,12 @@ def measure_run_synops(res, loaders, spec, max_batches=None):
         summary = measure_synops(hw_net, loaders[1], device, spec=spec,
                                  max_batches=max_batches)
     out = {"synops_per_sample": summary.get("synops_per_sample"),
-           "spikes_per_sample": summary.get("spikes_per_sample")}
+           "spikes_per_sample": summary.get("spikes_per_sample"),
+           # one row per chip layer: SynOps in, spikes out, firing rate
+           "synops_layers": summary.get("layers")}
     # The dense comparison is the argument for spiking at all, so keep it when
     # the plan could be costed.
-    for k in ("dense_macs_per_inference", "synops_over_dense"):
+    for k in ("dense_macs_per_inference", "synops_over_dense", "chip_synapses"):
         if k in summary:
             out[k] = summary[k]
     if summary.get("reason"):

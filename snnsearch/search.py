@@ -661,6 +661,8 @@ def _make_trainable(cfg, out_dir):
             "pre_export_val_accuracy": res.get("pre_export_val_accuracy"),
             "synops_per_sample": synops,
             "synops_reason": res.get("synops_reason"),
+            "synops_layers": res.get("synops_layers"),
+            "chip_synapses": res.get("chip_synapses"),
             "firing_rate": res.get("firing_rate"),
             "rate_penalty": res.get("rate_penalty"),
             # what export cost, not what the schedule gained

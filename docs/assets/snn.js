@@ -27,7 +27,7 @@
 
   /* ---------------- config defaults (section 1 dataclasses) ------------- */
   function inputSpec(o) {
-    return Object.assign({ N: 16, C: 2, H: 128, W: 128, T: 16, resize_to: 0 }, o);
+    return Object.assign({ N: 16, C: 2, H: 128, W: 128, T: 16, resize_to: 0, input_bits: 1 }, o);
   }
   function convLayerSpec(o) {
     return Object.assign({
@@ -52,7 +52,7 @@
   function neuronSpec(o) {
     return Object.assign({
       neuron_type: "LIF", tau: 2, v_threshold: 1.0, v_reset: 0.0,
-      trainable_tau: false, trainable_threshold: false
+      trainable_tau: false, trainable_threshold: false, signed_spikes: false
     }, o);
   }
 
@@ -242,20 +242,50 @@
   }
 
   /* ---------------- section 4: cost model ------------------------------- */
+  // kernel taps, summed over one axis's outputs, that land inside the input;
+  // a tap on padding reads nothing and is no synapse on chip
+  function taps(nIn, nOut, k, s, p, d) {
+    let n = 0;
+    for (let o = 0; o < nOut; o++)
+      for (let t = 0; t < k; t++) {
+        const pos = o * s - p + t * d;
+        if (pos >= 0 && pos < nIn) n++;
+      }
+    return n;
+  }
+
+  // Counts chip neurons and synapses ("connections") as hs_export unrolls the
+  // network, every weight nonzero. A signed layer has two neurons per unit and
+  // each reads both neurons of every signed source unit; multi-bit input takes
+  // input_bits axons per value. An average pool or GAP has no neurons: it folds
+  // into the next layer, which reads every neuron in front of the pool. "macs"
+  // is an ANN of the same shape, one pass. Mirrors snnsearch/cost.py.
   function countNeuronsAndSynapses(cfg) {
     const plan = planNetwork(cfg.input, cfg.encoder, cfg.output, cfg.downsample, cfg.head);
     const encoder = cfg.encoder, input = cfg.input;
+    const sign = (cfg.neuron && cfg.neuron.signed_spikes) ? 2 : 1;
+    const bits = Math.max(1, parseInt(input.input_bits || 1, 10));
+    const folds = cfg.downsample.pool_type !== "max";   // avg pools fold; max pools are OR neurons
     const rows = [];
+    let prevPool = 1;        // avg pool kernel between the previous neurons and this layer
 
     for (const b of plan.blocks) {
       const [oh, ow] = b.conv_out_hw;
       const neurons = b.out_channels * oh * ow;
       const wpn = b.kernel_size * b.kernel_size * b.in_channels;
+      // sources per synapse: input axons for the first layer, else neurons
+      const src = b.index === 0 ? bits : sign;
+      const d = b.dilation || 1;
+      const tapCount = taps(b.in_hw[0], oh, b.kernel_size, b.stride, b.padding, d) *
+                       taps(b.in_hw[1], ow, b.kernel_size, b.stride, b.padding, d);
       rows.push({
         layer: `conv${b.index}`,
         detail: `${b.in_channels}x${b.in_hw[0]}x${b.in_hw[1]} -> ` +
-                `${b.out_channels}x${oh}x${ow}  k=${b.kernel_size} s=${b.stride} p=${b.padding}`,
-        neurons, connections: neurons * wpn,
+                `${b.out_channels}x${oh}x${ow}  k=${b.kernel_size} s=${b.stride} p=${b.padding}` +
+                (prevPool > 1 ? `  +pool x${prevPool * prevPool}` : ""),
+        neurons: neurons * sign,
+        connections: b.out_channels * b.in_channels * tapCount * prevPool * prevPool * src * sign,
+        macs: neurons * wpn,
         params: wpn * b.out_channels + (encoder.bias ? b.out_channels : 0)
       });
       if (encoder.norm !== "none") {
@@ -264,37 +294,51 @@
           layer: `${label}${b.index}`,
           detail: encoder.norm === "tdbn"
             ? `tdBN(${b.out_channels}) over (T,N,H,W)` : `BatchNorm2d(${b.out_channels})`,
-          neurons: 0, connections: 0, params: 2 * b.out_channels
+          neurons: 0, connections: 0, macs: 0, params: 2 * b.out_channels
         });
       }
       if (b.pool) {
         const [ph, pw] = b.out_hw;
+        const orPool = !folds;
         rows.push({
           layer: `pool${b.index}`,
-          detail: `avg k=${b.pool_kernel} s=${b.pool_stride} -> ${b.out_channels}x${ph}x${pw}`,
-          neurons: 0,
-          connections: b.out_channels * ph * pw * b.pool_kernel * b.pool_kernel,
+          // a max pool is a layer of OR neurons on chip; an avg pool has none,
+          // and its synapses are counted in the next layer's row
+          detail: `${orPool ? "max (OR neurons)" : "avg"} k=${b.pool_kernel} s=${b.pool_stride} -> ` +
+                  `${b.out_channels}x${ph}x${pw}` + (orPool ? "" : ", folded into next"),
+          // one OR neuron per window and sign, reading its own sign only
+          neurons: orPool ? b.out_channels * ph * pw * sign : 0,
+          connections: orPool ? b.out_channels * ph * pw * b.pool_kernel * b.pool_kernel * sign : 0,
+          macs: 0,
           params: 0
         });
       }
+      prevPool = (b.pool && folds) ? b.pool_kernel : 1;
     }
 
     if (plan.reduction === "gap") {
       rows.push({
         layer: "gap",
-        detail: `${plan.encoder_out_c}x${plan.encoder_out_hw[0]}x${plan.encoder_out_hw[1]} -> ${plan.encoder_out_c}`,
-        neurons: 0,
-        connections: plan.encoder_out_c * plan.encoder_out_hw[0] * plan.encoder_out_hw[1],
-        params: 0
+        detail: `${plan.encoder_out_c}x${plan.encoder_out_hw[0]}x${plan.encoder_out_hw[1]} -> ` +
+                `${plan.encoder_out_c}, folded into next`,
+        neurons: 0, connections: 0, macs: 0, params: 0
       });
     }
 
     for (const lin of plan.linears) {
+      // the head reads every neuron behind a folded avg pool and a GAP
+      let fold = 1, src = sign;
+      if (lin.index === 0) {
+        if (plan.blocks.length) fold = prevPool * prevPool;
+        else src = bits;
+        if (plan.reduction === "gap") fold *= plan.encoder_out_hw[0] * plan.encoder_out_hw[1];
+      }
       rows.push({
         layer: lin.is_classifier ? "classifier" : `fc${lin.index}`,
-        detail: `${lin.in_features} -> ${lin.out_features}`,
-        neurons: lin.out_features,
-        connections: lin.in_features * lin.out_features,
+        detail: `${lin.in_features} -> ${lin.out_features}` + (fold > 1 ? `  +pool x${fold}` : ""),
+        neurons: lin.out_features * sign,
+        connections: lin.in_features * lin.out_features * fold * src * sign,
+        macs: lin.in_features * lin.out_features,
         params: lin.in_features * lin.out_features
       });
     }
@@ -302,12 +346,13 @@
     const totals = {
       neurons: rows.reduce((a, r) => a + r.neurons, 0),
       connections: rows.reduce((a, r) => a + r.connections, 0),
+      macs: rows.reduce((a, r) => a + r.macs, 0),
       params: rows.reduce((a, r) => a + r.params, 0)
     };
     const [inH, inW] = effectiveHW(input);
     return {
       rows, totals,
-      input_axons: inH * inW * input.C,
+      input_axons: inH * inW * input.C * bits,
       timesteps: input.T,
       neuron_updates_per_sample: totals.neurons * input.T,
       plan

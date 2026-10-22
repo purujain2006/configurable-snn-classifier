@@ -47,13 +47,13 @@
 <thead><tr><th>Measure</th><th>Formula</th><th>What it counts</th></tr></thead>
 <tbody>
 <tr><td class="layer-name">neurons</td><td class="num">C<sub>out</sub> · H · W</td><td>Spiking neurons on the chip, one per output position per channel.</td></tr>
-<tr><td class="layer-name">connections</td><td class="num">neurons · k² · C<sub>in</sub></td><td>Synapses the chip stores. Every neuron gets its own copy of the filter.</td></tr>
+<tr><td class="layer-name">connections</td><td class="num">neurons · k² · C<sub>in</sub></td><td>Synapses the chip stores. Every neuron gets its own copy of the filter, except that a filter position on padding holds no synapse. An average pool in front of the layer multiplies the count by its area, and signed spikes double the neurons on each side (G.3).</td></tr>
 <tr><td class="layer-name">parameters</td><td class="num">k² · C<sub>in</sub> · C<sub>out</sub></td><td>Numbers that training learns. The filter is shared, so this is far smaller than the connection count.</td></tr>
 <tr><td class="layer-name">SynOps (synaptic operations)</td><td class="num">Σ spikes × fan-out</td><td>Additions actually performed on a real clip. Measured, since it depends on the input as well as the shape.</td></tr>
 </tbody>
 </table>
 </div>
-<p>A synaptic operation, or SynOp, is one addition at a neuron caused by an arriving spike. Neuromorphic papers report SynOps per input as a stand-in for energy, so every run measures it. A conventional network of the same shape would do one multiply-add per connection per step regardless of activity, which gives a fair comparison point.</p>
+<p>A synaptic operation, or SynOp, is one addition at a neuron caused by an arriving spike. Neuromorphic papers report SynOps per input as a stand-in for energy, so every run measures it. A conventional network of the same shape does one multiply-add per weight per output (its MACs, short for multiply-accumulates) whatever its inputs hold, which gives a fair comparison point.</p>
 <p>The search can use SynOps four ways when choosing between networks:</p>
 <div class="tbl-wrap">
 <table class="tbl">
@@ -67,7 +67,7 @@
 </table>
 </div>
 <details class="technical-details"><summary>A worked example</summary><div class="detail-body">
-<p>A convolution with 32 input channels, 32 output channels and a 7×7 kernel has 32 × 32 × 7 × 7 = 50,176 parameters. With a 12×12 output it has 32 × 12 × 12 = 4,608 neurons. Each neuron reads its own 7×7×32 window, so the chip stores 4,608 × 1,568 = 7,225,344 connections.</p>
+<p>A convolution with 32 input channels, 32 output channels and a 7×7 kernel has 32 × 32 × 7 × 7 = 50,176 parameters. With a 12×12 output it has 32 × 12 × 12 = 4,608 neurons. With no padding, each neuron reads its own 7×7×32 window, so the chip stores 4,608 × 1,568 = 7,225,344 connections. An ordinary network of that shape does the same 7,225,344 multiply-adds (MACs) in one pass.</p>
 <p>Neither count says how many additions happen during a clip. A neuron that never fires causes none, and one that fires on every step causes one per connection per step. SynOps depend on both the wiring and the input.</p>
 </div></details>
 </section>

@@ -13,32 +13,58 @@ from .hardware import (check_spec_feasibility, AXON_LIMITS, NEURON_LIMITS, HW_TA
                        W_BITS, W_ALPHA, INT16_MAX, W_DELTA)
 
 
+def _taps(n_in, n_out, k, s, p, d=1):
+    """Kernel taps, summed over one axis's outputs, that land inside the input.
+    A tap on padding reads nothing and is no synapse on chip."""
+    return sum(1 for o in range(n_out) for t in range(k) if 0 <= o * s - p + t * d < n_in)
+
+
 def count_neurons_and_synapses(cfg: dict) -> dict:
     """cfg is the same dict used everywhere else: input/encoder/output/downsample/head/neuron.
 
-    Counts chip neurons and synapses. A signed layer has two neurons per unit,
+    Counts chip neurons and synapses ("connections") as hs_export unrolls the
+    network, with every weight nonzero (a zero weight is not stored, so a
+    trained network can hold fewer). A signed layer has two neurons per unit,
     each reading both neurons of every signed source unit, so its neurons
     double and its connections from a signed layer quadruple. Multi-bit input
-    takes input_bits axons per value, each with its own synapse.
+    takes input_bits axons per value, each with its own synapse. Padding taps
+    hold no synapse. Bias neurons are not counted.
+
+    An average pool or GAP has no neurons on chip: it is folded into the next
+    layer, which then reads every neuron in front of the pool, so that layer's
+    connections grow by the pool's area (4 for 2x2, H*W for GAP) and the pool
+    row has none. A max pool is a layer of OR neurons, one synapse from each
+    input per sign.
+
+    "macs" is what an ANN of the same shape does in one pass: one
+    multiply-accumulate per weight per output, no folded pools, no second
+    neuron per sign. It is the denominator of synops.py's dense comparison.
     """
     plan = plan_network(cfg["input"], cfg["encoder"], cfg["output"], cfg["downsample"], cfg["head"])
     encoder_cfg, input_cfg = cfg["encoder"], cfg["input"]
     sign = 2 if getattr(cfg.get("neuron"), "signed_spikes", False) else 1
     bits = max(1, int(getattr(input_cfg, "input_bits", 1) or 1))
+    folds = cfg["downsample"].pool_type != "max"   # avg pools fold; max pools are OR neurons
 
     rows = []
+    prev_pool = 1           # avg pool kernel between the previous neurons and this layer
     for b in plan.blocks:
         oh, ow = b.conv_out_hw
         neurons = b.out_channels * oh * ow
         weights_per_neuron = b.kernel_size * b.kernel_size * b.in_channels
         # sources per synapse: input axons for the first layer, else neurons
         src = bits if b.index == 0 else sign
+        d = getattr(b, "dilation", 1) or 1
+        taps = (_taps(b.in_hw[0], oh, b.kernel_size, b.stride, b.padding, d)
+                * _taps(b.in_hw[1], ow, b.kernel_size, b.stride, b.padding, d))
         rows.append({
             "layer": f"conv{b.index}",
             "detail": (f"{b.in_channels}x{b.in_hw[0]}x{b.in_hw[1]} -> "
-                       f"{b.out_channels}x{oh}x{ow}  k={b.kernel_size} s={b.stride} p={b.padding}"),
+                       f"{b.out_channels}x{oh}x{ow}  k={b.kernel_size} s={b.stride} p={b.padding}"
+                       + (f"  +pool x{prev_pool ** 2}" if prev_pool > 1 else "")),
             "neurons": neurons * sign,
-            "connections": neurons * weights_per_neuron * src * sign,
+            "connections": b.out_channels * b.in_channels * taps * prev_pool ** 2 * src * sign,
+            "macs": neurons * weights_per_neuron,
             "params": weights_per_neuron * b.out_channels + (b.out_channels if encoder_cfg.bias else 0),
         })
         if encoder_cfg.norm != "none":
@@ -49,44 +75,59 @@ def count_neurons_and_synapses(cfg: dict) -> dict:
                 "layer": f"{label}{b.index}",
                 "detail": (f"tdBN({b.out_channels}) over (T,N,H,W)" if encoder_cfg.norm == "tdbn"
                            else f"BatchNorm2d({b.out_channels})"),
-                "neurons": 0, "connections": 0, "params": 2 * b.out_channels,
+                "neurons": 0, "connections": 0, "macs": 0, "params": 2 * b.out_channels,
             })
         if b.pool:
             ph, pw = b.out_hw
-            or_pool = cfg["downsample"].pool_type == "max"
+            or_pool = not folds
             rows.append({
                 "layer": f"pool{b.index}",
-                # a max pool is a layer of OR neurons on chip; an avg pool has none
+                # a max pool is a layer of OR neurons on chip; an avg pool has
+                # none, and its synapses are counted in the next layer's row
                 "detail": (f"{'max (OR neurons)' if or_pool else 'avg'} k={b.pool_kernel} "
-                           f"s={b.pool_stride} -> {b.out_channels}x{ph}x{pw}"),
+                           f"s={b.pool_stride} -> {b.out_channels}x{ph}x{pw}"
+                           + ("" if or_pool else ", folded into next")),
                 # one OR neuron per window and sign, reading its own sign only
                 "neurons": b.out_channels * ph * pw * sign if or_pool else 0,
-                "connections": b.out_channels * ph * pw * b.pool_kernel * b.pool_kernel * sign,
+                "connections": (b.out_channels * ph * pw * b.pool_kernel * b.pool_kernel * sign
+                                if or_pool else 0),
+                "macs": 0,
                 "params": 0,
             })
+        prev_pool = b.pool_kernel if (b.pool and folds) else 1
 
     if plan.reduction == "gap":
         rows.append({
             "layer": "gap",
-            "detail": f"{plan.encoder_out_c}x{plan.encoder_out_hw[0]}x{plan.encoder_out_hw[1]} -> {plan.encoder_out_c}",
-            "neurons": 0,
-            "connections": plan.encoder_out_c * plan.encoder_out_hw[0] * plan.encoder_out_hw[1],
-            "params": 0,
+            "detail": (f"{plan.encoder_out_c}x{plan.encoder_out_hw[0]}x{plan.encoder_out_hw[1]} -> "
+                       f"{plan.encoder_out_c}, folded into next"),
+            "neurons": 0, "connections": 0, "macs": 0, "params": 0,
         })
 
     for lin in plan.linears:
         tag = "classifier" if lin.is_classifier else f"fc{lin.index}"
+        # the head reads every neuron behind a folded avg pool and a GAP
+        fold, src = 1, sign
+        if lin.index == 0:
+            if plan.blocks:
+                fold = prev_pool ** 2
+            else:
+                src = bits
+            if plan.reduction == "gap":
+                fold *= plan.encoder_out_hw[0] * plan.encoder_out_hw[1]
         rows.append({
             "layer": tag,
-            "detail": f"{lin.in_features} -> {lin.out_features}",
+            "detail": f"{lin.in_features} -> {lin.out_features}" + (f"  +pool x{fold}" if fold > 1 else ""),
             "neurons": lin.out_features * sign,
-            "connections": lin.in_features * lin.out_features * sign * sign,
+            "connections": lin.in_features * lin.out_features * fold * src * sign,
+            "macs": lin.in_features * lin.out_features,
             "params": lin.in_features * lin.out_features,
         })
 
     totals = {
         "neurons": sum(r["neurons"] for r in rows),
         "connections": sum(r["connections"] for r in rows),
+        "macs": sum(r["macs"] for r in rows),
         "params": sum(r["params"] for r in rows),
     }
     in_h, in_w = effective_hw(input_cfg)
@@ -162,7 +203,9 @@ def format_summary(cfg: dict) -> str:
     lines.append("")
     lines.append(f"input axons             : {counts['input_axons']:,}  (limit {AXON_LIMITS['total_axons']:,})")
     lines.append(f"spiking neurons         : {t['neurons']:,}")
-    lines.append(f"synaptic connections    : {t['connections']:,}")
+    lines.append(f"synaptic connections    : {t['connections']:,}  (on chip; +pool xN: an avg "
+                 f"pool or GAP folded in)")
+    lines.append(f"ANN MACs / inference    : {t['macs']:,}  (an ANN of the same shape, one pass)")
     lines.append(f"trainable parameters    : {t['params']:,}")
     lines.append(f"neuron updates / sample : {counts['neuron_updates_per_sample']:,}  ({t['neurons']:,} x T={counts['timesteps']})")
     n_spiking = len(counts["plan"].blocks) + len(counts["plan"].linears)

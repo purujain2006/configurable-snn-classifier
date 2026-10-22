@@ -43,7 +43,7 @@ const R = [
 {n:"check_spec_feasibility", k:"function", s:"check_spec_feasibility(spec) -> (bool, [violations])", o:"check_feasibility on a whole spec dictionary, reading the bias mode from it.", b:"Every caller in the package uses this one."},
 
 {g:"snnsearch/cost.py: how big a network is"},
-{n:"count_neurons_and_synapses", k:"function", s:"count_neurons_and_synapses(cfg) -> {rows, totals, input_axons, neuron_updates_per_sample, plan}", o:"Neurons, connections and parameters per layer and in total.", b:"See <a href='hardware.html#cost'>G.2</a>."},
+{n:"count_neurons_and_synapses", k:"function", s:"count_neurons_and_synapses(cfg) -> {rows, totals, input_axons, neuron_updates_per_sample, plan}", o:"Neurons, connections (as the chip unrolls them), ANN MACs and parameters per layer and in total.", b:"See <a href='hardware.html#cost'>G.2</a>."},
 {n:"format_summary", k:"function", s:"format_summary(cfg) -> str", o:"The layer table, the counts and the chip verdict as text.", b:"What <code>main.py summary</code> prints."},
 
 {g:"snnsearch/neuron.py: the chip's neuron"},

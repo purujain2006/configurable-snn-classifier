@@ -238,6 +238,8 @@ def make_streaming_callback(writer, target=0.975):
                 "end_to_end_gain": r.get("end_to_end_gain"),
                 "synops_per_sample": r.get("synops_per_sample"),
                 "firing_rate": r.get("firing_rate"),
+                "synops_layers": r.get("synops_layers"),
+                "chip_synapses": r.get("chip_synapses"),
                 "deployable": r.get("deployable"),
                 "deploy_reasons": r.get("deploy_reasons"),
                 "weight_clip_frac": r.get("weight_clip_frac"),

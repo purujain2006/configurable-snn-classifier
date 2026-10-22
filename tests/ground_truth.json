@@ -8,6 +8,7 @@
     "detail": "2x64x64 -> 32x29x29  k=7 s=2 p=0",
     "neurons": 26912,
     "connections": 2637376,
+    "macs": 2637376,
     "params": 3136
    },
    {
@@ -15,6 +16,7 @@
     "detail": "BatchNorm2d(32)",
     "neurons": 0,
     "connections": 0,
+    "macs": 0,
     "params": 64
    },
    {
@@ -22,6 +24,7 @@
     "detail": "32x29x29 -> 32x12x12  k=7 s=2 p=0",
     "neurons": 4608,
     "connections": 7225344,
+    "macs": 7225344,
     "params": 50176
    },
    {
@@ -29,6 +32,7 @@
     "detail": "BatchNorm2d(32)",
     "neurons": 0,
     "connections": 0,
+    "macs": 0,
     "params": 64
    },
    {
@@ -36,12 +40,14 @@
     "detail": "4608 -> 11",
     "neurons": 11,
     "connections": 50688,
+    "macs": 50688,
     "params": 50688
    }
   ],
   "totals": {
    "neurons": 31531,
    "connections": 9913408,
+   "macs": 9913408,
    "params": 104128
   },
   "input_axons": 8192,
@@ -109,6 +115,7 @@
     "detail": "2x64x64 -> 32x29x29  k=7 s=2 p=0",
     "neurons": 26912,
     "connections": 2637376,
+    "macs": 2637376,
     "params": 3136
    },
    {
@@ -116,6 +123,7 @@
     "detail": "BatchNorm2d(32)",
     "neurons": 0,
     "connections": 0,
+    "macs": 0,
     "params": 64
    },
    {
@@ -123,6 +131,7 @@
     "detail": "32x29x29 -> 32x12x12  k=7 s=2 p=0",
     "neurons": 4608,
     "connections": 7225344,
+    "macs": 7225344,
     "params": 50176
    },
    {
@@ -130,6 +139,7 @@
     "detail": "BatchNorm2d(32)",
     "neurons": 0,
     "connections": 0,
+    "macs": 0,
     "params": 64
    },
    {
@@ -137,6 +147,7 @@
     "detail": "32x12x12 -> 32x3x3  k=7 s=2 p=0",
     "neurons": 288,
     "connections": 451584,
+    "macs": 451584,
     "params": 50176
    },
    {
@@ -144,6 +155,7 @@
     "detail": "BatchNorm2d(32)",
     "neurons": 0,
     "connections": 0,
+    "macs": 0,
     "params": 64
    },
    {
@@ -151,12 +163,14 @@
     "detail": "288 -> 11",
     "neurons": 11,
     "connections": 3168,
+    "macs": 3168,
     "params": 3168
    }
   ],
   "totals": {
    "neurons": 31819,
    "connections": 10317472,
+   "macs": 10317472,
    "params": 106848
   },
   "input_axons": 8192,
@@ -248,6 +262,7 @@
     "detail": "2x128x128 -> 128x63x63  k=3 s=2 p=0",
     "neurons": 508032,
     "connections": 9144576,
+    "macs": 9144576,
     "params": 2304
    },
    {
@@ -255,6 +270,7 @@
     "detail": "BatchNorm2d(128)",
     "neurons": 0,
     "connections": 0,
+    "macs": 0,
     "params": 256
    },
    {
@@ -262,6 +278,7 @@
     "detail": "128x63x63 -> 128x31x31  k=3 s=2 p=0",
     "neurons": 123008,
     "connections": 141705216,
+    "macs": 141705216,
     "params": 147456
    },
    {
@@ -269,6 +286,7 @@
     "detail": "BatchNorm2d(128)",
     "neurons": 0,
     "connections": 0,
+    "macs": 0,
     "params": 256
    },
    {
@@ -276,6 +294,7 @@
     "detail": "128x31x31 -> 128x15x15  k=3 s=2 p=0",
     "neurons": 28800,
     "connections": 33177600,
+    "macs": 33177600,
     "params": 147456
    },
    {
@@ -283,6 +302,7 @@
     "detail": "BatchNorm2d(128)",
     "neurons": 0,
     "connections": 0,
+    "macs": 0,
     "params": 256
    },
    {
@@ -290,6 +310,7 @@
     "detail": "28800 -> 512",
     "neurons": 512,
     "connections": 14745600,
+    "macs": 14745600,
     "params": 14745600
    },
    {
@@ -297,12 +318,14 @@
     "detail": "512 -> 11",
     "neurons": 11,
     "connections": 5632,
+    "macs": 5632,
     "params": 5632
    }
   ],
   "totals": {
    "neurons": 660363,
    "connections": 198778624,
+   "macs": 198778624,
    "params": 15049216
   },
   "input_axons": 32768,
@@ -397,6 +420,7 @@
     "detail": "2x64x64 -> 64x30x30  k=5 s=2 p=0",
     "neurons": 57600,
     "connections": 2880000,
+    "macs": 2880000,
     "params": 3200
    },
    {
@@ -404,6 +428,7 @@
     "detail": "BatchNorm2d(64)",
     "neurons": 0,
     "connections": 0,
+    "macs": 0,
     "params": 128
    },
    {
@@ -411,6 +436,7 @@
     "detail": "64x30x30 -> 64x13x13  k=5 s=2 p=0",
     "neurons": 10816,
     "connections": 17305600,
+    "macs": 17305600,
     "params": 102400
    },
    {
@@ -418,6 +444,7 @@
     "detail": "BatchNorm2d(64)",
     "neurons": 0,
     "connections": 0,
+    "macs": 0,
     "params": 128
    },
    {
@@ -425,6 +452,7 @@
     "detail": "64x13x13 -> 64x5x5  k=5 s=2 p=0",
     "neurons": 1600,
     "connections": 2560000,
+    "macs": 2560000,
     "params": 102400
    },
    {
@@ -432,20 +460,23 @@
     "detail": "BatchNorm2d(64)",
     "neurons": 0,
     "connections": 0,
+    "macs": 0,
     "params": 128
    },
    {
     "layer": "gap",
-    "detail": "64x5x5 -> 64",
+    "detail": "64x5x5 -> 64, folded into next",
     "neurons": 0,
-    "connections": 1600,
+    "connections": 0,
+    "macs": 0,
     "params": 0
    },
    {
     "layer": "fc0",
-    "detail": "64 -> 512",
+    "detail": "64 -> 512  +pool x25",
     "neurons": 512,
-    "connections": 32768,
+    "connections": 819200,
+    "macs": 32768,
     "params": 32768
    },
    {
@@ -453,12 +484,14 @@
     "detail": "512 -> 11",
     "neurons": 11,
     "connections": 5632,
+    "macs": 5632,
     "params": 5632
    }
   ],
   "totals": {
    "neurons": 70539,
-   "connections": 22785600,
+   "connections": 23570432,
+   "macs": 22784000,
    "params": 246784
   },
   "input_axons": 8192,
@@ -554,7 +587,8 @@
     "layer": "conv0",
     "detail": "2x64x64 -> 32x64x64  k=5 s=1 p=2",
     "neurons": 131072,
-    "connections": 6553600,
+    "connections": 6310144,
+    "macs": 6553600,
     "params": 1600
    },
    {
@@ -562,20 +596,23 @@
     "detail": "BatchNorm2d(32)",
     "neurons": 0,
     "connections": 0,
+    "macs": 0,
     "params": 64
    },
    {
     "layer": "pool0",
-    "detail": "avg k=2 s=2 -> 32x32x32",
+    "detail": "avg k=2 s=2 -> 32x32x32, folded into next",
     "neurons": 0,
-    "connections": 131072,
+    "connections": 0,
+    "macs": 0,
     "params": 0
    },
    {
     "layer": "conv1",
-    "detail": "32x32x32 -> 32x32x32  k=5 s=1 p=2",
+    "detail": "32x32x32 -> 32x32x32  k=5 s=1 p=2  +pool x4",
     "neurons": 32768,
-    "connections": 26214400,
+    "connections": 97140736,
+    "macs": 26214400,
     "params": 25600
    },
    {
@@ -583,20 +620,23 @@
     "detail": "BatchNorm2d(32)",
     "neurons": 0,
     "connections": 0,
+    "macs": 0,
     "params": 64
    },
    {
     "layer": "pool1",
-    "detail": "avg k=2 s=2 -> 32x16x16",
+    "detail": "avg k=2 s=2 -> 32x16x16, folded into next",
     "neurons": 0,
-    "connections": 32768,
+    "connections": 0,
+    "macs": 0,
     "params": 0
    },
    {
     "layer": "fc0",
-    "detail": "8192 -> 512",
+    "detail": "8192 -> 512  +pool x4",
     "neurons": 512,
-    "connections": 4194304,
+    "connections": 16777216,
+    "macs": 4194304,
     "params": 4194304
    },
    {
@@ -604,12 +644,14 @@
     "detail": "512 -> 11",
     "neurons": 11,
     "connections": 5632,
+    "macs": 5632,
     "params": 5632
    }
   ],
   "totals": {
    "neurons": 164363,
-   "connections": 37131776,
+   "connections": 120233728,
+   "macs": 36967936,
    "params": 4227264
   },
   "input_axons": 8192,
@@ -683,6 +725,7 @@
     "detail": "2x64x64 -> 32x29x29  k=7 s=2 p=0",
     "neurons": 26912,
     "connections": 2637376,
+    "macs": 2637376,
     "params": 3136
    },
    {
@@ -690,13 +733,15 @@
     "detail": "BatchNorm2d(32)",
     "neurons": 0,
     "connections": 0,
+    "macs": 0,
     "params": 64
    },
    {
     "layer": "conv1",
     "detail": "32x29x29 -> 64x29x29  k=5 s=1 p=2",
     "neurons": 53824,
-    "connections": 43059200,
+    "connections": 39569408,
+    "macs": 43059200,
     "params": 51200
    },
    {
@@ -704,20 +749,23 @@
     "detail": "BatchNorm2d(64)",
     "neurons": 0,
     "connections": 0,
+    "macs": 0,
     "params": 128
    },
    {
     "layer": "pool1",
-    "detail": "avg k=2 s=2 -> 64x14x14",
+    "detail": "avg k=2 s=2 -> 64x14x14, folded into next",
     "neurons": 0,
-    "connections": 50176,
+    "connections": 0,
+    "macs": 0,
     "params": 0
    },
    {
     "layer": "conv2",
-    "detail": "64x14x14 -> 32x5x5  k=5 s=2 p=0",
+    "detail": "64x14x14 -> 32x5x5  k=5 s=2 p=0  +pool x4",
     "neurons": 800,
-    "connections": 1280000,
+    "connections": 5120000,
+    "macs": 1280000,
     "params": 51200
    },
    {
@@ -725,6 +773,7 @@
     "detail": "BatchNorm2d(32)",
     "neurons": 0,
     "connections": 0,
+    "macs": 0,
     "params": 64
    },
    {
@@ -732,6 +781,7 @@
     "detail": "800 -> 256",
     "neurons": 256,
     "connections": 204800,
+    "macs": 204800,
     "params": 204800
    },
    {
@@ -739,12 +789,14 @@
     "detail": "256 -> 11",
     "neurons": 11,
     "connections": 2816,
+    "macs": 2816,
     "params": 2816
    }
   ],
   "totals": {
    "neurons": 81803,
-   "connections": 47234368,
+   "connections": 47534400,
+   "macs": 47184192,
    "params": 313408
   },
   "input_axons": 8192,
@@ -839,6 +891,7 @@
     "detail": "2x32x32 -> 32x14x14  k=5 s=2 p=0",
     "neurons": 6272,
     "connections": 313600,
+    "macs": 313600,
     "params": 1600
    },
    {
@@ -846,6 +899,7 @@
     "detail": "BatchNorm2d(32)",
     "neurons": 0,
     "connections": 0,
+    "macs": 0,
     "params": 64
    },
    {
@@ -853,6 +907,7 @@
     "detail": "32x14x14 -> 32x5x5  k=5 s=2 p=0",
     "neurons": 800,
     "connections": 640000,
+    "macs": 640000,
     "params": 25600
    },
    {
@@ -860,6 +915,7 @@
     "detail": "BatchNorm2d(32)",
     "neurons": 0,
     "connections": 0,
+    "macs": 0,
     "params": 64
    },
    {
@@ -867,6 +923,7 @@
     "detail": "32x5x5 -> 32x1x1  k=5 s=2 p=0",
     "neurons": 32,
     "connections": 25600,
+    "macs": 25600,
     "params": 25600
    },
    {
@@ -874,13 +931,15 @@
     "detail": "BatchNorm2d(32)",
     "neurons": 0,
     "connections": 0,
+    "macs": 0,
     "params": 64
    },
    {
     "layer": "conv3",
     "detail": "32x1x1 -> 32x1x1  k=5 s=1 p=2",
     "neurons": 32,
-    "connections": 25600,
+    "connections": 1024,
+    "macs": 25600,
     "params": 25600
    },
    {
@@ -888,6 +947,7 @@
     "detail": "BatchNorm2d(32)",
     "neurons": 0,
     "connections": 0,
+    "macs": 0,
     "params": 64
    },
    {
@@ -895,12 +955,14 @@
     "detail": "32 -> 11",
     "neurons": 11,
     "connections": 352,
+    "macs": 352,
     "params": 352
    }
   ],
   "totals": {
    "neurons": 7147,
-   "connections": 1005152,
+   "connections": 980576,
+   "macs": 1005152,
    "params": 79008
   },
   "input_axons": 2048,

@@ -61,9 +61,9 @@ def summary_guards():
     # Two temporal passes for batches of two and one samples: six total
     # sample-passes, with eight dense MACs per sample-pass.
     c.calls = {"lin": 4}
-    c.dense_macs = {"lin": 48}
+    c.ceiling = {"lin": 48}
     c.ops = {"lin": 48.0}
-    rows = [{"layer": "unrelated_cost_name", "connections": 8}]
+    rows = [{"layer": "unrelated_cost_name", "macs": 8}]
     s = c.summary(cost_rows=rows)
     check("a total at the ceiling is accepted", s["synops_per_sample"], 16)
     check("ceiling normalizes all batches once", s["synops_ceiling_per_sample"], 16)
@@ -81,7 +81,7 @@ def summary_guards():
 
     # A large silent layer must not conceal an impossible smaller layer.
     c.ops["silent"] = 0.0
-    c.dense_macs["silent"] = 1000
+    c.ceiling["silent"] = 1000
     check_true("silent layers cannot hide an impossible layer",
                c.summary()["synops_per_sample"] is None)
 
@@ -95,7 +95,7 @@ def summary_guards():
     c.spike_elements["lif"] = 4
     c.reset()
     check_true("reset clears all measurement state",
-               not any((c.ops, c.dense_macs, c.calls, c.spikes,
+               not any((c.ops, c.ceiling, c.calls, c.spikes,
                         c.spike_elements, c.samples)))
 
 
@@ -167,7 +167,7 @@ def with_torch():
 
     print("\n-- batches, timesteps, and firing reports --")
     lin = nn.Linear(4, 2, bias=False)
-    rows = [{"layer": "lin", "connections": 8}]
+    rows = [{"layer": "lin", "macs": 8}]
     c = SynOpsCounter()
     with c.attach(lin), torch.no_grad():
         for batch_size in (2, 1):
@@ -269,6 +269,9 @@ def signed_spikes():
     The reference is the same network with every spike positive: weights |w|
     on an input whose two channels never overlap make each unit's drive
     |w . x|, so it fires exactly where the signed unit fired, sign dropped.
+    The two fire the same spikes, but the chip does more for the signed one:
+    each spike reaches both neurons of every signed unit it feeds, and an OR
+    pool has one OR neuron per sign.
     """
     import torch
     from torch import nn
@@ -331,12 +334,23 @@ def signed_spikes():
         return c.summary(), torch.cat(spikes)
 
     # By hand, per sample: the conv reads 16 of 32 inputs on each of 4 steps,
-    # 0.5 x 64 x 4 = 128. All 32 units fire on steps 2 to 4 (the hardware
-    # neuron fires on the membrane carried in). The head reads |spikes|
-    # pooled to 1.0: avg 3 steps x 24 MACs, GAP 3 x 6, and OR 2 x 24 because
-    # the OR neurons emit one step late. OR's count also proves the reset:
-    # carrying sample 1's last step into sample 2 would add 24 to sample 2.
-    want = {"avg": 128 + 72, "gap": 128 + 18, "or": 128 + 48}
+    # each reaching its 2 output channels: 16 x 2 x 4 = 128, and 256 into a
+    # signed layer, where every unit is two neurons. All 32 units fire on
+    # steps 2 to 4 (the hardware neuron fires on the membrane carried in).
+    # The head (no neurons of its own here) reads them through the pool:
+    #   avg, GAP  folded into the head on chip, so each of the 32 units keeps
+    #             its own 3 synapses: 3 steps x 32 x 3 = 288, signed or not
+    #   OR        the OR neurons read 32 |spikes| on 3 steps (96) and emit one
+    #             step late, on steps 3 and 4: 8 windows x 3 x 2 = 48. Signed,
+    #             every window holds both signs and emits two spikes: 96.
+    # OR's count also proves the reset: carrying sample 1's last step into
+    # sample 2 would add to sample 2.
+    want = {False: {"avg": 128 + 288, "gap": 128 + 288, "or": 128 + 96 + 48},
+            True: {"avg": 256 + 288, "gap": 256 + 288, "or": 256 + 96 + 96}}
+    head = {False: {"avg": 288, "gap": 288, "or": 48},
+            True: {"avg": 288, "gap": 288, "or": 96}}
+    kinds = {"avg": ["conv", "linear"], "gap": ["conv", "linear"],
+             "or": ["conv", "orpool", "linear"]}
     for step_mode in ("s", "m"):
         for pool in ("avg", "gap", "or"):
             tag = f"{pool} pool, step mode {step_mode}:"
@@ -345,14 +359,14 @@ def signed_spikes():
             check_true(f"{tag} signed net fires -1 spikes", bool((spk_signed < 0).any()))
             check_true(f"{tag} |spikes| equal the unsigned net's",
                        torch.equal(spk_signed.abs(), spk_plain))
-            syn = s_signed["synops_per_sample"]
-            check_true(f"{tag} signed SynOps is positive", syn is not None and syn > 0,
-                       s_signed.get("reason", ""))
-            check_num(f"{tag} unsigned SynOps by hand", s_plain["synops_per_sample"], want[pool])
-            check_num(f"{tag} signed SynOps == unsigned", syn, s_plain["synops_per_sample"])
-            check_num(f"{tag} signed head == unsigned head",
-                      s_signed["per_layer"]["4"]["synops_per_sample"],
-                      s_plain["per_layer"]["4"]["synops_per_sample"])
+            for signed, summ in ((False, s_plain), (True, s_signed)):
+                name = "signed" if signed else "unsigned"
+                check_num(f"{tag} {name} SynOps by hand", summ["synops_per_sample"],
+                          want[signed][pool])
+                check_num(f"{tag} {name} head by hand",
+                          summ["per_layer"]["4"]["synops_per_sample"], head[signed][pool])
+                check_true(f"{tag} {name} layers in order",
+                           [r["kind"] for r in summ["layers"]] == kinds[pool])
             check_num(f"{tag} signed firing rate == unsigned",
                       s_signed["firing_rate"], s_plain["firing_rate"])
     check_num("firing rate counts every |spike|", s_signed["firing_rate"], 0.75)
@@ -475,17 +489,261 @@ def multi_bit_input():
         s = c.summary()
         check_true(f"{tag} SynOps measured", (s["synops_per_sample"] or 0) > 0,
                    s.get("reason", ""))
-        # The first conv reads N x C x H x W values per step; flush steps
-        # read zeros. Its dense MACs per call, one per value, times the set
-        # bits over all steps, over the values per call, per sample:
-        first = "conv_fc.0"
-        v = x.long()
-        bits_set = float(sum(((v >> k) & 1).sum() for k in range(B)))
-        per_call = c.dense_macs[first] / (B * c.calls[first])
-        values_per_call = x.numel() / x.shape[1]
+        # Each set bit is one axon spike, reaching that value's own synapses
+        # (fewer at the border, where the window holds padding); flush steps
+        # read zeros. The input alone decides it, so the chip reference is
+        # exact even for this float32 network.
+        ref = chip_events(net, list(x), B)
         check_num(f"{tag} first layer counts the set bits",
-                  s["per_layer"][first]["synops_per_sample"],
-                  bits_set / values_per_call * per_call / x.shape[0])
+                  s["layers"][0]["synops_per_sample"], ref["events"][0] / x.shape[0])
+
+
+def folded_pools_by_hand():
+    """Behind an average pool or GAP, every neuron in front of the pool fires
+    its own synapses.
+
+    The chip has no pooling unit. hs_export folds an average pool into the
+    next layer (integer_layers "pool" and "scale"), so after a 2x2 pool that
+    layer reads all four neurons of each window, each through its own
+    synapse, and a spike in front of the pool reaches every synapse of its
+    pooled position. The counter used to read the pooled mean, a quarter of
+    an event per spike: rank2's conv1 counted 4x low. Each case is counted by
+    hand and against the synapses hs_export writes (_synapses).
+    """
+    import numpy as np
+    import torch
+    from torch import nn
+    from snnsearch.hs_export import _synapses
+    from snnsearch.synops import SynOpsCounter
+
+    print("\n-- behind an average pool and GAP, by hand --")
+
+    def count(net, x):
+        c = SynOpsCounter()
+        with c.attach(net), torch.no_grad():
+            net(x)
+            c.add_samples(1)
+        return c.summary()
+
+    def exported(L, x, out_shape):
+        """Spikes in x times the synapses hs_export gives each neuron."""
+        prev = tuple(x.shape[1:])
+        deg = np.zeros(int(np.prod(prev)))
+        for pre, _post, w in _synapses(L, prev, out_shape):
+            deg[pre] += int(w) != 0
+        return float((x.reshape(-1).numpy() * deg).sum())
+
+    # five spikes on a 4x4 map: three in the top-left window
+    x4 = torch.zeros(1, 1, 4, 4)
+    for y, xx in ((0, 0), (0, 1), (1, 1), (2, 3), (3, 0)):
+        x4[0, 0, y, xx] = 1.0
+    # four spikes on an 8x8 map: pooled to (0, 0) twice, (1, 1), (1, 3)
+    x8 = torch.zeros(1, 1, 8, 8)
+    for y, xx in ((0, 0), (1, 0), (3, 3), (2, 7)):
+        x8[0, 0, y, xx] = 1.0
+    ones = lambda *shape: np.ones(shape, dtype=np.int64)
+
+    # Linear behind 2x2: each spike reaches the 3 outputs. The pooled mean
+    # gave 5/4 x 3 = 3.75. The ceiling is all 16 neurons, 16 x 3.
+    s = count(nn.Sequential(nn.AvgPool2d(2), nn.Flatten(), nn.Linear(4, 3, bias=False)), x4)
+    want = exported({"kind": "linear", "w": ones(3, 4), "pool": 2}, x4, (3,))
+    check_num("Linear behind 2x2 avg, by hand", s["synops_per_sample"], 5 * 3)
+    check_num("Linear behind 2x2 avg == hs_export synapses", s["synops_per_sample"], want)
+    check_num("Linear behind 2x2 avg ceiling", s["synops_ceiling_per_sample"], 16 * 3)
+    check_num("Linear behind 2x2 avg pool area", s["layers"][0]["input_pool_area"], 4)
+
+    # Linear behind GAP: the same 5 spikes, 3 outputs each, not 5/16 x 3.
+    s = count(nn.Sequential(nn.AdaptiveAvgPool2d(1), nn.Flatten(), nn.Linear(1, 3, bias=False)), x4)
+    want = exported({"kind": "linear", "w": ones(3, 1), "pool": 4}, x4, (3,))
+    check_num("Linear behind GAP, by hand", s["synops_per_sample"], 5 * 3)
+    check_num("Linear behind GAP == hs_export synapses", s["synops_per_sample"], want)
+    check_num("Linear behind GAP ceiling", s["synops_ceiling_per_sample"], 16 * 3)
+    check_num("Linear behind GAP pool area", s["layers"][0]["input_pool_area"], 16)
+
+    # 2x2 pool then GAP, as a pooled last block before a GAP head: 8x8 behind
+    # each value, so 4 spikes x 3 outputs.
+    s = count(nn.Sequential(nn.AvgPool2d(2), nn.AdaptiveAvgPool2d(1), nn.Flatten(),
+                            nn.Linear(1, 3, bias=False)), x8)
+    want = exported({"kind": "linear", "w": ones(3, 1), "pool": 8}, x8, (3,))
+    check_num("Linear behind 2x2 avg and GAP, by hand", s["synops_per_sample"], 4 * 3)
+    check_num("Linear behind 2x2 avg and GAP == hs_export", s["synops_per_sample"], want)
+
+    # Conv k3 p1 behind 2x2, on the 4x4 pooled map, 2 output channels. A
+    # pooled corner is in 4 output windows, an edge in 6, the inside in 9:
+    # (4 + 4 + 9 + 6) x 2. A mean over the map would miss the border.
+    conv = nn.Conv2d(1, 2, 3, padding=1, bias=False)
+    s = count(nn.Sequential(nn.AvgPool2d(2), conv), x8)
+    want = exported({"kind": "conv", "w": ones(2, 1, 3, 3), "pool": 2, "stride": (1, 1),
+                     "padding": (1, 1)}, x8, (2, 4, 4))
+    check_num("Conv behind 2x2 avg, by hand", s["synops_per_sample"], (4 + 4 + 9 + 6) * 2)
+    check_num("Conv behind 2x2 avg == hs_export synapses", s["synops_per_sample"], want)
+
+    # A zero weight is no synapse (unroll_to_hs_api skips it), so pruning
+    # cuts SynOps: output 0 loses pooled input 0, which 3 spikes feed.
+    lin = nn.Linear(4, 3, bias=False)
+    with torch.no_grad():
+        lin.weight[0, 0] = 0.0
+    s = count(nn.Sequential(nn.AvgPool2d(2), nn.Flatten(), lin), x4)
+    w = ones(3, 4)
+    w[0, 0] = 0
+    want = exported({"kind": "linear", "w": w, "pool": 2}, x4, (3,))
+    check_num("a pruned weight fires no event, by hand", s["synops_per_sample"], 5 * 3 - 3)
+    check_num("a pruned weight == hs_export synapses", s["synops_per_sample"], want)
+
+
+def chip_events(net, clips, bits=1):
+    """What HiAER-Spike does for these clips, independent of SynOpsCounter.
+
+    IntegerSim (simpleSim's arithmetic) fires every chip neuron. Each spike,
+    and each input axon spike (one per set bit), is multiplied by the
+    synapses hs_export gives that neuron, counted as unroll_to_hs_api stores
+    them (a zero weight is not stored), and by the neurons it reaches per
+    target unit: both of a signed unit, or the OR neuron of its own sign.
+
+    Returns per chip layer, summed over the clips: "events" its synapses
+    receive, "spikes" its neurons fire, and "synapses" it holds with every
+    weight nonzero (cost.py's count).
+    """
+    import numpy as np
+    import torch
+    from snnsearch.hs_export import IntegerSim, integer_layers, _layer_shapes, _normalize, _synapses
+    from snnsearch.train import hardware_flush_steps
+
+    layers = [_normalize(L) for L in integer_layers(net)]
+    in_shape = tuple(clips[0].shape[1:])
+    shapes = _layer_shapes(layers, in_shape)
+    groups = [2 if L["signed"] else 1 for L in layers]
+    outdeg, synapses, prev = [], [], in_shape
+    for i, (L, shp) in enumerate(zip(layers, shapes)):
+        deg = np.zeros(int(np.prod(prev)), dtype=np.int64)
+        n = 0
+        for pre, _post, w in _synapses(L, prev, shp):
+            n += 1
+            deg[pre] += int(w) != 0
+        outdeg.append(torch.as_tensor(deg, dtype=torch.float64))
+        src = bits if i == 0 else groups[i - 1]
+        synapses.append(n * groups[i] if L["kind"] == "orpool" else n * src * groups[i])
+        prev = shp
+    first = [sum(groups[:i]) for i in range(len(layers))]
+
+    events, spikes = [0.0] * len(layers), [0.0] * len(layers)
+    flush = hardware_flush_steps(net)
+    sim = IntegerSim(layers, in_shape)
+    for frames in clips:
+        T = frames.shape[0]
+        for t, (fired, _outputs) in enumerate(sim.steps(frames.double(), flush)):
+            v = (frames[t] if t < T else torch.zeros_like(frames[0])).reshape(-1).to(torch.int64)
+            axons = sum(((v >> k) & 1) for k in range(bits)).double()
+            for i, L in enumerate(layers):
+                reach = 1 if L["kind"] == "orpool" else groups[i]
+                src = ([axons] if i == 0 else
+                       [fired[first[i - 1] + g][1].reshape(-1) for g in range(groups[i - 1])])
+                events[i] += float(sum(float((sp * outdeg[i]).sum()) for sp in src)) * reach
+                spikes[i] += float(sum(float(fired[first[i] + g][1].sum())
+                                       for g in range(groups[i])))
+    return {"events": events, "spikes": spikes, "synapses": synapses,
+            "kinds": [L["kind"] for L in layers]}
+
+
+def matches_the_chip():
+    """End to end: the counter on the converted network equals chip_events,
+    layer by layer, and cost.py's synapses equal hs_export's.
+
+    A conv behind a 2x2 average pool, a head behind a pool and GAP or
+    flatten, OR pools, signed spikes, multi-bit input and pruned weights, on
+    the float64 copy every deployed measurement uses (hs_export.exact_copy).
+    """
+    import torch
+    from snnsearch.cost import count_neurons_and_synapses
+    from snnsearch.hs_export import exact_copy
+    from snnsearch.synops import SynOpsCounter
+    from snnsearch.train import forward_over_time
+
+    print("\n-- against the chip: IntegerSim spikes x hs_export synapses --")
+    cases = [("avg", "gap", False, 1, False), ("avg", "gap", True, 1, False),
+             ("avg", "flatten", False, 1, False), ("avg", "flatten", True, 1, False),
+             ("max", "gap", True, 1, False), ("max", "flatten", False, 1, False),
+             ("max", "flatten", True, 1, False), ("avg", "gap", False, 3, False),
+             ("avg", "gap", True, 1, True)]
+    for pool, head, signed, bits, prune in cases:
+        tag = (f"{pool}, {head}{', signed' if signed else ''}"
+               f"{f', {bits}-bit' if bits > 1 else ''}{', pruned' if prune else ''}:")
+        net, spec = deployed_model(pool, head, "bn", signed=signed, bits=bits)
+        net = exact_copy(net)
+        if prune:
+            # half of every weight zero, as magnitude pruning would leave it
+            with torch.no_grad():
+                for m in net.modules():
+                    if isinstance(m, (torch.nn.Conv2d, torch.nn.Linear)):
+                        m.weight[torch.rand_like(m.weight) < 0.5] = 0.0
+        torch.manual_seed(7)
+        top = 2 ** bits - 1
+        clips = [((torch.rand(6, 2, 16, 16) < 0.3) * torch.randint(1, top + 1, (6, 2, 16, 16))).double()
+                 for _ in range(2)]
+        c = SynOpsCounter()
+        with c.attach(net), torch.no_grad():
+            for frames in clips:
+                forward_over_time(net, frames.unsqueeze(0))
+                c.add_samples(1)
+        rows = count_neurons_and_synapses(spec)["rows"]
+        s = c.summary(cost_rows=rows)
+        ref = chip_events(net, clips, bits)
+        n = len(clips)
+        layers = s["layers"]
+        if not check_true(f"{tag} chip layers in order", [r["kind"] for r in layers] == ref["kinds"],
+                          f"{[r['kind'] for r in layers]} vs {ref['kinds']}"):
+            continue
+        check_true(f"{tag} every layer receives events", all(e > 0 for e in ref["events"]),
+                   str(ref["events"]))
+        for i, r in enumerate(layers):
+            check_num(f"{tag} layer {i} {r['kind']} SynOps == chip",
+                      r["synops_per_sample"], ref["events"][i] / n)
+            check_num(f"{tag} layer {i} spikes == IntegerSim",
+                      r["spikes_per_sample"], ref["spikes"][i] / n)
+            check_num(f"{tag} layer {i} cost.py synapses == hs_export",
+                      r.get("chip_synapses"), ref["synapses"][i])
+        check_num(f"{tag} total SynOps == chip", s["synops_per_sample"], sum(ref["events"]) / n)
+        check_num(f"{tag} chip_synapses == hs_export", s.get("chip_synapses"), sum(ref["synapses"]))
+        check_true(f"{tag} within the ceiling",
+                   s["synops_per_sample"] <= s["synops_ceiling_per_sample"])
+
+
+def rank2_synapses():
+    """Search 05 rank2's chip synapses, from its geometry alone.
+
+    conv0 11 channels at 40x40 (k9 p4), a 2x2 average pool folded into conv1
+    (k7, 10 channels at 14x14), conv2 and conv3, signed, flatten head. conv1
+    as the chip holds it: 3,920 neurons x 4,312 fan-in (7 x 7 x 11 x 4 pooled
+    x 2 signs), 4x the 4,225,760 the cost table used to show. conv0's padded
+    taps hold no synapse. hs_export.unroll_to_hs_api on rank2.pth gives the
+    same 28,855,640.
+    """
+    import json
+    from snnsearch.config import (InputSpec, EncoderSpec, OutputSpec, DownsampleSpec,
+                                  HeadSpec, NeuronSpec)
+    from snnsearch.cost import count_neurons_and_synapses
+
+    print("\n-- Search 05 rank2, as the chip holds it --")
+    layers = [{"out_channels": 11, "kernel_size": 9, "stride": 1, "pool": True},
+              {"out_channels": 10, "kernel_size": 7, "stride": 1, "pool": False},
+              {"out_channels": 121, "kernel_size": 5, "stride": 2, "pool": False},
+              {"out_channels": 97, "kernel_size": 3, "stride": 1, "pool": False}]
+    spec = {"input": InputSpec(C=2, H=128, W=128, T=48, resize_to=40),
+            "encoder": EncoderSpec(layers_json=json.dumps(layers), norm="tdbn"),
+            "output": OutputSpec(num_classes=11),
+            "downsample": DownsampleSpec(mode="stride", pool_type="avg"),
+            "head": HeadSpec(final_reduction="flatten", fc_widths=""),
+            "neuron": NeuronSpec(signed_spikes=True)}
+    counts = count_neurons_and_synapses(spec)
+    rows = {r["layer"]: r for r in counts["rows"]}
+    check_num("rank2 conv1 synapses == 3,920 x 4,312", rows["conv1"]["connections"], 3_920 * 4_312)
+    check_num("rank2 conv0 synapses, padding excluded", rows["conv0"]["connections"],
+              11 * 2 * 340 * 340 * 2)
+    check_num("rank2 avg pool row holds no synapse", rows["pool0"]["connections"], 0)
+    check_num("rank2 chip synapses == hs_export unrolled", counts["totals"]["connections"],
+              28_855_640)
+    check_num("rank2 ANN MACs, one pass", counts["totals"]["macs"],
+              35_200 // 2 * 2 * 81 + 1_960 * 539 + 3_025 * 250 + 873 * 1_089 + 873 * 11)
 
 
 def main():
@@ -494,6 +752,7 @@ def main():
     print("=" * 74)
     dense_macs_arithmetic()
     summary_guards()
+    rank2_synapses()
     try:
         import torch  # noqa: F401
     except ImportError:
@@ -501,8 +760,10 @@ def main():
         print("  Run this on the cluster to exercise the hooks.")
     else:
         with_torch()
+        folded_pools_by_hand()
         signed_spikes()
         multi_bit_input()
+        matches_the_chip()
     print("\n" + "=" * 74)
     print(f"{passed}/{passed + failed} passed")
     print("SYNOPS TESTS PASSED" if not failed else "SYNOPS TESTS FAILED")
