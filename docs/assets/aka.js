@@ -97,7 +97,7 @@
     const nf = mini ? 4 : 6;
     for (let i = nf - 1; i >= 0; i--) {
       const o = i * (mini ? 3 : 5);
-      reg("frames", S("rect", { x: fx + o, y: cy - fw / 2 - o, width: fw, height: fw, fill: i ? C.panel : "#151311", stroke: C.line }, s), "frame");
+      reg("frames", S("rect", { x: fx + o, y: cy - fw / 2 - o, width: fw, height: fw, fill: i ? C.panel : C.cell, stroke: C.line }, s), "frame");
     }
     // a few event pixels on the front frame
     const r = L.rng(4);
@@ -110,7 +110,7 @@
     const bitsG = S("g", {}, s);
     for (let b = 0; b < 4; b++) {
       const on = b < cfg.bits;
-      S("line", { x1: fx + 8 + b * (mini ? 7 : 12), y1: cy + fw / 2 + 4, x2: fx + 8 + b * (mini ? 7 : 12), y2: cy + fw / 2 + (mini ? 10 : 16), stroke: on ? C.muted : "rgba(255,255,255,.08)", "stroke-width": mini ? 2 : 3 }, bitsG);
+      S("line", { x1: fx + 8 + b * (mini ? 7 : 12), y1: cy + fw / 2 + 4, x2: fx + 8 + b * (mini ? 7 : 12), y2: cy + fw / 2 + (mini ? 10 : 16), stroke: on ? C.muted : Site.a(C.ink, .08), "stroke-width": mini ? 2 : 3 }, bitsG);
     }
     reg("bits", bitsG, "group");
     if (!mini) {
@@ -128,7 +128,7 @@
       const kh = Math.max(mini ? 5 : 8, (i === 0 ? fw : prev.h) * ly.k / (i === 0 ? cfg.size : sz[i - 1].out));
       const kx = prev.x + prev.w * 0.55 - kh / 2, ky = prev.y + prev.h * 0.35 - kh / 2;
       const kg = S("g", {}, s);
-      S("rect", { x: kx, y: ky, width: kh, height: kh, fill: "rgba(255,255,255,.05)", stroke: C.faint }, kg);
+      S("rect", { x: kx, y: ky, width: kh, height: kh, fill: Site.a(C.ink, .05), stroke: C.faint }, kg);
       S("line", { x1: kx + kh, y1: ky, x2: x, y2: cy - h / 4, stroke: C.faint, "stroke-width": 0.8, "stroke-dasharray": "3 3" }, kg);
       S("line", { x1: kx + kh, y1: ky + kh, x2: x, y2: cy - h / 4 + 2, stroke: C.faint, "stroke-width": 0.8, "stroke-dasharray": "3 3" }, kg);
       reg("kernel" + i, kg, "kernel");
@@ -137,7 +137,7 @@
       const layersN = mini ? 3 : 4;
       for (let j = layersN - 1; j >= 0; j--) {
         const o = j * d / layersN;
-        S("rect", { x: x + o, y: cy - h / 2 - o, width: w, height: h, fill: j ? C.panel : "#1a1714", stroke: C.lineStrong }, sg);
+        S("rect", { x: x + o, y: cy - h / 2 - o, width: w, height: h, fill: j ? C.panel : C.cell, stroke: C.lineStrong }, sg);
       }
       reg("slab" + i, sg, "slab");
       // the neurons: norm then LIF, as a small two-part tag under the slab
@@ -168,7 +168,7 @@
       if (!mini) {
         T(shG, (ax1 + ax2) / 2, cy - 18, lab, "lt-ms mid");
       } else {
-        S("rect", { x: (ax1 + ax2) / 2 - 5, y: cy - 12, width: 10, height: 6, fill: ly.ds === "none" ? "rgba(255,255,255,.08)" : C.faint }, shG);
+        S("rect", { x: (ax1 + ax2) / 2 - 5, y: cy - 12, width: 10, height: 6, fill: ly.ds === "none" ? Site.a(C.ink, .08) : C.faint }, shG);
       }
       reg("shrink" + i, shG, "group");
       if (i < n - 1) {
@@ -223,8 +223,8 @@
       const y0 = Hn + 10, x0 = 70, x1 = W - 40, E = 80, X = e => x0 + (x1 - x0) * e / E;
       T(s, 20, y0 + 14, "training", "lt-b");
       const bar = S("g", {}, s);
-      S("rect", { x: X(0), y: y0 + 74, width: X(20) - X(0), height: 12, fill: "rgba(236,231,222,.25)" }, bar);
-      const gp = S("rect", { x: X(20), y: y0 + 74, width: X(80) - X(20), height: 12, fill: "rgba(224,169,79,.25)" }, bar);
+      S("rect", { x: X(0), y: y0 + 74, width: X(20) - X(0), height: 12, fill: Site.a(C.s1, .25) }, bar);
+      const gp = S("rect", { x: X(20), y: y0 + 74, width: X(80) - X(20), height: 12, fill: Site.a(C.accent, .25) }, bar);
       reg("trainBar", bar, "group");
       reg("floatPhase", bar.firstChild, "fillF");
       reg("gridPhase", gp, "fillA");
@@ -242,7 +242,7 @@
     function paint(on, p) {
       const col = C.accent;
       if (p.base === "slab") p.node.querySelectorAll("rect").forEach((r, i) => { r.setAttribute("stroke", on ? col : C.lineStrong); r.setAttribute("stroke-width", on ? 2 : 1); });
-      else if (p.base === "kernel") p.node.querySelectorAll("rect,line").forEach(r => { r.setAttribute("stroke", on ? col : C.faint); if (r.tagName === "rect") r.setAttribute("fill", on ? "rgba(224,169,79,.35)" : "rgba(255,255,255,.05)"); });
+      else if (p.base === "kernel") p.node.querySelectorAll("rect,line").forEach(r => { r.setAttribute("stroke", on ? col : C.faint); if (r.tagName === "rect") r.setAttribute("fill", on ? Site.a(C.accent, .35) : Site.a(C.ink, .05)); });
       else if (p.base === "frame") { p.node.setAttribute("stroke", on ? col : C.line); }
       else if (p.base === "outline") p.node.setAttribute("stroke", on ? col : "transparent");
       else if (p.base === "group") p.node.querySelectorAll("rect,circle,line,text").forEach(e => {
@@ -255,8 +255,8 @@
       else if (p.base === "text") p.node.style.fill = on ? col : "";
       else if (p.base === "textGhost") { p.node.setAttribute("opacity", on ? 1 : 0); p.node.style.fill = on ? col : ""; }
       else if (p.base === "dot") p.node.setAttribute("fill", on ? col : C.faint);
-      else if (p.base === "fillA") p.node.setAttribute("fill", on ? "rgba(224,169,79,.7)" : "rgba(224,169,79,.25)");
-      else if (p.base === "fillF") p.node.setAttribute("fill", on ? "rgba(155,177,122,.75)" : "rgba(236,231,222,.25)");
+      else if (p.base === "fillA") p.node.setAttribute("fill", on ? Site.a(C.accent, .7) : Site.a(C.accent, .25));
+      else if (p.base === "fillF") p.node.setAttribute("fill", on ? Site.a(C.green, .75) : Site.a(C.s1, .25));
       else if (p.base === "line") { p.node.setAttribute("stroke", on ? col : C.faint); p.node.setAttribute("stroke-width", on ? 3 : 2); }
       else if (p.base === "lineGhost") p.node.setAttribute("stroke", on ? col : "transparent");
     }
@@ -341,7 +341,7 @@
     [0.4, 0.6, 0.8, 1.0].forEach(v => { S("line", { x1: x0, x2: x1, y1: Y(v), y2: Y(v), stroke: C.lineSoft }, s); T(s, x0 - 6, Y(v) + 4, (v * 100) + "%", "lt-ms end"); });
     [0, 20, 40, 60, 80].forEach(e => T(s, X(e), y1 + 16, String(e), "lt-ms mid"));
     T(s, (x0 + x1) / 2, H - 6, "epoch", "lt-ms mid");
-    S("rect", { x: X(0), y: y0, width: X(20) - X(0), height: y1 - y0, fill: "rgba(236,231,222,.04)" }, s);
+    S("rect", { x: X(0), y: y0, width: X(20) - X(0), height: y1 - y0, fill: Site.a(C.s1, .04) }, s);
     T(s, X(10), y0 - 10, "ordinary weights", "lt-ms mid");
     T(s, X(50), y0 - 10, "integer weights", "lt-ms mid");
     const line = (arr, col, w) => S("polyline", { points: arr.map((v, e) => `${X(e + 0.5)},${Y(v)}`).join(" "), fill: "none", stroke: col, "stroke-width": w }, s);

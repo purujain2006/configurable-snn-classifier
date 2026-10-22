@@ -1,5 +1,6 @@
 (function () {
   "use strict";
+  const C = window.Site.C;
   const $ = id => document.getElementById(id);
 
   /* ---------- 4.1 fan budget calculator ---------- */
@@ -61,29 +62,29 @@
       const padL = 30, padR = 30, mid = h / 2 + 8;
       const X = v => padL + (v + 1.7) / 3.4 * (W - padL - padR);
       // representable band
-      ctx.fillStyle = "rgba(155,177,122,.08)";
+      ctx.fillStyle = Site.a(C.green, .08);
       ctx.fillRect(X(-1), mid - 34, X(1) - X(-1), 68);
       // axis
-      ctx.strokeStyle = "#3a3733"; ctx.beginPath(); ctx.moveTo(X(-1.7), mid); ctx.lineTo(X(1.7), mid); ctx.stroke();
-      ctx.font = "12.5px 'JetBrains Mono', monospace"; ctx.fillStyle = "#a7a29a";
+      ctx.strokeStyle = C.mid; ctx.beginPath(); ctx.moveTo(X(-1.7), mid); ctx.lineTo(X(1.7), mid); ctx.stroke();
+      ctx.font = "12.5px 'JetBrains Mono', monospace"; ctx.fillStyle = C.muted;
       ctx.textAlign = "center"; ctx.textBaseline = "top";
       [-1.5, -1, -0.5, 0, 0.5, 1, 1.5].forEach(t => {
-        ctx.fillStyle = Math.abs(t) === 1 ? "#9bb17a" : "#a7a29a";
+        ctx.fillStyle = Math.abs(t) === 1 ? C.green : C.muted;
         ctx.beginPath(); ctx.moveTo(X(t), mid - 5); ctx.lineTo(X(t), mid + 5);
-        ctx.strokeStyle = Math.abs(t) === 1 ? "#9bb17a" : "#3a3733"; ctx.stroke();
+        ctx.strokeStyle = Math.abs(t) === 1 ? C.green : C.mid; ctx.stroke();
         ctx.fillText(t.toFixed(1), X(t), mid + 9);
       });
-      ctx.fillStyle = "#9bb17a"; ctx.textBaseline = "bottom";
+      ctx.fillStyle = C.green; ctx.textBaseline = "bottom";
       ctx.fillText("representable [−1, +1]", X(0), mid - 38);
       // float marker
-      ctx.fillStyle = "#cf8763";
+      ctx.fillStyle = C.orange;
       ctx.beginPath(); ctx.arc(X(w), mid - 20, 6, 0, Math.PI * 2); ctx.fill();
       ctx.textBaseline = "bottom"; ctx.fillText("float " + w.toFixed(2), X(w), mid - 30);
       // arrow to quantized
-      ctx.strokeStyle = "#e0a94f"; ctx.setLineDash([3, 3]);
+      ctx.strokeStyle = C.accent; ctx.setLineDash([3, 3]);
       ctx.beginPath(); ctx.moveTo(X(w), mid - 14); ctx.lineTo(X(q), mid + 18); ctx.stroke();
       ctx.setLineDash([]);
-      ctx.fillStyle = "#e0a94f";
+      ctx.fillStyle = C.accent;
       ctx.beginPath(); ctx.arc(X(q), mid + 22, 6, 0, Math.PI * 2); ctx.fill();
       ctx.textBaseline = "top"; ctx.fillText("chip " + q.toFixed(3), X(q), mid + 32);
 
@@ -124,7 +125,7 @@
         warn = `<div class="verdict fail">BLOCKING &nbsp;·&nbsp; folded threshold θ′ = ${thp.toFixed(3)} ≤ 0. The chip cannot store it, so the deployment check rejects the network.</div>`;
       } else if (thp > 1) {
         $("f-thp").className = "val warn";
-        warn = `<div class="verdict pass" style="border-color:rgba(224,169,79,.4);color:var(--warn);">NOTE &nbsp;·&nbsp; θ′ > 1. This exceeds the supported threshold grid. Check the value before clamping.</div>`;
+        warn = `<div class="verdict pass" style="border-color:color-mix(in srgb, var(--accent) 40%, transparent);color:var(--warn);">NOTE &nbsp;·&nbsp; θ′ > 1. This exceeds the supported threshold grid. Check the value before clamping.</div>`;
       } else {
         $("f-thp").className = "val acc";
       }
@@ -173,17 +174,17 @@
       for (let i = 0; i < BINS; i++) {
         const x0 = lo + (i + 0.5) / BINS * (hi - lo);
         const bh = bins[i] / peak * (h - padB - 26);
-        ctx.fillStyle = Math.abs(x0) > 1 ? "#cf6b58" : "#ece7de";
+        ctx.fillStyle = Math.abs(x0) > 1 ? C.red : C.s1;
         ctx.fillRect(padL + i * bw, h - padB - bh, Math.max(1, bw - 1), bh);
       }
       // ±1 markers
-      ctx.strokeStyle = "#9bb17a"; ctx.setLineDash([5, 4]);
+      ctx.strokeStyle = C.green; ctx.setLineDash([5, 4]);
       [-1, 1].forEach(t => { ctx.beginPath(); ctx.moveTo(X(t), 8); ctx.lineTo(X(t), h - padB); ctx.stroke(); });
       ctx.setLineDash([]);
-      ctx.font = "12.5px 'JetBrains Mono', monospace"; ctx.fillStyle = "#9bb17a";
+      ctx.font = "12.5px 'JetBrains Mono', monospace"; ctx.fillStyle = C.green;
       ctx.textAlign = "center"; ctx.textBaseline = "top";
       ctx.fillText("−1", X(-1), h - padB + 6); ctx.fillText("+1", X(1), h - padB + 6);
-      ctx.fillStyle = "#a7a29a";
+      ctx.fillStyle = C.muted;
       [-2, 0, 2].forEach(t => ctx.fillText(String(t), X(t), h - padB + 6));
 
       const frac = clipped / N;
@@ -272,7 +273,7 @@
         // input ticks
         for (let t = 0; t < STEPS; t++) {
           if (!train[t]) continue;
-          ctx.fillStyle = "rgba(224,169,79,.30)";
+          ctx.fillStyle = Site.a(C.accent, .30);
           ctx.fillRect(x0 + t * cell + cell * 0.3, top + ph + 6, cell * 0.4, 10);
         }
         ctx.fillStyle = P.axis; ctx.font = "11px Inter, sans-serif";

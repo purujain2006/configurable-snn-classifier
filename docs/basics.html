@@ -10,6 +10,7 @@
 <link href="https://fonts.googleapis.com" rel="preconnect"/>
 <link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&amp;family=JetBrains+Mono:ital,wght@0,400;0,600;0,700;1,400&amp;display=swap" rel="stylesheet"/>
+<script>try{if(localStorage.getItem("theme")==="dark")document.documentElement.dataset.theme="dark"}catch(e){}</script>
 <link href="assets/style.css" rel="stylesheet"/>
 <link href="assets/learn.css" rel="stylesheet"/>
 </head>
@@ -33,7 +34,7 @@
 <div class="demo-head">
 <span class="demo-tag">INTERACTIVE</span>
 <span class="demo-title">One neuron, one calculation</span>
-<span class="demo-sub">Each input is multiplied by its weight. Amber lines are positive weights and rust lines are negative; a thicker line is a larger weight.</span>
+<span class="demo-sub">Each input is multiplied by its weight. <span class="cw" data-c="accent">Blue</span> lines are positive weights and <span class="cw" data-c="rust">orange</span> lines are negative; a thicker line is a larger weight.</span>
 </div>
 <div class="demo-body">
 <div class="controls">
@@ -108,7 +109,7 @@
 <div class="demo-head">
 <span class="demo-tag">ANIMATION</span>
 <span class="demo-title">A 3 × 3 kernel sliding over a picture</span>
-<span class="demo-sub">Each step multiplies the 9 pixels under the window by the 9 kernel weights and writes the sum into the feature map. Amber is positive and rust is negative.</span>
+<span class="demo-sub">Each step multiplies the 9 pixels under the window by the 9 kernel weights and writes the sum into the feature map. <span class="cw" data-c="accent">Blue</span> is positive and <span class="cw" data-c="rust">orange</span> is negative.</span>
 </div>
 <div class="demo-body">
 <div class="play-row" style="margin:0 0 14px">
@@ -117,7 +118,7 @@
 <div class="lv" id="conv-vis"></div>
 <div class="play-row"><button class="btn primary" id="conv-play" type="button">Play</button><button class="btn" id="conv-step" type="button">One step</button><button class="btn" id="conv-clear" type="button">Clear picture</button><span class="readout" id="conv-readout"></span></div>
 </div>
-<div class="demo-note"><p>Click pixels in the picture to draw your own shape. The vertical-edge kernel turns amber where a bar begins and rust where it ends, and the horizontal one does the same from top to bottom. A trained network learns its kernels instead of being given them.</p></div>
+<div class="demo-note"><p>Click pixels in the picture to draw your own shape. The vertical-edge kernel turns <span class="cw" data-c="accent">blue</span> where a bar begins and <span class="cw" data-c="rust">orange</span> where it ends, and the horizontal one does the same from top to bottom. A trained network learns its kernels instead of being given them.</p></div>
 </div>
 
 <aside class="aka" data-viz="net" data-hl="k_1"><div class="aka-head"><span class="aka-k">In the search records</span><button class="aka-name" data-hl="k_0" type="button">k_0</button><button class="aka-name" data-hl="k_1" type="button">k_1</button><button class="aka-name" data-hl="k_2" type="button">k_2</button></div><p>The project's search (<a href="pipeline.html#why-search">page C</a>) trains hundreds of networks and saves each one as a record: a list of short names, each with a value. Boxes like this one show how an idea appears in those records, always with the same real network as the example. Each layer's kernel size is named <code>k_</code> plus the layer's number, counting from 0. In the example network, <b><code>k_0</code> = 5</b>, <b><code>k_1</code> = 5</b> and <b><code>k_2</code> = 3</b>: the first two layers slide a 5 × 5 window and the third a 3 × 3 one. So <code>k_1</code> is the second layer's window, highlighted below. Point at a name to move the highlight.</p><div class="aka-viz"></div></aside>
@@ -132,7 +133,7 @@
 <div class="demo-head">
 <span class="demo-tag">ANIMATION</span>
 <span class="demo-title">Three ways to shrink a map of spikes</span>
-<span class="demo-sub">Amber cells on the left are neurons that fired. The highlighted window shows which cells feed the highlighted output.</span>
+<span class="demo-sub"><span class="cw" data-c="accent">Blue</span> cells on the left are neurons that fired. The highlighted window shows which cells feed the highlighted output.</span>
 </div>
 <div class="demo-body">
 <div class="play-row" style="margin:0 0 14px"><div class="seg" id="shrink-mode"><button class="on" data-v="stride" type="button">stride 2</button><button data-v="avg" type="button">average pool</button><button data-v="max" type="button">max pool</button></div></div>
@@ -202,7 +203,7 @@
 <div class="demo-head">
 <span class="demo-tag">ANIMATION</span>
 <span class="demo-title">An edge-detecting kernel on a moving bar, one step at a time</span>
-<span class="demo-sub">Left to right: this step's input spikes, the kernel, every output cell's membrane potential (amber is positive, rust negative), the cells that fired this step, and each cell's spike count so far.</span>
+<span class="demo-sub">Left to right: this step's input spikes, the kernel, every output cell's membrane potential (<span class="cw" data-c="accent">blue</span> is positive, <span class="cw" data-c="rust">orange</span> negative), the cells that fired this step, and each cell's spike count so far.</span>
 </div>
 <div class="demo-body">
 <div class="lv lv-scroll" id="sconv-vis"></div>
@@ -271,7 +272,7 @@
 <div class="demo-head">
 <span class="demo-tag">ANIMATION</span>
 <span class="demo-title">A number in, a spike count out</span>
-<span class="demo-sub">Left: a neuron given the same input on every step, its potential and its spikes. Right: what it sends on, measured as spikes per step, for every input. The dashed line is the number an artificial neuron would pass on; the amber staircase is what the spiking neuron manages; red marks the error at the current input.</span>
+<span class="demo-sub">Left: a neuron given the same input on every step, its potential and its spikes. Right: what it sends on, measured as spikes per step, for every input. The dashed line is the number an artificial neuron would pass on; the <span class="cw" data-c="accent">blue</span> staircase is what the spiking neuron manages; <span class="cw" data-c="red">red</span> marks the error at the current input.</span>
 </div>
 <div class="demo-body">
 <div class="controls">
@@ -312,7 +313,7 @@
 <section class="reveal" id="surrogate">
 <h2><span class="sec-num">A.10</span>Training through a spike</h2>
 <p>A spike is a step: below the threshold the output is 0, above it the output is 1. The slope of a step is zero everywhere except at the jump, where it is infinite, so gradient descent gets no useful direction from it. Spiking networks are trained with a <span class="term">surrogate gradient</span> instead. The forward pass keeps the real step, so the network behaves exactly as it will on the chip. Only when the gradient is computed is the step treated as a smooth curve, whose slope tells each weight "this neuron was close to firing, and here is which way to push it".</p>
-<figure class="figure"><div class="figure-scroll lv" id="surrogate-vis"></div><figcaption>Left: what the neuron outputs, a hard step (amber), and the smooth curve used in its place for learning (dashed). Right: their slopes. The true slope gives no direction; the stand-in's slope is largest near the threshold and fades away from it.</figcaption></figure>
+<figure class="figure"><div class="figure-scroll lv" id="surrogate-vis"></div><figcaption>Left: what the neuron outputs, a hard step (<span class="cw" data-c="accent">blue</span>), and the smooth curve used in its place for learning (dashed). Right: their slopes. The true slope gives no direction; the stand-in's slope is largest near the threshold and fades away from it.</figcaption></figure>
 <p>The stand-in used here is the slope of an arctangent curve. A neuron that came close to firing gets a large gradient, which matches the intuition that a small weight change there would have flipped the spike, and a neuron far from θ gets almost none. The same trick, passing a gradient through a rounding step as if the rounding were not there, is called the <em>straight-through estimator</em>. Training uses it for the chip's integer weights (<a href="hardware.html#ste">page G</a>) and for its rounded-down leak.</p>
 </section>
 

@@ -19,7 +19,7 @@
     box(s, 20, 30, 180, 150, "memory");
     box(s, 560, 30, 180, 150, "processor");
     const sq = [];
-    for (let i = 0; i < 24; i++) sq.push(S("rect", { x: 40 + (i % 6) * 24, y: 62 + Math.floor(i / 6) * 24, width: 18, height: 18, fill: "rgba(224,169,79,.35)" }, s));
+    for (let i = 0; i < 24; i++) sq.push(S("rect", { x: 40 + (i % 6) * 24, y: 62 + Math.floor(i / 6) * 24, width: 18, height: 18, fill: Site.a(C.accent, .35) }, s));
     T(s, 650, 110, "× and +", "lt-h mid");
     S("line", { x1: 200, y1: 105, x2: 560, y2: 105, stroke: C.line, "stroke-width": 10 }, s);
     T(s, 380, 90, "the bus: every weight crosses it", "lt-s mid");
@@ -32,7 +32,7 @@
     function draw() {
       pk.setAttribute("x", 200 + (t % 1) * 348);
       /* the weight on the bus is lit, the ones already used are dimmed */
-      sq.forEach((q, i) => q.setAttribute("fill", i < n ? "rgba(224,169,79,.12)" : i === n && n < 12 ? C.accent : "rgba(224,169,79,.35)"));
+      sq.forEach((q, i) => q.setAttribute("fill", i < n ? Site.a(C.accent, .12) : i === n && n < 12 ? C.accent : Site.a(C.accent, .35)));
       mv.setAttribute("width", Math.min(600, n * MOVE * scale));
       cp.setAttribute("width", Math.max(1, n * COMP * scale));
       mvT.textContent = `moving: ${L.fmt(n * MOVE)} pJ`;
@@ -68,7 +68,7 @@
     const el = document.getElementById("arch-vis");
     if (!el) return;
     const s = L.svg(el, 760, 260, "An ordinary computer and a neuromorphic chip");
-    const W = "rgba(224,169,79,.35)";
+    const W = Site.a(C.accent, .35);
     T(s, 170, 20, "ordinary computer", "lt-b mid");
     box(s, 20, 40, 110, 150, "memory");
     for (let i = 0; i < 12; i++) S("rect", { x: 38 + (i % 4) * 20, y: 74 + Math.floor(i / 4) * 20, width: 14, height: 14, fill: W }, s);

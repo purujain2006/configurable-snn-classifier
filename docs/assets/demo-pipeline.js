@@ -84,10 +84,10 @@
     T(gA, (P[9][0] + W + P[10][0]) / 2, P[9][1] + Hh / 2 - 8, "after the last trial", "lt-s mid");
     // failure exits
     S("line", { x1: P[1][0] + W / 2, y1: P[1][1] + Hh, x2: P[1][0] + W / 2, y2: 122, stroke: C.red }, gA);
-    S("rect", { x: P[1][0] + 10, y: 122, width: W - 20, height: 26, fill: "rgba(207,107,88,.12)", stroke: C.red }, gA);
+    S("rect", { x: P[1][0] + 10, y: 122, width: W - 20, height: 26, fill: Site.a(C.red, .12), stroke: C.red }, gA);
     T(gA, P[1][0] + W / 2, 139, "fails: score 0", "lt-bad mid");
     S("line", { x1: P[6][0] + W / 2, y1: P[6][1] + Hh, x2: P[6][0] + W / 2, y2: 262, stroke: C.red }, gA);
-    S("rect", { x: P[6][0] + 10, y: 262, width: W - 20, height: 26, fill: "rgba(207,107,88,.12)", stroke: C.red }, gA);
+    S("rect", { x: P[6][0] + 10, y: 262, width: W - 20, height: 26, fill: Site.a(C.red, .12), stroke: C.red }, gA);
     T(gA, P[6][0] + W / 2, 279, "not top third: stop", "lt-bad mid");
     // stage boxes
     const rects = STAGES.map((st, i) => {
@@ -104,7 +104,7 @@
       rects.forEach((r, i) => {
         r.setAttribute("stroke", i === cur ? C.accent : C.line);
         r.setAttribute("stroke-width", i === cur ? 2 : 1);
-        r.setAttribute("fill", i === cur ? "rgba(224,169,79,.12)" : C.panel);
+        r.setAttribute("fill", i === cur ? Site.a(C.accent, .12) : C.panel);
       });
       const st = STAGES[cur];
       cap.innerHTML = `<div class="sc-num">STAGE ${String(cur + 1).padStart(2, "0")} OF ${STAGES.length}</div><div class="sc-title">${st.title}</div><p>${st.text}</p><p class="sc-why"><b>Why:</b> ${st.why}</p>`;
@@ -139,8 +139,8 @@
     const x0 = 50, x1 = 740, X = w => x0 + (w + 1) / 2 * (x1 - x0);
     const E = 80, SW = 20, GRID = 8;
     const TX = e => x0 + e / E * (x1 - x0);
-    S("rect", { x: TX(0), y: 20, width: TX(SW) - TX(0), height: 16, fill: "rgba(236,231,222,.12)" }, s);
-    S("rect", { x: TX(SW), y: 20, width: TX(E) - TX(SW), height: 16, fill: "rgba(224,169,79,.18)" }, s);
+    S("rect", { x: TX(0), y: 20, width: TX(SW) - TX(0), height: 16, fill: Site.a(C.s1, .12) }, s);
+    S("rect", { x: TX(SW), y: 20, width: TX(E) - TX(SW), height: 16, fill: Site.a(C.accent, .18) }, s);
     T(s, TX(SW / 2), 52, "ordinary weights", "lt-s mid");
     T(s, TX((SW + E) / 2), 52, "integer weights", "lt-a mid");
     T(s, x0 - 8, 33, "epoch", "lt-s end");
@@ -205,7 +205,7 @@
     box(s, 668, 30, 152, 70, ["3. train", "and score"]);
     arrow(s, 330, 110, 330, 150, C.red);
     T(s, 342, 134, "no", "lt-bad");
-    S("rect", { x: 200, y: 150, width: 260, height: 44, fill: "rgba(207,107,88,.1)", stroke: C.red }, s);
+    S("rect", { x: 200, y: 150, width: 260, height: 44, fill: Site.a(C.red, .1), stroke: C.red }, s);
     T(s, 330, 168, "score 0, charged to the shape only", "lt-bad mid");
     T(s, 330, 185, "training settings never chosen", "lt-s mid");
   }
@@ -217,7 +217,7 @@
     const F = [["pooling", ["none", "avg", "max"]], ["bias", ["threshold", "neuron"]], ["head", ["flatten", "GAP"]],
       ["signed spikes", ["off", "on"]], ["input bits", ["1", "more"]], ["leak τ", ["fixed", "per layer", "per channel"]],
       ["loss", ["rate", "TET"]], ["augmentation", ["off", "on"]], ["conv dropout", ["off", "on"]], ["rate penalty", ["off", "on"]]];
-    const cols = ["rgba(167,162,154,.55)", C.accent, C.rust];
+    const cols = [Site.a(C.muted, .55), C.accent, C.rust];
     const r = L.rng(96), n = 96;
     const s = L.svg(boxEl, 900, 20 + F.length * 26 + 30, "Ninety-six designed trials with every option balanced");
     const lx = 250, cw = (900 - lx - 10) / n;
@@ -274,10 +274,10 @@
       ctx.font = "11px 'JetBrains Mono', monospace"; ctx.fillStyle = C.muted; ctx.textAlign = "right";
       [0.4, 0.5, 0.6, 0.7, 0.8].forEach(v => ctx.fillText(v.toFixed(1), padL - 6, Y(v) + 4));
       ctx.save(); ctx.translate(14, sy0 + sh / 2); ctx.rotate(-Math.PI / 2); ctx.textAlign = "center"; ctx.fillText("score", 0, 0); ctx.restore();
-      ctx.setLineDash([2, 4]); ctx.strokeStyle = "rgba(236,231,222,.3)"; ctx.beginPath();
+      ctx.setLineDash([2, 4]); ctx.strokeStyle = Site.a(C.s1, .3); ctx.beginPath();
       for (let i = 0; i <= 100; i++) { const u = lo + i / 100 * (hi - lo); i ? ctx.lineTo(X(u), Y(truth(u))) : ctx.moveTo(X(u), Y(truth(u))); }
       ctx.stroke(); ctx.setLineDash([]);
-      ctx.fillStyle = "rgba(236,231,222,.45)"; ctx.textAlign = "left"; ctx.fillText("hidden: true average score", X(lo) + 6, Y(0.43));
+      ctx.fillStyle = Site.a(C.s1, .45); ctx.textAlign = "left"; ctx.fillText("hidden: true average score", X(lo) + 6, Y(0.43));
       const { good, rest } = split();
       rest.forEach(t => { ctx.fillStyle = C.s4; ctx.beginPath(); ctx.arc(X(t.u), Y(t.s), 3.5, 0, 7); ctx.fill(); });
       good.forEach(t => { ctx.fillStyle = C.accent; ctx.beginPath(); ctx.arc(X(t.u), Y(t.s), 5, 0, 7); ctx.fill(); });
@@ -336,7 +336,7 @@
       ctx.strokeStyle = C.lineSoft; ctx.strokeRect(padL, 14, w - padL - 14, h - padB - 14);
       ctx.setLineDash([5, 4]); ctx.strokeStyle = C.muted;
       ctx.beginPath(); ctx.moveTo(X(RUNG), 14); ctx.lineTo(X(RUNG), h - padB); ctx.stroke();
-      ctx.strokeStyle = "rgba(236,231,222,.25)"; ctx.beginPath(); ctx.moveTo(X(20), 14); ctx.lineTo(X(20), h - padB); ctx.stroke();
+      ctx.strokeStyle = Site.a(C.s1, .25); ctx.beginPath(); ctx.moveTo(X(20), 14); ctx.lineTo(X(20), h - padB); ctx.stroke();
       ctx.setLineDash([]);
       ctx.font = "11px 'JetBrains Mono', monospace"; ctx.fillStyle = C.muted; ctx.textAlign = "left";
       ctx.fillText("checkpoint", X(RUNG) + 4, 26); ctx.fillText("switch to integers", X(20) - 128, 26);
@@ -345,7 +345,7 @@
       ctx.textAlign = "right"; [0.2, 0.4, 0.6, 0.8].forEach(v => ctx.fillText(v.toFixed(1), padL - 6, Y(v) + 4));
       tr.forEach(t => {
         const last = t.stop ? Math.min(e, RUNG) : e;
-        ctx.strokeStyle = t.block ? "rgba(167,162,154,.8)" : (t.stop && e >= RUNG ? C.red : (e >= RUNG ? C.accent : C.s1));
+        ctx.strokeStyle = t.block ? Site.a(C.muted, .8) : (t.stop && e >= RUNG ? C.red : (e >= RUNG ? C.accent : C.s1));
         ctx.lineWidth = t.block ? 1.4 : 1.8; ctx.beginPath();
         for (let x = 0; x <= last; x++) { const px = X(x), py = Y(t.ys[x]); x ? ctx.lineTo(px, py) : ctx.moveTo(px, py); }
         ctx.stroke();
@@ -416,7 +416,7 @@
       trials.forEach(t => {
         if (t.start > now) return;
         const e = Math.min(t.end, now);
-        ctx.fillStyle = t.isBlock ? "rgba(167,162,154,.7)" : t.cut ? C.red : C.accent;
+        ctx.fillStyle = t.isBlock ? Site.a(C.muted, .7) : t.cut ? C.red : C.accent;
         ctx.fillRect(X(t.start), lanes[t.k][0], Math.max(1, X(e) - X(t.start) - 0.6), 18);
       });
       ctx.fillStyle = C.red;

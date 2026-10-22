@@ -32,7 +32,7 @@
     const vT = T(s, NX, NY + 5, "", "lt-m mid");
     // potential bar
     const bx = 800, by0 = 60, bh = 180;
-    S("rect", { x: bx, y: by0, width: 18, height: bh, fill: "rgba(255,255,255,.04)", stroke: C.line }, s);
+    S("rect", { x: bx, y: by0, width: 18, height: bh, fill: Site.a(C.ink, .04), stroke: C.line }, s);
     const vmax = 2.2, BY = val => by0 + bh - Math.min(vmax, val) / vmax * bh;
     S("line", { x1: bx - 6, x2: bx + 24, y1: BY(TH), y2: BY(TH), stroke: C.accent, "stroke-dasharray": "4 3" }, s);
     T(s, bx + 28, BY(TH) + 4, "threshold", "lt-a");
@@ -102,7 +102,7 @@
       cells.forEach((cl, i) => {
         cl.r.setAttribute("stroke", i === step ? C.accent : C.line);
         cl.r.setAttribute("stroke-width", i === step ? 2 : 1);
-        cl.o.setAttribute("fill", out[i] === undefined ? "none" : out[i] ? C.accent : "rgba(255,255,255,.08)");
+        cl.o.setAttribute("fill", out[i] === undefined ? "none" : out[i] ? C.accent : Site.a(C.ink, .08));
       });
     }
     // chip order for the neuron: fire on the carried-in potential, reset, leak, then add the input
@@ -159,7 +159,7 @@
       vals.forEach((v, i) => {
         const y = 44 + i * 48, wd = 150 * v / mx;
         T(s, x0, y + 18, `${i + 1} bit${i ? "s" : ""}`, "lt-ms");
-        S("rect", { x: x0 + 50, y: y + 4, width: wd, height: 20, fill: i === 0 ? C.accent : "rgba(224,169,79,.45)" }, s);
+        S("rect", { x: x0 + 50, y: y + 4, width: wd, height: 20, fill: i === 0 ? C.accent : Site.a(C.accent, .45) }, s);
         T(s, x0 + 56 + wd, y + 19, f(v), "lt-ms");
       });
     });

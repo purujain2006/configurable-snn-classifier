@@ -3,6 +3,61 @@
 (function () {
   "use strict";
 
+  /* ---------- theme ----------
+     Light by default. The dark theme is the site's first look, kept as an
+     option. Each page's head sets data-theme before the CSS paints, so there is
+     no flash; the demos read their colors from the same CSS tokens. */
+  const root = document.documentElement;
+  function savedTheme() { try { return localStorage.getItem("theme") === "dark" ? "dark" : "light"; } catch (e) { return "light"; } }
+  if (savedTheme() === "dark") root.dataset.theme = "dark";
+  const css = getComputedStyle(root);
+  const tok = name => css.getPropertyValue(name).trim();
+  const C = {
+    text: tok("--text"), dim: tok("--text-dim"), muted: tok("--muted"), faint: tok("--viz-faint"),
+    accent: tok("--accent"), accentDim: tok("--accent-dim"), rust: tok("--series-2"), green: tok("--viz-green"),
+    red: tok("--viz-red"), orange: tok("--viz-orange"), s1: tok("--series-1"), s4: tok("--series-4"),
+    line: tok("--line"), lineSoft: tok("--line-soft"), lineStrong: tok("--line-strong"),
+    bg: tok("--viz-bg"), cell: tok("--viz-cell"), panel: tok("--viz-panel"), mid: tok("--viz-mid"), ink: tok("--ink"),
+    grid: tok("--viz-grid"), axis: tok("--viz-axis"), onAccent: tok("--on-accent"),
+    frames: tok("--viz-frames").split(",").map(s => s.trim())
+  };
+  /* rgb(color): [r, g, b] of a token color, for code that writes pixels */
+  function rgb(color) { return a(color, 1).match(/[\d.]+/g).slice(0, 3).map(Number); }
+  /* a(color, alpha): a token color at the given opacity, as rgba() */
+  function a(color, alpha) {
+    let r, g, b, base = 1;
+    const c = String(color).trim();
+    if (c[0] === "#") {
+      let h = c.slice(1);
+      if (h.length === 3) h = h.split("").map(x => x + x).join("");
+      r = parseInt(h.slice(0, 2), 16); g = parseInt(h.slice(2, 4), 16); b = parseInt(h.slice(4, 6), 16);
+      if (h.length === 8) base = parseInt(h.slice(6, 8), 16) / 255;
+    } else {
+      const m = c.match(/[\d.]+/g) || [0, 0, 0];
+      [r, g, b] = m.map(Number); if (m.length > 3) base = +m[3];
+    }
+    return `rgba(${r},${g},${b},${+(base * alpha).toFixed(3)})`;
+  }
+  /* color words in the prose name the color the active theme draws */
+  const COLOR_NAMES = {
+    light: { accent: "blue", rust: "orange", orange: "orange", s1: "dark gray", muted: "gray", red: "red", green: "green" },
+    dark: { accent: "amber", rust: "rust", orange: "terracotta", s1: "pale", muted: "gray", red: "red", green: "green" }
+  };
+  function nameColors() {
+    const names = COLOR_NAMES[root.dataset.theme === "dark" ? "dark" : "light"];
+    document.querySelectorAll(".cw[data-c]").forEach(el => {
+      const n = names[el.dataset.c];
+      if (!n) return;
+      const cap = /^[A-Z]/.test(el.textContent);
+      el.textContent = cap ? n[0].toUpperCase() + n.slice(1) : n;
+    });
+  }
+  function toggleTheme() {
+    const next = root.dataset.theme === "dark" ? "light" : "dark";
+    try { localStorage.setItem("theme", next); } catch (e) { /* the choice lasts this page only */ }
+    location.reload();
+  }
+
   /* ---------- navigation ---------- */
   const PAGES = [
     ["index.html", "", "Home"],
@@ -42,7 +97,13 @@
         <svg width="20" height="20" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
           <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/>
         </svg>
-      </a>`;
+      </a>
+      <button class="nav-theme" type="button" aria-label="${root.dataset.theme === "dark" ? "Use the light theme" : "Use the dark theme"}" title="${root.dataset.theme === "dark" ? "Light theme" : "Dark theme"}">
+        ${root.dataset.theme === "dark"
+          ? `<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="4.2"/><path d="M12 2.5v2.2M12 19.3v2.2M2.5 12h2.2M19.3 12h2.2M5.3 5.3l1.6 1.6M17.1 17.1l1.6 1.6M5.3 18.7l1.6-1.6M17.1 6.9l1.6-1.6"/></svg>`
+          : `<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><path d="M20 14.5A8.5 8.5 0 0 1 9.5 4a8.5 8.5 0 1 0 10.5 10.5Z"/></svg>`}
+      </button>`;
+    nav.querySelector(".nav-theme").addEventListener("click", toggleTheme);
     document.body.prepend(nav);
   }
 
@@ -104,9 +165,9 @@
   }
 
   const PALETTE = {
-    bg: "#050505", grid: "#2a272455", axis: "#3a3733",
-    text: "#a7a29a", accent: "#ece7de", accent2: "#cf8763",
-    spike: "#e0a94f", good: "#9bb17a", bad: "#cf6b58", warn: "#e0a94f"
+    bg: C.bg, grid: C.grid, axis: C.axis,
+    text: C.muted, accent: C.s1, accent2: C.orange,
+    spike: C.accent, good: C.green, bad: C.red, warn: C.accent
   };
 
   // Minimal line plot. series: [{xs, ys, color, width, dash, label, step}]
@@ -286,6 +347,7 @@
       document.body.prepend(skip);
     }
     buildNav();
+    nameColors();
     buildTOC();
     demoControls();
     openLinkedDetails();
@@ -303,5 +365,5 @@
     reveals();
   });
 
-  window.Site = { setupCanvas, linePlot, barChart, PALETTE, niceTicks };
+  window.Site = { setupCanvas, linePlot, barChart, PALETTE, niceTicks, C, a, rgb, toggleTheme };
 })();

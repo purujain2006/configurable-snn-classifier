@@ -34,19 +34,14 @@
       const r = document.createElementNS(NS, "rect");
       r.setAttribute("x", b.x - pad); r.setAttribute("y", b.y);
       r.setAttribute("width", b.width + 2 * pad); r.setAttribute("height", b.height);
-      r.setAttribute("fill", "#050505"); r.setAttribute("class", "plate");
+      r.setAttribute("fill", C.bg); r.setAttribute("class", "plate");
       t.parentNode.insertBefore(r, t);
     } catch (e) { /* not laid out yet */ }
     return t;
   }
 
-  const C = {
-    text: "#f6f4f1", dim: "#cfcbc4", muted: "#a7a29a", faint: "#7d7871",
-    accent: "#e0a94f", accentDim: "#b3853d", rust: "#c07a5c", green: "#9bb17a",
-    red: "#cf6b58", s1: "#ece7de", s4: "#a7a29a",
-    line: "rgba(255,255,255,0.13)", lineSoft: "rgba(255,255,255,0.075)",
-    lineStrong: "rgba(255,255,255,0.24)", bg: "#050505", cell: "#121110", panel: "#0a0a0a"
-  };
+  // one palette for every page, read from the theme's CSS tokens (site.js)
+  const C = window.Site.C;
 
   function rng(seed) {
     let a = (seed >>> 0) || 1;
@@ -111,11 +106,11 @@
   const lerp = (a, b, t) => a + (b - a) * t;
   function fmt(n, d) { return Number(n).toLocaleString("en-US", { minimumFractionDigits: d || 0, maximumFractionDigits: d || 0 }); }
 
-  /* colour for a signed value in [-1, 1]: amber positive, rust negative */
+  /* color for a signed value in [-1, 1]: accent positive, rust negative */
   function signedFill(v, base) {
     const a = clamp(Math.abs(v), 0, 1);
     if (a < 0.02) return base || C.cell;
-    return v > 0 ? `rgba(224,169,79,${0.15 + 0.85 * a})` : `rgba(192,122,92,${0.15 + 0.85 * a})`;
+    return v > 0 ? Site.a(C.accent, 0.15 + 0.85 * a) : Site.a(C.rust, 0.15 + 0.85 * a);
   }
 
   /* seg(el, onChange): wires a .seg of buttons with data-v, returns setter */
@@ -154,5 +149,5 @@
     else fn();
   }
 
-  window.Learn = { S, T, svg, clear, plate, C, rng, gauss, loop, ticker, reduced, clamp, lerp, fmt, signedFill, seg, range, onReady };
+  window.Learn = { S, T, svg, clear, plate, C, a: Site.a, rng, gauss, loop, ticker, reduced, clamp, lerp, fmt, signedFill, seg, range, onReady };
 })();

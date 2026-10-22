@@ -83,7 +83,7 @@
     opts = opts || {};
     const off = 5, n = Math.max(1, depth);
     for (let d = n - 1; d >= 0; d--) {
-      S("rect", { x: x + d * off, y: cy - s / 2 - d * off, width: s, height: s, fill: d === 0 ? (opts.fill || "rgba(236,231,222,.08)") : "rgba(0,0,0,.7)", stroke: opts.stroke || C.lineStrong, "stroke-width": d === 0 ? 1.2 : 0.8 }, g);
+      S("rect", { x: x + d * off, y: cy - s / 2 - d * off, width: s, height: s, fill: d === 0 ? (opts.fill || Site.a(C.s1, .08)) : Site.a(C.bg, .7), stroke: opts.stroke || C.lineStrong, "stroke-width": d === 0 ? 1.2 : 0.8 }, g);
     }
     return { x, y: cy - s / 2, s, w: s + (n - 1) * off };
   }
@@ -106,7 +106,7 @@
     parts.forEach((p, k) => {
       const top = cy - p.s / 2;
       if (p.pre) S("rect", { x, y: cy - p.pre / 2, width: p.pre, height: p.pre, fill: "none", stroke: C.faint, "stroke-dasharray": "3 3" }, s);
-      const fill = p.kind === "in" ? "rgba(224,169,79,.1)" : "rgba(236,231,222,.08)";
+      const fill = p.kind === "in" ? Site.a(C.accent, .1) : Site.a(C.s1, .08);
       const r = slab(s, x + (p.pre ? (p.pre - p.s) / 2 : 0), cy, p.s, p.depth, { fill, stroke: p.kind === "in" ? C.accent : C.lineStrong });
       if (c.signed && p.kind === "conv") T(s, r.x + r.w - 2, top - (p.depth - 1) * 5 - 5, "±", "lt-a end");
       if (c.bias === "neuron" && p.kind === "conv") {
@@ -119,7 +119,7 @@
         // kernel window on the previous block, with lines to this block
         const b = p.b, ks = Math.max(3, prev.r.s * b.k / prev.H);
         const kx = prev.r.x + prev.r.s * 0.55 - ks / 2, ky = cy - ks / 2 - prev.r.s * 0.12;
-        S("rect", { x: kx, y: ky, width: ks, height: ks, fill: "rgba(224,169,79,.25)", stroke: C.accent }, s);
+        S("rect", { x: kx, y: ky, width: ks, height: ks, fill: Site.a(C.accent, .25), stroke: C.accent }, s);
         const tx = r.x + p.s * 0.45, ty = cy - p.s * 0.1;
         S("line", { x1: kx + ks, y1: ky, x2: tx, y2: ty, stroke: C.accent, "stroke-opacity": .5 }, s);
         S("line", { x1: kx + ks, y1: ky + ks, x2: tx, y2: ty, stroke: C.accent, "stroke-opacity": .5 }, s);
@@ -131,7 +131,7 @@
     // head
     const last = P.blocks[P.blocks.length - 1];
     const hx = x - 20, len = c.head === "gap" ? 20 + 8 * Math.log2(last.Cout) : Math.min(180, 30 + 16 * Math.log2(P.inF));
-    S("rect", { x: hx, y: cy - len / 2, width: 12, height: len, fill: "rgba(236,231,222,.15)", stroke: C.lineStrong }, s);
+    S("rect", { x: hx, y: cy - len / 2, width: 12, height: len, fill: Site.a(C.s1, .15), stroke: C.lineStrong }, s);
     T(s, hx + 6, cy + len / 2 + 18, c.head === "gap" ? "GAP" : "flatten", "lt-m mid");
     T(s, hx + 6, cy + len / 2 + 32, L.fmt(P.inF), "lt-ms mid");
     let fx = hx + 12;
@@ -210,7 +210,7 @@
   function px(s, x, y, n, cell, fn, color) {
     for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) {
       const v = fn((j + 0.5) / n, (i + 0.5) / n);
-      S("rect", { x: x + j * cell, y: y + i * cell, width: cell - (cell > 3 ? 0.6 : 0), height: cell - (cell > 3 ? 0.6 : 0), fill: v ? (color || C.accent) : "rgba(255,255,255,.04)" }, s);
+      S("rect", { x: x + j * cell, y: y + i * cell, width: cell - (cell > 3 ? 0.6 : 0), height: cell - (cell > 3 ? 0.6 : 0), fill: v ? (color || C.accent) : Site.a(C.ink, .04) }, s);
     }
   }
   const handShape = (u, v) => ((u - 0.35) ** 2 / 0.02 + (v - 0.3) ** 2 / 0.03 < 1) || (Math.abs((u - 0.35) * 0.9 + (v - 0.3) * -0.44 - 0) < 0.06 && v > 0.3 && v < 0.85);
@@ -220,7 +220,7 @@
       [[16, 30], [48, 82]].forEach(([n, y]) => {
         lab(s, 10, y + 4, `T = ${n}`, "lt-m");
         const w = 240 / n;
-        for (let i = 0; i < n; i++) S("rect", { x: 70 + i * w, y: y - 12, width: Math.max(1, w - 1), height: 26, fill: `rgba(224,169,79,${0.15 + 0.6 * r()})` }, s);
+        for (let i = 0; i < n; i++) S("rect", { x: 70 + i * w, y: y - 12, width: Math.max(1, w - 1), height: 26, fill: Site.a(C.accent, 0.15 + 0.6 * r()) }, s);
       });
       lab(s, 70, 122, "same clip: more, thinner slices");
     },
@@ -239,12 +239,12 @@
       [[2, 18], [4, 74]].forEach(([n, y]) => {
         lab(s, 10, y + 20, `${n} layers`, "lt-m");
         let x = 90;
-        for (let i = 0; i <= n; i++) { const sz = 36 - i * 6; S("rect", { x, y: y + 20 - sz / 2, width: sz, height: sz, fill: i ? "rgba(236,231,222,.08)" : "rgba(224,169,79,.12)", stroke: i ? C.lineStrong : C.accent }, s); if (i < n) arrow(s, x + sz + 2, y + 20, x + sz + 16, y + 20); x += sz + 22; }
+        for (let i = 0; i <= n; i++) { const sz = 36 - i * 6; S("rect", { x, y: y + 20 - sz / 2, width: sz, height: sz, fill: i ? Site.a(C.s1, .08) : Site.a(C.accent, .12), stroke: i ? C.lineStrong : C.accent }, s); if (i < n) arrow(s, x + sz + 2, y + 20, x + sz + 16, y + 20); x += sz + 22; }
       });
     },
     channels(s) {
       [[3, 40, "8 channels"], [12, 190, "128 channels"]].forEach(([n, x, t]) => {
-        for (let d = n - 1; d >= 0; d--) S("rect", { x: x + d * 4, y: 30 - d * 4 + 20, width: 60, height: 60, fill: d ? "rgba(0,0,0,.6)" : "rgba(236,231,222,.08)", stroke: C.lineStrong, "stroke-width": .8 }, s);
+        for (let d = n - 1; d >= 0; d--) S("rect", { x: x + d * 4, y: 30 - d * 4 + 20, width: 60, height: 60, fill: d ? Site.a(C.bg, .6) : Site.a(C.s1, .08), stroke: C.lineStrong, "stroke-width": .8 }, s);
         lab(s, x, 124, t);
       });
     },
@@ -252,7 +252,7 @@
       [[3, 30, "3 × 3: fine detail"], [9, 190, "9 × 9: 9× the inputs"]].forEach(([k, x, t]) => {
         const n = 12, c = 7.5;
         px(s, x, 14, n, c, () => 0);
-        S("rect", { x: x + (n - k) / 2 * c, y: 14 + (n - k) / 2 * c, width: k * c, height: k * c, fill: "rgba(224,169,79,.25)", stroke: C.accent }, s);
+        S("rect", { x: x + (n - k) / 2 * c, y: 14 + (n - k) / 2 * c, width: k * c, height: k * c, fill: Site.a(C.accent, .25), stroke: C.accent }, s);
         lab(s, x, 124, t);
       });
     },
@@ -260,9 +260,9 @@
       const pairs = [["stride 2", 12, 8, 3], ["pooling", 112, 8, 4], ["none", 212, 8, 6]];
       pairs.forEach(([t, x, a, b]) => {
         const c = 5;
-        S("rect", { x, y: 20, width: a * c, height: a * c, fill: "rgba(236,231,222,.08)", stroke: C.lineStrong }, s);
+        S("rect", { x, y: 20, width: a * c, height: a * c, fill: Site.a(C.s1, .08), stroke: C.lineStrong }, s);
         arrow(s, x + a * c + 3, 40, x + a * c + 15, 40);
-        S("rect", { x: x + a * c + 18, y: 40 - b * c / 2, width: b * c, height: b * c, fill: "rgba(224,169,79,.15)", stroke: C.accent }, s);
+        S("rect", { x: x + a * c + 18, y: 40 - b * c / 2, width: b * c, height: b * c, fill: Site.a(C.accent, .15), stroke: C.accent }, s);
         lab(s, x, 86, t, "lt-m"); lab(s, x, 102, `8 → ${b}`);
       });
       lab(s, 12, 124, "a 3 × 3 kernel; pooling keeps size, then halves");
@@ -270,25 +270,25 @@
     poolType(s) {
       const g = [1, 0, 1, 0], c = 22;
       [[20, "average: 0.5"], [180, "max: 1 (any fired)"]].forEach(([x, t]) => {
-        g.forEach((v, i) => S("rect", { x: x + (i % 2) * c, y: 30 + Math.floor(i / 2) * c, width: c - 2, height: c - 2, fill: v ? C.accent : "rgba(255,255,255,.05)" }, s));
+        g.forEach((v, i) => S("rect", { x: x + (i % 2) * c, y: 30 + Math.floor(i / 2) * c, width: c - 2, height: c - 2, fill: v ? C.accent : Site.a(C.ink, .05) }, s));
         arrow(s, x + 48, 52, x + 68, 52);
-        S("rect", { x: x + 72, y: 41, width: c, height: c, fill: x < 100 ? "rgba(224,169,79,.5)" : C.accent }, s);
+        S("rect", { x: x + 72, y: 41, width: c, height: c, fill: x < 100 ? Site.a(C.accent, .5) : C.accent }, s);
         lab(s, x, 104, t, "lt-m");
       });
       lab(s, 20, 124, "avg folds into the next layer; max is an OR neuron");
     },
     head(s) {
-      for (let d = 2; d >= 0; d--) S("rect", { x: 14 + d * 5, y: 40 - d * 5, width: 40, height: 40, fill: d ? "rgba(0,0,0,.6)" : "rgba(236,231,222,.08)", stroke: C.lineStrong }, s);
+      for (let d = 2; d >= 0; d--) S("rect", { x: 14 + d * 5, y: 40 - d * 5, width: 40, height: 40, fill: d ? Site.a(C.bg, .6) : Site.a(C.s1, .08), stroke: C.lineStrong }, s);
       arrow(s, 70, 46, 96, 30); arrow(s, 70, 66, 96, 86);
-      S("rect", { x: 100, y: 10, width: 170, height: 10, fill: "rgba(236,231,222,.25)" }, s); lab(s, 100, 36, "flatten: every cell, keeps where");
-      S("rect", { x: 100, y: 82, width: 18, height: 10, fill: "rgba(224,169,79,.5)" }, s); lab(s, 124, 92, "GAP: one per channel");
+      S("rect", { x: 100, y: 10, width: 170, height: 10, fill: Site.a(C.s1, .25) }, s); lab(s, 100, 36, "flatten: every cell, keeps where");
+      S("rect", { x: 100, y: 82, width: 18, height: 10, fill: Site.a(C.accent, .5) }, s); lab(s, 124, 92, "GAP: one per channel");
       lab(s, 14, 124, "both feed the 11-class classifier");
     },
     fc(s) {
       [[24, 0], [84, 1]].forEach(([y, hid]) => {
-        S("rect", { x: 10, y: y - 6, width: 50, height: 12, fill: "rgba(236,231,222,.2)" }, s);
+        S("rect", { x: 10, y: y - 6, width: 50, height: 12, fill: Site.a(C.s1, .2) }, s);
         let x = 60;
-        if (hid) { arrow(s, x + 2, y, x + 40, y); S("rect", { x: x + 44, y: y - 10, width: 12, height: 20, fill: "rgba(224,169,79,.35)", stroke: C.accent }, s); lab(s, x + 34, y + 26, "hidden 128 to 512"); x += 56; }
+        if (hid) { arrow(s, x + 2, y, x + 40, y); S("rect", { x: x + 44, y: y - 10, width: 12, height: 20, fill: Site.a(C.accent, .35), stroke: C.accent }, s); lab(s, x + 34, y + 26, "hidden 128 to 512"); x += 56; }
         arrow(s, x + 2, y, x + 40, y);
         for (let i = 0; i < 5; i++) S("circle", { cx: x + 50, cy: y - 12 + i * 6, r: 2.4, fill: C.s1 }, s);
         lab(s, x + 60, y + 4, "11");
@@ -349,7 +349,7 @@
       [[20, "BN: one step", 1], [180, "tdBN: all steps", 0]].forEach(([x, t, one]) => {
         for (let i = 0; i < rows; i++) for (let j = 0; j < cols; j++) {
           const lit = one ? j === 3 : true;
-          S("rect", { x: x + j * c, y: 16 + i * c, width: c - 2, height: c - 2, fill: lit ? "rgba(224,169,79,.45)" : "rgba(255,255,255,.05)" }, s);
+          S("rect", { x: x + j * c, y: 16 + i * c, width: c - 2, height: c - 2, fill: lit ? Site.a(C.accent, .45) : Site.a(C.ink, .05) }, s);
         }
         lab(s, x, 90, t, "lt-m");
         lab(s, x, 106, "columns: timesteps");
@@ -366,7 +366,7 @@
       const r = L.rng(4), n = 10, c = 10;
       for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) {
         const sp = r() < 0.3, dropped = sp && r() < 0.3;
-        S("rect", { x: 40 + j * c, y: 10 + i * c, width: c - 1.5, height: c - 1.5, fill: sp && !dropped ? C.accent : "rgba(255,255,255,.05)" }, s);
+        S("rect", { x: 40 + j * c, y: 10 + i * c, width: c - 1.5, height: c - 1.5, fill: sp && !dropped ? C.accent : Site.a(C.ink, .05) }, s);
         if (dropped) { S("line", { x1: 40 + j * c, y1: 10 + i * c, x2: 40 + j * c + 8, y2: 10 + i * c + 8, stroke: C.red }, s); S("line", { x1: 40 + j * c + 8, y1: 10 + i * c, x2: 40 + j * c, y2: 10 + i * c + 8, stroke: C.red }, s); }
       }
       lab(s, 160, 40, "spikes leaving a layer,", "lt"); lab(s, 160, 56, "some silenced at random", "lt");
@@ -376,7 +376,7 @@
       const r = L.rng(6);
       for (let i = 0; i < 24; i++) {
         const dropped = r() < 0.3, x = 20 + i * 12;
-        S("rect", { x, y: 40, width: 10, height: 26, fill: dropped ? "rgba(255,255,255,.05)" : "rgba(236,231,222,.4)" }, s);
+        S("rect", { x, y: 40, width: 10, height: 26, fill: dropped ? Site.a(C.ink, .05) : Site.a(C.s1, .4) }, s);
         if (dropped) S("line", { x1: x, y1: 40, x2: x + 10, y2: 66, stroke: C.red }, s);
       }
       lab(s, 20, 30, "inputs to the classifier", "lt-m");
@@ -392,7 +392,7 @@
     },
     wd(s) {
       const bars = (x, sd, t) => {
-        for (let i = -7; i <= 7; i++) { const h = 70 * Math.exp(-0.5 * (i / sd) ** 2); S("rect", { x: x + (i + 7) * 9, y: 96 - h, width: 7, height: h, fill: "rgba(236,231,222,.4)" }, s); }
+        for (let i = -7; i <= 7; i++) { const h = 70 * Math.exp(-0.5 * (i / sd) ** 2); S("rect", { x: x + (i + 7) * 9, y: 96 - h, width: 7, height: h, fill: Site.a(C.s1, .4) }, s); }
         lab(s, x, 116, t, "lt-m");
       };
       bars(10, 3.2, "little decay"); bars(170, 1.6, "strong decay");
@@ -454,7 +454,7 @@
       const X = e => 20 + e * 3.4, Y = v => 108 - v * 84;
       const pts = []; for (let e = 0; e <= 80; e++) { const v = e < 3 ? (e + 1) / 4 : 0.5 * (1 + Math.cos(Math.PI * (e - 3) / 77)); pts.push(`${X(e)},${Y(v)}`); }
       S("polyline", { points: pts.join(" "), fill: "none", stroke: C.accent, "stroke-width": 1.6 }, s);
-      S("rect", { x: X(0), y: 20, width: X(3) - X(0), height: 88, fill: "rgba(224,169,79,.1)" }, s);
+      S("rect", { x: X(0), y: 20, width: X(3) - X(0), height: 88, fill: Site.a(C.accent, .1) }, s);
       lab(s, 44, 86, "ramp up over", "lt-a");
       lab(s, 44, 100, "the first few epochs", "lt-a");
       arrow(s, 42, 80, X(2.5), 62, C.accent, 1);
@@ -464,7 +464,7 @@
       const steps = 10;
       [[20, "rate: count over the clip, one loss"], [80, "TET: a loss at every step, averaged"]].forEach(([y, t], r) => {
         lab(s, 10, y - 4, t, "lt-m");
-        for (let i = 0; i < steps; i++) S("rect", { x: 10 + i * 22, y, width: 18, height: 16, fill: "rgba(236,231,222,.12)", stroke: C.line }, s);
+        for (let i = 0; i < steps; i++) S("rect", { x: 10 + i * 22, y, width: 18, height: 16, fill: Site.a(C.s1, .12), stroke: C.line }, s);
         if (r === 0) { arrow(s, 230, y + 8, 260, y + 8); S("circle", { cx: 272, cy: y + 8, r: 8, fill: C.accent }, s); }
         else for (let i = 0; i < steps; i++) S("circle", { cx: 19 + i * 22, cy: y + 26, r: 3.5, fill: C.accent }, s);
       });
@@ -630,7 +630,7 @@
     items.forEach((it, i) => {
       const y = 10 + i * rowH;
       T(s, 262, y + 13, it.name, "lt end");
-      S("rect", { x: 270, y: y + 3, width: X(it.gap) - 270, height: 13, fill: it.gap >= 0.08 ? C.accent : it.gap >= 0.054 ? "rgba(224,169,79,.55)" : "rgba(167,162,154,.5)" }, s);
+      S("rect", { x: 270, y: y + 3, width: X(it.gap) - 270, height: 13, fill: it.gap >= 0.08 ? C.accent : it.gap >= 0.054 ? Site.a(C.accent, .55) : Site.a(C.muted, .5) }, s);
       // a value label never sits on the dashed luck line: it moves past it
       const lineX = X(0.054), lx = X(it.gap) + 6;
       T(s, lx < lineX + 4 && lx + 48 > lineX ? lineX + 6 : lx, y + 14, `${(it.gap * 100).toFixed(1)} pts`, "lt-ms");

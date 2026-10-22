@@ -1,6 +1,7 @@
 /* demo-lr.js: the learning-rate schedules a run can use (page D). */
 (function () {
   "use strict";
+  const C = window.Site.C;
   const $ = id => document.getElementById(id);
 
   /* ---------- learning-rate schedules (page D) ---------- */
@@ -38,7 +39,7 @@
       const ys = schedule(kind, epochs, warmup, lr0);
       const xs = ys.map((_, i) => i);
       window.Site.linePlot(cv, [
-        { xs, ys, color: "#ece7de", width: 2.2, label: kind + (warmup && kind !== "onecycle" && kind !== "none" ? ` + ${warmup} warmup` : ""), dots: epochs <= 40, dotR: 2 }
+        { xs, ys, color: C.s1, width: 2.2, label: kind + (warmup && kind !== "onecycle" && kind !== "none" ? ` + ${warmup} warmup` : ""), dots: epochs <= 40, dotR: 2 }
       ], { height: 275, xlabel: "epoch", ylabel: "learning rate", ymin: 0, ymax: lr0 * 1.12 });
     }
     ["lr-kind"].forEach(id => $(id).addEventListener("change", draw));

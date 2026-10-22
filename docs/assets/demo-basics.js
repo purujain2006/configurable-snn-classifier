@@ -34,7 +34,7 @@
           "stroke-width": 1 + 7 * Math.abs(w), "stroke-opacity": 0.85 }, s);
         const mx = (82 + nx - 44) / 2, my = (y + ny) / 2 - 10;
         L.plate(T(s, mx, my, `× ${w.toFixed(2)}`, w >= 0 ? "lt-a mid" : "lt-r mid"));
-        S("circle", { cx: 60, cy: y, r: 22, fill: `rgba(236,231,222,${0.06 + 0.3 * st.x[i]})`, stroke: C.lineStrong }, s);
+        S("circle", { cx: 60, cy: y, r: 22, fill: Site.a(C.s1, 0.06 + 0.3 * st.x[i]), stroke: C.lineStrong }, s);
         T(s, 60, y + 4, st.x[i].toFixed(2), "lt-m mid");
         T(s, 60, y - 28, `input ${i + 1}`, "lt-s mid");
       });
@@ -54,7 +54,7 @@
       const cs = L.clamp(sum, -2, 2);
       S("circle", { cx: X(cs), cy: Y(Math.max(0, cs)), r: 5, fill: C.accent }, s);
       arrow(s, bx + bw + 2, ny, 566, ny);
-      S("circle", { cx: 595, cy: ny, r: 26, fill: `rgba(224,169,79,${0.08 + 0.6 * Math.min(1, out)})`, stroke: C.accent }, s);
+      S("circle", { cx: 595, cy: ny, r: 26, fill: Site.a(C.accent, 0.08 + 0.6 * Math.min(1, out)), stroke: C.accent }, s);
       T(s, 595, ny + 4, out.toFixed(2), "lt-m mid");
       T(s, 595, ny - 36, "output", "lt-s mid");
       document.getElementById("neuron-sum").textContent = sum.toFixed(2);
@@ -112,7 +112,7 @@
     const bars = labels.map((lab, j) => {
       const y = pos[3][j][1];
       T(gB, 590, y + 4, lab, "lt-m");
-      S("rect", { x: 632, y: y - 7, width: 110, height: 14, fill: "rgba(255,255,255,.05)" }, gB);
+      S("rect", { x: 632, y: y - 7, width: 110, height: 14, fill: Site.a(C.ink, .05) }, gB);
       const bar = S("rect", { x: 632, y: y - 7, width: 0, height: 14, fill: C.s4 }, gB);
       const pt = T(gB, 742, y - 11, "", "lt-ms end");
       return { bar, pt };
@@ -125,7 +125,7 @@
         nodes[l].forEach((nd, i) => {
           const on = l <= done || (l === done + 1 && frac > 0.85);
           const v = l === 3 ? probs[i] : a[i] / mx;
-          nd.c.setAttribute("fill", on ? `rgba(224,169,79,${0.1 + 0.8 * Math.max(0, v)})` : C.cell);
+          nd.c.setAttribute("fill", on ? Site.a(C.accent, 0.1 + 0.8 * Math.max(0, v)) : C.cell);
           nd.t.textContent = on && l === 0 ? a[i].toFixed(2) : "";
         });
       });
@@ -182,13 +182,17 @@
       const dpr = window.devicePixelRatio || 1;
       const W = Math.round(lw * dpr), H = Math.round(g.h * dpr);
       const img = g.ctx.createImageData(W, H);
+      // bands shade from the background toward the ink; contour edges toward the accent
+      const base = Site.rgb(C.bg), ink = Site.rgb(C.ink), acc = Site.rgb(C.accent);
       for (let py = 0; py < H; py++) for (let px = 0; px < W; px++) {
         const x = (px / dpr) / lw * 9 - 4.5, y = (g.h / 2 - py / dpr) / (lw / 9);
         const v = f(x, y), band = Math.floor(Math.log(v + 0.02) * 2.2);
         const edge = Math.floor(Math.log(f(x + 0.03, y) + 0.02) * 2.2) !== band;
-        const lum = 10 + Math.min(40, Math.max(0, band + 9) * 3.2);
+        let t = 0.02 + Math.min(40, Math.max(0, band + 9) * 3.2) / 250;
+        if (document.documentElement.dataset.theme !== "dark") t = 1.7 * (0.2 - t);   // lower loss stays darker on a light page
         const k = (py * W + px) * 4;
-        img.data[k] = edge ? 120 : lum; img.data[k + 1] = edge ? 100 : lum * 0.95; img.data[k + 2] = edge ? 70 : lum * 0.88; img.data[k + 3] = 255;
+        for (let ch = 0; ch < 3; ch++) img.data[k + ch] = edge ? base[ch] + 0.5 * (acc[ch] - base[ch]) : base[ch] + t * (ink[ch] - base[ch]);
+        img.data[k + 3] = 255;
       }
       bg = img;
     }
@@ -361,7 +365,7 @@
     const box = document.getElementById("channels-vis");
     if (!box) return;
     const s = L.svg(box, 820, 230, "Channels: kernels make one feature map each");
-    slab(s, 20, 80, 110, 2, "rgba(236,231,222,.06)");
+    slab(s, 20, 80, 110, 2, Site.a(C.s1, .06));
     T(s, 20, 215, "input: 2 channels", "lt-b");
     T(s, 20, 228, "(brighter and darker events)", "lt-s");
     const cols = [C.accent, C.rust, C.green];
@@ -374,7 +378,7 @@
       arrow(s, 330, y + 13, 404, 120 - i * 9 + 20, cols[i], 1.1);
     });
     for (let d = 2; d >= 0; d--) {
-      S("rect", { x: 420 + d * 12, y: 70 - d * 12, width: 100, height: 100, fill: "rgba(0,0,0,.6)", stroke: cols[d], "stroke-width": 1.4 }, s);
+      S("rect", { x: 420 + d * 12, y: 70 - d * 12, width: 100, height: 100, fill: Site.a(C.bg, .6), stroke: cols[d], "stroke-width": 1.4 }, s);
     }
     T(s, 420, 215, "layer 1: 3 channels", "lt-b");
     T(s, 420, 228, "3 kernels make 3 maps", "lt-s");
@@ -385,7 +389,7 @@
     T(s, 600, 173, "spans all 3 maps", "lt-s");
     arrow(s, 560, 110, 604, 112);
     arrow(s, 660, 110, 720, 110);
-    S("rect", { x: 726, y: 72, width: 76, height: 76, fill: "rgba(224,169,79,.12)", stroke: C.accent }, s);
+    S("rect", { x: 726, y: 72, width: 76, height: 76, fill: Site.a(C.accent, .12), stroke: C.accent }, s);
     T(s, 812, 215, "one map per kernel", "lt-b end");
     T(s, 812, 228, "in the next layer", "lt-s end");
   }
@@ -423,7 +427,7 @@
       const mx = mode === "stride" ? 9 : 1;
       for (let i = 0; i < M; i++) for (let j = 0; j < M; j++) {
         const v = value(i, j);
-        S("rect", { x: ox + j * oc, y: oy + i * oc, width: oc - 3, height: oc - 3, fill: v > 0 ? `rgba(224,169,79,${0.15 + 0.85 * v / mx})` : C.cell, "data-k": `${i},${j}` }, gOut);
+        S("rect", { x: ox + j * oc, y: oy + i * oc, width: oc - 3, height: oc - 3, fill: v > 0 ? Site.a(C.accent, 0.15 + 0.85 * v / mx) : C.cell, "data-k": `${i},${j}` }, gOut);
         T(gOut, ox + j * oc + oc / 2 - 1, oy + i * oc + oc / 2 + 4, mode === "avg" ? (v === 0 ? "0" : v.toFixed(2)) : String(v), v / mx > 0.3 ? "lt-dark mid" : "lt-ms mid");
       }
       document.getElementById("shrink-note").textContent = NOTES[mode];
@@ -452,7 +456,7 @@
     function drawMaps(x, y) {
       for (let d = 2; d >= 0; d--) for (let i = 0; i < 4; i++) for (let j = 0; j < 4; j++) {
         const v = maps[d][i * 4 + j];
-        S("rect", { x: x + d * 14 + j * 15, y: y - d * 14 + i * 15, width: 14, height: 14, fill: `rgba(${d === 0 ? "224,169,79" : d === 1 ? "192,122,92" : "155,177,122"},${0.15 + 0.6 * v})`, stroke: "#000", "stroke-width": 0.5 }, s);
+        S("rect", { x: x + d * 14 + j * 15, y: y - d * 14 + i * 15, width: 14, height: 14, fill: Site.a([C.accent, C.rust, C.green][d], 0.15 + 0.6 * v), stroke: C.bg, "stroke-width": 0.5 }, s);
       }
     }
     function classes(x) {
@@ -469,7 +473,7 @@
     for (let k = 0; k < 48; k++) {
       const d = Math.floor(k / 16), y = 22 + k * 4.9;
       cyc.push(y);
-      S("rect", { x: vx, y, width: 14, height: 4.2, fill: `rgba(${d === 0 ? "224,169,79" : d === 1 ? "192,122,92" : "155,177,122"},${0.15 + 0.6 * maps[d][k % 16]})` }, s);
+      S("rect", { x: vx, y, width: 14, height: 4.2, fill: Site.a([C.accent, C.rust, C.green][d], 0.15 + 0.6 * maps[d][k % 16]) }, s);
     }
     T(s, vx + 7, 270, "48 inputs", "lt-s mid");
     const c1 = classes(330);
@@ -482,7 +486,7 @@
     const gy = [110, 140, 170];
     gy.forEach((y, d) => {
       const m = maps[d].reduce((a, b) => a + b) / 16;
-      S("rect", { x: 615, y: y - 9, width: 18, height: 18, fill: `rgba(${d === 0 ? "224,169,79" : d === 1 ? "192,122,92" : "155,177,122"},${0.15 + 0.6 * m})` }, s);
+      S("rect", { x: 615, y: y - 9, width: 18, height: 18, fill: Site.a([C.accent, C.rust, C.green][d], 0.15 + 0.6 * m) }, s);
     });
     T(s, 624, 270, "3 inputs", "lt-s mid");
     const c2 = classes(790);
@@ -510,7 +514,7 @@
         const w = st.w[i];
         S("line", { x1: 90, y1: y, x2: nx - 38, y2: ny, stroke: w >= 0 ? C.accent : C.rust, "stroke-width": 1 + 6 * Math.abs(w), "stroke-opacity": .85 }, gTop);
         L.plate(T(gTop, (90 + nx - 38) / 2, (y + ny) / 2 - 9, `× ${w.toFixed(2)}`, w >= 0 ? "lt-a mid" : "lt-r mid"));
-        S("circle", { cx: 68, cy: y, r: 20, fill: `rgba(236,231,222,${0.06 + 0.3 * st.x[i]})`, stroke: C.lineStrong }, gTop);
+        S("circle", { cx: 68, cy: y, r: 20, fill: Site.a(C.s1, 0.06 + 0.3 * st.x[i]), stroke: C.lineStrong }, gTop);
         T(gTop, 68, y + 4, st.x[i].toFixed(2), "lt-m mid");
       });
       S("circle", { cx: nx, cy: ny, r: 38, fill: C.panel, stroke: C.accent, "stroke-width": 1.5 }, gTop);
@@ -524,7 +528,7 @@
       const cs = L.clamp(sum, -2, 2);
       S("circle", { cx: X(cs), cy: Y(Math.max(0, cs)), r: 5, fill: C.accent }, gTop);
       arrow(gTop, bx + bw + 2, ny, 638, ny);
-      S("circle", { cx: 668, cy: ny, r: 26, fill: `rgba(224,169,79,${0.08 + 0.6 * Math.min(1, out)})`, stroke: C.accent }, gTop);
+      S("circle", { cx: 668, cy: ny, r: 26, fill: Site.a(C.accent, 0.08 + 0.6 * Math.min(1, out)), stroke: C.accent }, gTop);
       T(gTop, 668, ny + 4, out.toFixed(2), "lt-m mid");
       T(gTop, 668, ny + 46, "one number, at once", "lt-s mid");
       document.getElementById("s-ann").textContent = out.toFixed(2);
@@ -548,20 +552,20 @@
         T(gBot, 20, y - 16, `input ${i + 1}: spikes on ${Math.round(st.x[i] * 100)}% of steps`, "lt-s");
         for (let k = 0; k < N; k++) {
           const h = hist[hist.length - N + k], on = h && h.ins[i];
-          S("rect", { x: 20 + k * cw, y: y - 9, width: cw - 1.5, height: 18, fill: on ? (k === N - 1 ? C.accent : C.s1) : "rgba(255,255,255,.05)" }, gBot);
+          S("rect", { x: 20 + k * cw, y: y - 9, width: cw - 1.5, height: 18, fill: on ? (k === N - 1 ? C.accent : C.s1) : Site.a(C.ink, .05) }, gBot);
         }
         const w = st.w[i], lit = last.ins[i];
         S("line", { x1: 162, y1: y, x2: nx - 36, y2: ny, stroke: w >= 0 ? C.accent : C.rust, "stroke-width": 1 + 6 * Math.abs(w), "stroke-opacity": lit ? .9 : .18 }, gBot);
         L.plate(T(gBot, (162 + nx - 36) / 2 + 8, (y + ny) / 2 - 9, `× ${w.toFixed(2)}`, w >= 0 ? "lt-a mid" : "lt-r mid"));
       });
       const lvl = L.clamp(v / st.th, -1, 1.5);
-      S("circle", { cx: nx, cy: ny, r: 36, fill: lvl > 0 ? `rgba(224,169,79,${0.08 + 0.5 * Math.min(1, lvl)})` : C.panel, stroke: last.fired ? C.accent : C.lineStrong, "stroke-width": last.fired ? 3 : 1.4 }, gBot);
+      S("circle", { cx: nx, cy: ny, r: 36, fill: lvl > 0 ? Site.a(C.accent, 0.08 + 0.5 * Math.min(1, lvl)) : C.panel, stroke: last.fired ? C.accent : C.lineStrong, "stroke-width": last.fired ? 3 : 1.4 }, gBot);
       T(gBot, nx, ny - 6, "potential", "lt-s mid");
       T(gBot, nx, ny + 14, v.toFixed(2), "lt-m mid");
       arrow(gBot, nx + 38, ny, 418, ny);
       const bx = 424, by = 314, bw = 168, bh = 108, vmax = 2 * st.th, vmin = -0.5 * st.th;
       const Y = q => by + bh - (L.clamp(q, vmin, vmax) - vmin) / (vmax - vmin) * bh;
-      S("rect", { x: bx, y: by, width: bw, height: bh, fill: "rgba(255,255,255,.02)", stroke: C.line }, gBot);
+      S("rect", { x: bx, y: by, width: bw, height: bh, fill: Site.a(C.ink, .02), stroke: C.line }, gBot);
       S("line", { x1: bx, x2: bx + bw, y1: Y(st.th), y2: Y(st.th), stroke: C.accent, "stroke-dasharray": "4 3" }, gBot);
       T(gBot, bx, by - 8, "potential, last 20 steps", "lt-s");
       const dx = bw / N, pts = [];
@@ -576,7 +580,7 @@
       arrow(gBot, bx + bw + 4, ny, 618, ny);
       for (let k = 0; k < N; k++) {
         const h = hist[hist.length - N + k];
-        S("rect", { x: 624 + k * cw, y: ny - 16, width: cw - 1.5, height: 32, fill: h && h.fired ? C.accent : "rgba(255,255,255,.05)" }, gBot);
+        S("rect", { x: 624 + k * cw, y: ny - 16, width: cw - 1.5, height: 32, fill: h && h.fired ? C.accent : Site.a(C.ink, .05) }, gBot);
       }
       T(gBot, 624, ny + 34, "spikes it sends", "lt-s");
       const n = hist.length, k = hist.filter(h => h.fired).length;
@@ -657,10 +661,10 @@
       for (let q = 0; q < M * M; q++) {
         mem[q].setAttribute("fill", L.signedFill(v[q] / (1.5 * TH)));
         fire[q].setAttribute("fill", spk[q] ? C.accent : C.cell);
-        cnt0[q].setAttribute("fill", cnt[q] ? `rgba(224,169,79,${0.2 + 0.8 * cnt[q] / mx})` : C.cell);
+        cnt0[q].setAttribute("fill", cnt[q] ? Site.a(C.accent, 0.2 + 0.8 * cnt[q] / mx) : C.cell);
         cntT[q].textContent = cnt[q] ? String(cnt[q]) : "";
       }
-      strip.forEach((rc, k) => { rc.setAttribute("fill", k < t ? "rgba(224,169,79,.35)" : C.cell); rc.setAttribute("stroke", k === t - 1 ? C.accent : "none"); });
+      strip.forEach((rc, k) => { rc.setAttribute("fill", k < t ? Site.a(C.accent, .35) : C.cell); rc.setAttribute("stroke", k === t - 1 ? C.accent : "none"); });
       document.getElementById("sconv-readout").innerHTML = `step <b>${t}</b> of ${Tn} · ${cnt.reduce((a, b) => a + b, 0)} output spikes so far`;
     }
     const tk = L.ticker(2.5);
@@ -699,7 +703,7 @@
     function drawRight() {
       L.clear(gR);
       T(gR, 470, 20, "what the neuron sends, for every input", "lt-b");
-      S("rect", { x: PX(0), y: PY(1.5), width: PX(1.5) - PX(0), height: PY(0) - PY(1.5), fill: "rgba(255,255,255,.02)", stroke: C.lineSoft }, gR);
+      S("rect", { x: PX(0), y: PY(1.5), width: PX(1.5) - PX(0), height: PY(0) - PY(1.5), fill: Site.a(C.ink, .02), stroke: C.lineSoft }, gR);
       [0, 0.5, 1, 1.5].forEach(q => {
         T(gR, PX(q), 308, q.toFixed(1), "lt-ms mid");
         T(gR, PX(0) - 8, PY(q) + 4, q.toFixed(1), "lt-ms end");
@@ -740,11 +744,11 @@
       T(gL, 20, 46, "input", "lt-s");
       for (let t = 0; t < n; t++) {
         const h = Math.min(1.5, x) / 1.5 * 22;
-        S("rect", { x: 60 + t * cw, y: 52 - h, width: cw - 1.5, height: h, fill: t < shown ? "rgba(236,231,222,.45)" : "rgba(255,255,255,.05)" }, gL);
+        S("rect", { x: 60 + t * cw, y: 52 - h, width: cw - 1.5, height: h, fill: t < shown ? Site.a(C.s1, .45) : Site.a(C.ink, .05) }, gL);
       }
       const by = 70, bh = 150, vmax = 1.6, Y = q => by + bh - L.clamp(q, 0, vmax) / vmax * bh;
       T(gL, 60, by - 6, "potential", "lt-s");
-      S("rect", { x: 60, y: by, width: 330, height: bh, fill: "rgba(255,255,255,.02)", stroke: C.line }, gL);
+      S("rect", { x: 60, y: by, width: 330, height: bh, fill: Site.a(C.ink, .02), stroke: C.line }, gL);
       S("line", { x1: 60, x2: 390, y1: Y(1), y2: Y(1), stroke: C.accent, "stroke-dasharray": "4 3" }, gL);
       L.plate(T(gL, 388, Y(1) - 4, "threshold", "lt-ms end"));
       const pts = [];
@@ -755,7 +759,7 @@
       cur.tr.forEach((e, t) => {
         const on = e.fired && t < shown;
         if (on) k++;
-        S("rect", { x: 60 + t * cw, y: 236, width: cw - 1.5, height: 26, fill: on ? C.accent : "rgba(255,255,255,.05)" }, gL);
+        S("rect", { x: 60 + t * cw, y: 236, width: cw - 1.5, height: 26, fill: on ? C.accent : Site.a(C.ink, .05) }, gL);
       });
       T(gL, 60, 292, `${k} spike${k === 1 ? "" : "s"} in ${Tn} steps = ${(k / Tn).toFixed(2)} per step`, "lt-m");
       T(gL, 60, 312, `it can only say 0, 1/${Tn}, 2/${Tn}, and so on up to ${Tn}/${Tn}`, "lt-s");
@@ -813,7 +817,7 @@
     T(s, ox, 26, "output", "lt-s mid");
     const bars = labels.map((lab, k) => {
       T(s, ox + 26, oy(k) + 4, lab, "lt-m");
-      S("rect", { x: ox + 70, y: oy(k) - 8, width: 200, height: 16, fill: "rgba(255,255,255,.05)" }, s);
+      S("rect", { x: ox + 70, y: oy(k) - 8, width: 200, height: 16, fill: Site.a(C.ink, .05) }, s);
       return { b: S("rect", { x: ox + 70, y: oy(k) - 8, width: 0, height: 16, fill: C.s4 }, s), t: T(s, ox + 276, oy(k) + 4, "0", "lt-ms") };
     });
     T(s, ox + 70, 26, "spike count", "lt-s");
@@ -821,7 +825,7 @@
     function buildStrip() {
       L.clear(strip);
       const total = Tn + FLUSH, w = 740 / total;
-      for (let k = 0; k < total; k++) S("rect", { x: 20 + k * w, y: 290, width: w - 1, height: 14, fill: k >= Tn ? "rgba(255,255,255,.1)" : C.cell, "data-k": k }, strip);
+      for (let k = 0; k < total; k++) S("rect", { x: 20 + k * w, y: 290, width: w - 1, height: 14, fill: k >= Tn ? Site.a(C.ink, .1) : C.cell, "data-k": k }, strip);
       T(strip, 20, 322, `T = ${Tn} frames`, "lt-s");
       T(strip, 760, 322, `+ ${FLUSH} flush steps`, "lt-s end");
     }
@@ -856,7 +860,7 @@
       eOut.forEach(e => e.ln.setAttribute("stroke-opacity", sh[e.j] ? .7 : .1));
       const mx = Math.max(1, ...cnt), best = cnt.indexOf(Math.max(...cnt));
       bars.forEach((b, k) => { b.b.setAttribute("width", 200 * cnt[k] / Math.max(mx, 10)); b.b.setAttribute("fill", cnt[k] && k === best ? C.accent : C.s4); b.t.textContent = cnt[k]; });
-      strip.querySelectorAll("rect").forEach(rc => { const k = +rc.dataset.k; rc.setAttribute("stroke", k === t - 1 ? C.accent : "none"); if (k < t && k < Tn) rc.setAttribute("fill", "rgba(224,169,79,.3)"); });
+      strip.querySelectorAll("rect").forEach(rc => { const k = +rc.dataset.k; rc.setAttribute("stroke", k === t - 1 ? C.accent : "none"); if (k < t && k < Tn) rc.setAttribute("fill", Site.a(C.accent, .3)); });
       document.getElementById("snn-t").textContent = `${t} of ${Tn + FLUSH}`;
       document.getElementById("snn-pred").textContent = Math.max(...cnt) ? `${labels[best]}${t >= Tn + FLUSH ? " (final)" : ""}` : "-";
     }
@@ -894,7 +898,7 @@
     function stepOnce() {
       steps++;
       const vals = [...Array(8)].map(() => r());
-      P[0].inC.forEach((c, i) => c.setAttribute("fill", `rgba(236,231,222,${0.1 + 0.5 * vals[i]})`));
+      P[0].inC.forEach((c, i) => c.setAttribute("fill", Site.a(C.s1, 0.1 + 0.5 * vals[i])));
       P[0].edges.forEach(e => e.ln.setAttribute("stroke-opacity", .55));
       P[0].total += 48;
       P[0].label.textContent = `this step: 48 multiply-adds   total: ${L.fmt(P[0].total)}`;

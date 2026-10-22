@@ -118,11 +118,13 @@
     canvas.width = N; canvas.height = N;
     const ctx = canvas.getContext("2d"), img = ctx.createImageData(N, N);
     vmax = vmax || 1;
+    // brighter events blend toward the accent, darker ones toward rust, from the theme's background
+    const bg = Site.rgb(Site.C.bg), on1 = Site.rgb(Site.C.accent), off1 = Site.rgb(Site.C.rust);
     for (let i = 0; i < N * N; i++) {
-      const a = Math.min(1, on[i] / vmax), b = Math.min(1, off[i] / vmax), k = i * 4;
-      img.data[k] = Math.min(255, 8 + 216 * a + 184 * b);
-      img.data[k + 1] = Math.min(255, 8 + 161 * a + 114 * b);
-      img.data[k + 2] = Math.min(255, 8 + 71 * a + 84 * b);
+      let a = Math.min(1, on[i] / vmax), b = Math.min(1, off[i] / vmax), k = i * 4;
+      if (a + b > 1) { const s = a + b; a /= s; b /= s; }   // a pixel with both kinds: mix, never past the colors
+      for (let ch = 0; ch < 3; ch++)
+        img.data[k + ch] = Math.max(0, Math.min(255, bg[ch] + a * (on1[ch] - bg[ch]) + b * (off1[ch] - bg[ch])));
       img.data[k + 3] = 255;
     }
     ctx.putImageData(img, 0, 0);

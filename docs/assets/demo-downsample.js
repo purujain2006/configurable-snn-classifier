@@ -1,6 +1,7 @@
 /* demo-downsample.js: why a shrunk event frame uses OR instead of an average (page B). */
 (function () {
   "use strict";
+  const C = window.Site.C;
   const $ = id => document.getElementById(id);
 
   /* ---------- shrinking a sparse frame: average against OR (page B) ---------- */
@@ -38,12 +39,12 @@
       const x0 = 24, y0 = 44;
       const x1 = W / 2 + 40;
       ctx.font = "600 13.5px 'JetBrains Mono', monospace";
-      ctx.fillStyle = "#cfcbc4"; ctx.textAlign = "left"; ctx.textBaseline = "top";
+      ctx.fillStyle = C.dim; ctx.textAlign = "left"; ctx.textBaseline = "top";
       ctx.fillText("input events 16×16 (click to paint)", x0, 16);
       ctx.fillText(mode === "or" ? "output 8×8: bilinear interpolation, then > 0" : "output 8×8: average pooling", x1, 16);
       // src grid
       for (let y = 0; y < SRC; y++) for (let x = 0; x < SRC; x++) {
-        ctx.fillStyle = grid[y * SRC + x] ? "#e0a94f" : "#111110";
+        ctx.fillStyle = grid[y * SRC + x] ? C.accent : C.cell;
         ctx.fillRect(x0 + x * cell, y0 + y * cell, cell - 1, cell - 1);
       }
       // dst grid
@@ -54,15 +55,15 @@
         if (mode === "or") {
           const v = a > 0 ? 1 : 0;
           if (v) active++;
-          ctx.fillStyle = v ? "#e0a94f" : "#111110";
+          ctx.fillStyle = v ? C.accent : C.cell;
         } else {
           if (a > 0) active++;
           const g = Math.round(a * 255);
-          ctx.fillStyle = a > 0 ? `rgba(224,169,79,${0.15 + a * 0.85})` : "#111110";
+          ctx.fillStyle = a > 0 ? Site.a(C.accent, 0.15 + a * 0.85) : C.cell;
         }
         ctx.fillRect(x1 + x * dcell, y0 + y * dcell, dcell - 2, dcell - 2);
         if (mode === "avg" && a > 0 && a < 1) {
-          ctx.fillStyle = "#050505"; ctx.font = "11.5px 'JetBrains Mono', monospace";
+          ctx.fillStyle = a > 0.55 ? C.onAccent : C.text; ctx.font = "11.5px 'JetBrains Mono', monospace";
           ctx.textAlign = "center"; ctx.textBaseline = "middle";
           ctx.fillText(a.toFixed(2), x1 + x * dcell + dcell / 2, y0 + y * dcell + dcell / 2);
           ctx.font = "600 13.5px 'JetBrains Mono', monospace"; ctx.textAlign = "left"; ctx.textBaseline = "top";

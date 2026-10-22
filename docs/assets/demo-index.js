@@ -1,5 +1,6 @@
 (function () {
   "use strict";
+  const C = window.Site.C;
   const P = () => window.Site.PALETTE;
 
   /* ---------------- hero: ambient spike raster ---------------- */
@@ -26,11 +27,11 @@
       for (const s of spikes) {
         const y = s.row * rowH + rowH / 2;
         const g = ctx.createLinearGradient(s.x - 26, 0, s.x, 0);
-        g.addColorStop(0, "rgba(236,231,222,0)");
-        g.addColorStop(1, "rgba(236,231,222,.35)");
+        g.addColorStop(0, Site.a(C.s1, 0));
+        g.addColorStop(1, Site.a(C.s1, .35));
         ctx.fillStyle = g;
         ctx.fillRect(s.x - 26, y - 0.6, 26, 1.2);
-        ctx.fillStyle = "rgba(224,169,79,.8)";
+        ctx.fillStyle = Site.a(C.accent, .8);
         ctx.fillRect(s.x, y - 2.6, 1.8, 5.2);
       }
       requestAnimationFrame(tick);

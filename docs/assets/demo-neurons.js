@@ -1,5 +1,6 @@
 (function () {
   "use strict";
+  const C = window.Site.C;
   const TAUS = SNN.HW_TAU_CHOICES;
   const P = () => window.Site.PALETTE;
 
@@ -42,14 +43,14 @@
       ctx.font = "12.5px 'JetBrains Mono', monospace";
 
       // shared input row
-      ctx.fillStyle = "#e0a94f"; ctx.textAlign = "left"; ctx.textBaseline = "top";
+      ctx.fillStyle = C.accent; ctx.textAlign = "left"; ctx.textBaseline = "top";
       ctx.fillText("shared input", padL, 2);
       for (let t = 0; t < T; t++) if (input[t]) ctx.fillRect(padL + t * dx, 14, Math.max(2, dx * 0.5), 11);
 
       function tracePanel(y0, y1, vs, ss, color, label) {
         const vmax = Math.max(1.35, ...vs) * 1.05;
         const Y = v => y1 - (Math.max(v, 0) / vmax) * (y1 - y0);
-        ctx.strokeStyle = "#e0a94f55"; ctx.setLineDash([4, 4]);
+        ctx.strokeStyle = Site.a(C.accent, .33); ctx.setLineDash([4, 4]);
         ctx.beginPath(); ctx.moveTo(padL, Y(1)); ctx.lineTo(w - 12, Y(1)); ctx.stroke();
         ctx.setLineDash([]);
         ctx.strokeStyle = color; ctx.lineWidth = 1.8; ctx.beginPath();
@@ -65,8 +66,8 @@
         ctx.fillStyle = color; ctx.textBaseline = "bottom";
         ctx.fillText(label, padL, y0 - 18);
       }
-      tracePanel(70, 175, sjV, sjS, "#ece7de", "library (charge→fire): v and spikes");
-      tracePanel(225, 322, hwV, hwS, "#e0a94f", "chip (fire→reset→leak→integrate): v and spikes");
+      tracePanel(70, 175, sjV, sjS, C.s1, "library (charge→fire): v and spikes");
+      tracePanel(225, 322, hwV, hwS, C.accent, "chip (fire→reset→leak→integrate): v and spikes");
 
       let agree = 0;
       for (let t = 0; t < T; t++) if (sjS[t] === hwS[t]) agree++;
@@ -99,8 +100,8 @@
       const dec = tau => { const ys = [1]; for (let t = 1; t < T; t++) ys.push(ys[t - 1] * (1 - 1 / tau)); return ys; };
       const xs = Array.from({ length: T }, (_, i) => i);
       window.Site.linePlot(cv, [
-        { xs, ys: dec(tauF), color: "#cf8763", width: 2, label: `learned τ=${tauF.toFixed(2)}`, dots: true, dotR: 2 },
-        { xs, ys: dec(leak), color: "#e0a94f", width: 2, dash: [6, 4], label: `on chip, τ=${leak}`, dots: true, dotR: 2 }
+        { xs, ys: dec(tauF), color: C.orange, width: 2, label: `learned τ=${tauF.toFixed(2)}`, dots: true, dotR: 2 },
+        { xs, ys: dec(leak), color: C.accent, width: 2, dash: [6, 4], label: `on chip, τ=${leak}`, dots: true, dotR: 2 }
       ], { height: 285, xlabel: "timestep", ylabel: "membrane (no input)", ymin: 0, ymax: 1 });
       els.out.textContent = tauF.toFixed(2);
       els.f.textContent = tauF.toFixed(2);
@@ -127,14 +128,14 @@
       const xs = [], ys = [];
       for (let r = -6; r <= 6.001; r += 0.1) { xs.push(r); ys.push(SNN.sigmoid(r)); }
       const plt = window.Site.linePlot(cv, [
-        { xs, ys, color: "#ece7de", width: 2, label: "θ = sigmoid(raw)" }
+        { xs, ys, color: C.s1, width: 2, label: "θ = sigmoid(raw)" }
       ], {
         height: 305, xlabel: "raw parameter (unconstrained)", ylabel: "θ",
         ymin: 0, ymax: 1.08,
-        hlines: [{ y: 1.0, color: "#cf6b58", label: "θ=1.0 → int 32767 (ceiling)" }]
+        hlines: [{ y: 1.0, color: C.red, label: "θ=1.0 → int 32767 (ceiling)" }]
       });
       // marker
-      plt.ctx.fillStyle = "#e0a94f";
+      plt.ctx.fillStyle = C.accent;
       plt.ctx.beginPath(); plt.ctx.arc(plt.X(raw), plt.Y(theta), 5, 0, Math.PI * 2); plt.ctx.fill();
       els.rawOut.textContent = raw.toFixed(1);
       els.theta.textContent = theta.toFixed(5);

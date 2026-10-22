@@ -1,5 +1,6 @@
 (function () {
   "use strict";
+  const C = window.Site.C;
   const $ = id => document.getElementById(id);
 
   /* ---------- 6.3 ASHA simulator ---------- */
@@ -54,7 +55,7 @@
       const X = e => padL + e / (epochs - 1) * (W - padL - 12);
       const Y = a => padT + (1 - a) * (H - padT - padB);
       // axes
-      ctx.strokeStyle = "#2a272455"; ctx.fillStyle = "#a7a29a";
+      ctx.strokeStyle = C.grid; ctx.fillStyle = C.muted;
       ctx.font = "12.5px 'JetBrains Mono', monospace";
       [0, 0.25, 0.5, 0.75, 1].forEach(t => {
         ctx.beginPath(); ctx.moveTo(padL, Y(t)); ctx.lineTo(W - 12, Y(t)); ctx.stroke();
@@ -62,10 +63,10 @@
       });
       // rungs
       rungs.forEach(rg => {
-        ctx.strokeStyle = "#e0a94f"; ctx.setLineDash([5, 4]);
+        ctx.strokeStyle = C.accent; ctx.setLineDash([5, 4]);
         ctx.beginPath(); ctx.moveTo(X(rg - 1), padT); ctx.lineTo(X(rg - 1), H - padB); ctx.stroke();
         ctx.setLineDash([]);
-        ctx.fillStyle = "#e0a94f"; ctx.textAlign = "center"; ctx.textBaseline = "top";
+        ctx.fillStyle = C.accent; ctx.textAlign = "center"; ctx.textBaseline = "top";
         ctx.fillText("rung@" + rg, X(rg - 1), H - padB + 6);
       });
       // curves
@@ -74,7 +75,7 @@
         cost += t.aliveUntil;
         const dead = t.aliveUntil < epochs;
         if (!dead) finished++;
-        ctx.strokeStyle = dead ? "#33302c55" : (t.cap > 0.85 ? "#9bb17a" : "#ece7de");
+        ctx.strokeStyle = dead ? C.grid : (t.cap > 0.85 ? C.green : C.s1);
         ctx.lineWidth = dead ? 1 : 1.6;
         ctx.beginPath();
         for (let e = 0; e < t.aliveUntil; e++) {
@@ -83,7 +84,7 @@
         }
         ctx.stroke();
         if (dead) {
-          ctx.fillStyle = "#cf6b58";
+          ctx.fillStyle = C.red;
           ctx.beginPath(); ctx.arc(X(t.aliveUntil - 1), Y(t.ys[t.aliveUntil - 1]), 2.6, 0, Math.PI * 2); ctx.fill();
         }
       });

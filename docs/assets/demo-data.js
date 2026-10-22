@@ -26,11 +26,14 @@
     let clip = G.makeClip(kind), simT = 0, idx = 0;
     const readout = document.getElementById("dvs-readout");
     let winCount = [], lastShown = 0;
+    const bg = Site.rgb(C.bg), on1 = Site.rgb(C.accent), off1 = Site.rgb(C.rust);
     function render() {
       for (let i = 0; i < RES * RES; i++) {
-        const a = Math.min(1, onB[i]), b = Math.min(1, offB[i]), k = i * 4;
-        img.data[k] = 6 + 218 * a + 186 * b; img.data[k + 1] = 6 + 163 * a + 116 * b;
-        img.data[k + 2] = 6 + 73 * a + 86 * b; img.data[k + 3] = 255;
+        let a = Math.min(1, onB[i]), b = Math.min(1, offB[i]), k = i * 4;
+        if (a + b > 1) { const s = a + b; a /= s; b /= s; }   // a pixel with both kinds: mix, never past the colors
+        for (let ch = 0; ch < 3; ch++)
+          img.data[k + ch] = Math.max(0, Math.min(255, bg[ch] + a * (on1[ch] - bg[ch]) + b * (off1[ch] - bg[ch])));
+        img.data[k + 3] = 255;
       }
       ctx.putImageData(img, 0, 0);
     }
@@ -85,7 +88,7 @@
       const B = 140, hist = new Array(B).fill(0);
       for (let i = 0; i < clip.n; i++) hist[Math.min(B - 1, Math.floor(clip.t[i] / clip.dur * B))]++;
       const mx = Math.max(...hist), bw = (w - 20) / B;
-      ctx.fillStyle = "rgba(236,231,222,.45)";
+      ctx.fillStyle = Site.a(C.s1, .45);
       hist.forEach((v, k) => { const bh = v / mx * (h - 26); ctx.fillRect(10 + k * bw, h - 18 - bh, Math.max(1, bw - 0.5), bh); });
       ctx.strokeStyle = C.accent; ctx.lineWidth = 1;
       for (let k = 1; k < Tn; k++) {
@@ -128,7 +131,7 @@
       const largest = Math.floor(Math.sqrt(lim / (2 * bits)));
       const s = L.svg(bar, 760, 82, "Input axons used against the chip's limit");
       const X = v => 10 + Math.min(1, v / 34000) * 740;
-      S("rect", { x: 10, y: 18, width: 740, height: 18, fill: "rgba(255,255,255,.05)" }, s);
+      S("rect", { x: 10, y: 18, width: 740, height: 18, fill: Site.a(C.ink, .05) }, s);
       S("rect", { x: 10, y: 18, width: X(axons) - 10, height: 18, fill: fits ? C.green : C.red }, s);
       S("line", { x1: X(lim), y1: 10, x2: X(lim), y2: 44, stroke: C.accent, "stroke-width": 2 }, s);
       T(s, X(lim) + 4, 14, "limit 16,000", "lt-a");
@@ -287,7 +290,7 @@
       const c = document.createElement("canvas"), gap = 3, W = 3 * N + 2 * gap;
       c.width = W; c.height = N;
       const ctx = c.getContext("2d");
-      ctx.fillStyle = "#000"; ctx.fillRect(0, 0, W, N);
+      ctx.fillStyle = C.bg; ctx.fillRect(0, 0, W, N);
       frs.forEach((f, k) => {
         const t = document.createElement("canvas");
         G.paint(t, f.on, f.off, N, 1);

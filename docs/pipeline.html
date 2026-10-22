@@ -10,6 +10,7 @@
 <link href="https://fonts.googleapis.com" rel="preconnect"/>
 <link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&amp;family=JetBrains+Mono:ital,wght@0,400;0,600;0,700;1,400&amp;display=swap" rel="stylesheet"/>
+<script>try{if(localStorage.getItem("theme")==="dark")document.documentElement.dataset.theme="dark"}catch(e){}</script>
 <link href="assets/style.css" rel="stylesheet"/>
 <link href="assets/learn.css" rel="stylesheet"/>
 </head>
@@ -98,7 +99,7 @@
 <details class="technical-details"><summary>Other schedules for the switch</summary><div class="detail-body">
 <p>Switching a quarter of the way through is the default. The tool can also train entirely with ordinary weights and round once at the end, which shows how much conversion costs a network that never saw it, or round at the end and then train a few more epochs as a repair. Both lose more accuracy than training most of the run on the grid.</p>
 </div></details>
-<aside class="aka" data-viz="curve" data-mark="deployed"><div class="aka-head"><span class="aka-k">In the search records</span><code class="aka-name">epochs</code><code class="aka-name">epochs_run</code></div><p>The example network's real training run: <b><code>epochs</code> = 80</b>, the first 20 on ordinary weights. <code>epochs_run</code> = 80 says it was not stopped early. Training accuracy (pale) climbs to 99.7% while validation accuracy (amber) levels off near 74%, the gap <a href="data.html#overfit">page B</a> calls overfitting.</p><div class="aka-viz"></div></aside>
+<aside class="aka" data-viz="curve" data-mark="deployed"><div class="aka-head"><span class="aka-k">In the search records</span><code class="aka-name">epochs</code><code class="aka-name">epochs_run</code></div><p>The example network's real training run: <b><code>epochs</code> = 80</b>, the first 20 on ordinary weights. <code>epochs_run</code> = 80 says it was not stopped early. Training accuracy (<span class="cw" data-c="s1">dark gray</span>) climbs to 99.7% while validation accuracy (<span class="cw" data-c="accent">blue</span>) levels off near 74%, the gap <a href="data.html#overfit">page B</a> calls overfitting.</p><div class="aka-viz"></div></aside>
 
 </section>
 
@@ -187,7 +188,7 @@
 <div class="demo-head">
 <span class="demo-tag">INTERACTIVE</span>
 <span class="demo-title">The sampler choosing a learning rate</span>
-<span class="demo-sub">Dots are finished trials. Amber dots are the best tenth. The amber curve is where good trials sit and the grey curve where the rest sit; the dashed line is the next value the sampler will try, where the amber curve is highest relative to the grey one.</span>
+<span class="demo-sub">Dots are finished trials. <span class="cw" data-c="accent">Blue</span> dots are the best tenth. The <span class="cw" data-c="accent">blue</span> curve is where good trials sit and the <span class="cw" data-c="muted">gray</span> curve where the rest sit; the dashed line is the next value the sampler will try, where the <span class="cw" data-c="accent">blue</span> curve is highest relative to the <span class="cw" data-c="muted">gray</span> one.</span>
 </div>
 <div class="demo-body">
 <canvas id="tpe-canvas"></canvas>
@@ -210,7 +211,7 @@
 <div class="demo-head">
 <span class="demo-tag">ANIMATION</span>
 <span class="demo-title">Twelve trials meeting the checkpoint</span>
-<span class="demo-sub">Each line is one trial's validation accuracy. Grey lines are trials from the designed block, which always run to the end. At epoch 30 the others are ranked, and the bottom two thirds stop.</span>
+<span class="demo-sub">Each line is one trial's validation accuracy. <span class="cw" data-c="muted">Gray</span> lines are trials from the designed block, which always run to the end. At epoch 30 the others are ranked, and the bottom two thirds stop.</span>
 </div>
 <div class="demo-body">
 <canvas id="asha-canvas"></canvas>
@@ -243,7 +244,7 @@
       effect, which is the behavior a longer grace period guards against.
     </div>
 </div>
-<aside class="aka" data-viz="curve" data-mark="float"><div class="aka-head"><span class="aka-k">In the search records</span><code class="aka-name">float_val_accuracy</code><code class="aka-name">stopped_early</code></div><p>Early stopping judges a trial by its validation score during training, measured after every epoch: the amber line. The record also keeps <b><code>float_val_accuracy</code> = 0.679</b>, the example network's best score during the warm-up (the first quarter of training, before the switch to whole-number weights), drawn as the dashed green line. <code>stopped_early</code> = True would mean ASHA cut the trial at epoch 30; five of the first 39 sampled trials were cut there.</p><div class="aka-viz"></div></aside>
+<aside class="aka" data-viz="curve" data-mark="float"><div class="aka-head"><span class="aka-k">In the search records</span><code class="aka-name">float_val_accuracy</code><code class="aka-name">stopped_early</code></div><p>Early stopping judges a trial by its validation score during training, measured after every epoch: the <span class="cw" data-c="accent">blue</span> line. The record also keeps <b><code>float_val_accuracy</code> = 0.679</b>, the example network's best score during the warm-up (the first quarter of training, before the switch to whole-number weights), drawn as the dashed <span class="cw" data-c="green">green</span> line. <code>stopped_early</code> = True would mean ASHA cut the trial at epoch 30; five of the first 39 sampled trials were cut there.</p><div class="aka-viz"></div></aside>
 
 </section>
 
@@ -262,7 +263,7 @@
 <div class="demo-head">
 <span class="demo-tag">ANIMATION</span>
 <span class="demo-title">A search over time</span>
-<span class="demo-sub">Each bar is one trial. The picture runs two at a time; a real search runs as many at once as its GPUs can hold. Grey bars are the designed block, amber bars are trials the sampler proposed, short red bars were stopped at epoch 30, and ticks on the bottom lane were rejected by the chip check without training. The line on top is the best score so far.</span>
+<span class="demo-sub">Each bar is one trial. The picture runs two at a time; a real search runs as many at once as its GPUs can hold. <span class="cw" data-c="muted">Gray</span> bars are the designed block, <span class="cw" data-c="accent">blue</span> bars are trials the sampler proposed, short <span class="cw" data-c="red">red</span> bars were stopped at epoch 30, and ticks on the bottom lane were rejected by the chip check without training. The line on top is the best score so far.</span>
 </div>
 <div class="demo-body">
 <canvas id="tl-canvas"></canvas>
@@ -280,163 +281,163 @@
 <p>Everything above is running on the gesture task now: one search of 400 trials, each trained for up to 80 epochs, with T chosen from 16, 24, 32 and 48 frames. This section is a snapshot taken on October 18, 2026, when 163 trials had finished. Pages D and E report what its first 96 trials showed about each setting, and <a href="results.html">page H</a> collects the best networks.</p>
 <div class="stats"><div class="stat"><div class="k">Trials finished</div><div class="val">163 of 400</div></div><div class="stat"><div class="k">Rejected by the chip check</div><div class="val">28</div></div><div class="stat"><div class="k">Stopped at epoch 30</div><div class="val">5</div></div><div class="stat"><div class="k">Best validation score</div><div class="val acc">0.745</div></div></div>
 <figure class="figure"><div class="figure-scroll lv"><svg viewBox="0 0 840 300" role="img" aria-label="Validation accuracy of every trained network in the search so far">
-<line x1="60.0" x2="60.0" y1="20" y2="130" stroke="rgba(255,255,255,0.075)"/><line x1="60.0" x2="60.0" y1="152" y2="238" stroke="rgba(255,255,255,0.075)"/>
+<line x1="60.0" x2="60.0" y1="20" y2="130" stroke="var(--line-soft)"/><line x1="60.0" x2="60.0" y1="152" y2="238" stroke="var(--line-soft)"/>
 <text x="60.0" y="280" class="lt-ms mid">0%</text>
-<line x1="153.8" x2="153.8" y1="20" y2="130" stroke="rgba(255,255,255,0.075)"/><line x1="153.8" x2="153.8" y1="152" y2="238" stroke="rgba(255,255,255,0.075)"/>
+<line x1="153.8" x2="153.8" y1="20" y2="130" stroke="var(--line-soft)"/><line x1="153.8" x2="153.8" y1="152" y2="238" stroke="var(--line-soft)"/>
 <text x="153.8" y="280" class="lt-ms mid">10%</text>
-<line x1="247.5" x2="247.5" y1="20" y2="130" stroke="rgba(255,255,255,0.075)"/><line x1="247.5" x2="247.5" y1="152" y2="238" stroke="rgba(255,255,255,0.075)"/>
+<line x1="247.5" x2="247.5" y1="20" y2="130" stroke="var(--line-soft)"/><line x1="247.5" x2="247.5" y1="152" y2="238" stroke="var(--line-soft)"/>
 <text x="247.5" y="280" class="lt-ms mid">20%</text>
-<line x1="341.2" x2="341.2" y1="20" y2="130" stroke="rgba(255,255,255,0.075)"/><line x1="341.2" x2="341.2" y1="152" y2="238" stroke="rgba(255,255,255,0.075)"/>
+<line x1="341.2" x2="341.2" y1="20" y2="130" stroke="var(--line-soft)"/><line x1="341.2" x2="341.2" y1="152" y2="238" stroke="var(--line-soft)"/>
 <text x="341.2" y="280" class="lt-ms mid">30%</text>
-<line x1="435.0" x2="435.0" y1="20" y2="130" stroke="rgba(255,255,255,0.075)"/><line x1="435.0" x2="435.0" y1="152" y2="238" stroke="rgba(255,255,255,0.075)"/>
+<line x1="435.0" x2="435.0" y1="20" y2="130" stroke="var(--line-soft)"/><line x1="435.0" x2="435.0" y1="152" y2="238" stroke="var(--line-soft)"/>
 <text x="435.0" y="280" class="lt-ms mid">40%</text>
-<line x1="528.8" x2="528.8" y1="20" y2="130" stroke="rgba(255,255,255,0.075)"/><line x1="528.8" x2="528.8" y1="152" y2="238" stroke="rgba(255,255,255,0.075)"/>
+<line x1="528.8" x2="528.8" y1="20" y2="130" stroke="var(--line-soft)"/><line x1="528.8" x2="528.8" y1="152" y2="238" stroke="var(--line-soft)"/>
 <text x="528.8" y="280" class="lt-ms mid">50%</text>
-<line x1="622.5" x2="622.5" y1="20" y2="130" stroke="rgba(255,255,255,0.075)"/><line x1="622.5" x2="622.5" y1="152" y2="238" stroke="rgba(255,255,255,0.075)"/>
+<line x1="622.5" x2="622.5" y1="20" y2="130" stroke="var(--line-soft)"/><line x1="622.5" x2="622.5" y1="152" y2="238" stroke="var(--line-soft)"/>
 <text x="622.5" y="280" class="lt-ms mid">60%</text>
-<line x1="716.2" x2="716.2" y1="20" y2="130" stroke="rgba(255,255,255,0.075)"/><line x1="716.2" x2="716.2" y1="152" y2="238" stroke="rgba(255,255,255,0.075)"/>
+<line x1="716.2" x2="716.2" y1="20" y2="130" stroke="var(--line-soft)"/><line x1="716.2" x2="716.2" y1="152" y2="238" stroke="var(--line-soft)"/>
 <text x="716.2" y="280" class="lt-ms mid">70%</text>
-<line x1="810.0" x2="810.0" y1="20" y2="130" stroke="rgba(255,255,255,0.075)"/><line x1="810.0" x2="810.0" y1="152" y2="238" stroke="rgba(255,255,255,0.075)"/>
+<line x1="810.0" x2="810.0" y1="20" y2="130" stroke="var(--line-soft)"/><line x1="810.0" x2="810.0" y1="152" y2="238" stroke="var(--line-soft)"/>
 <text x="810.0" y="280" class="lt-ms mid">80%</text>
 <text x="435.0" y="297" class="lt-ms mid">validation accuracy</text>
-<circle cx="153.8" cy="123.0" r="3.6" fill="#e0a94f"/>
-<circle cx="165.5" cy="123.0" r="3.6" fill="#e0a94f"/>
-<circle cx="247.5" cy="123.0" r="3.6" fill="#e0a94f"/>
-<circle cx="259.2" cy="123.0" r="3.6" fill="#e0a94f"/>
-<circle cx="259.2" cy="114.0" r="3.6" fill="#e0a94f"/>
-<circle cx="294.4" cy="123.0" r="3.6" fill="#e0a94f"/>
-<circle cx="329.5" cy="123.0" r="3.6" fill="#e0a94f"/>
-<circle cx="341.2" cy="123.0" r="3.6" fill="#e0a94f"/>
-<circle cx="353.0" cy="123.0" r="3.6" fill="#e0a94f"/>
-<circle cx="376.4" cy="123.0" r="3.6" fill="#e0a94f"/>
-<circle cx="376.4" cy="114.0" r="3.6" fill="#e0a94f"/>
-<circle cx="388.1" cy="123.0" r="3.6" fill="#e0a94f"/>
-<circle cx="399.8" cy="123.0" r="3.6" fill="#e0a94f"/>
-<circle cx="411.6" cy="123.0" r="3.6" fill="#e0a94f"/>
-<circle cx="435.0" cy="123.0" r="3.6" fill="#e0a94f"/>
-<circle cx="470.2" cy="123.0" r="3.6" fill="#e0a94f"/>
-<circle cx="481.9" cy="123.0" r="3.6" fill="#e0a94f"/>
-<circle cx="481.9" cy="114.0" r="3.6" fill="#e0a94f"/>
-<circle cx="481.9" cy="105.0" r="3.6" fill="#e0a94f"/>
-<circle cx="493.6" cy="123.0" r="3.6" fill="#e0a94f"/>
-<circle cx="493.6" cy="114.0" r="3.6" fill="#e0a94f"/>
-<circle cx="505.3" cy="123.0" r="3.6" fill="#e0a94f"/>
-<circle cx="505.3" cy="114.0" r="3.6" fill="#e0a94f"/>
-<circle cx="505.3" cy="105.0" r="3.6" fill="#e0a94f"/>
-<circle cx="528.8" cy="123.0" r="3.6" fill="#e0a94f"/>
-<circle cx="528.8" cy="114.0" r="3.6" fill="#e0a94f"/>
-<circle cx="528.8" cy="105.0" r="3.6" fill="#e0a94f"/>
-<circle cx="540.5" cy="123.0" r="3.6" fill="#e0a94f"/>
-<circle cx="540.5" cy="114.0" r="3.6" fill="#e0a94f"/>
-<circle cx="552.2" cy="123.0" r="3.6" fill="#e0a94f"/>
-<circle cx="552.2" cy="114.0" r="3.6" fill="#e0a94f"/>
-<circle cx="552.2" cy="105.0" r="3.6" fill="#e0a94f"/>
-<circle cx="552.2" cy="96.0" r="3.6" fill="#e0a94f"/>
-<circle cx="552.2" cy="87.0" r="3.6" fill="#e0a94f"/>
-<circle cx="552.2" cy="78.0" r="3.6" fill="#e0a94f"/>
-<circle cx="563.9" cy="123.0" r="3.6" fill="#e0a94f"/>
-<circle cx="563.9" cy="114.0" r="3.6" fill="#e0a94f"/>
-<circle cx="563.9" cy="105.0" r="3.6" fill="#e0a94f"/>
-<circle cx="563.9" cy="96.0" r="3.6" fill="#e0a94f"/>
-<circle cx="563.9" cy="87.0" r="3.6" fill="#e0a94f"/>
-<circle cx="575.6" cy="123.0" r="3.6" fill="#e0a94f"/>
-<circle cx="575.6" cy="114.0" r="3.6" fill="#e0a94f"/>
-<circle cx="575.6" cy="105.0" r="3.6" fill="#e0a94f"/>
-<circle cx="575.6" cy="96.0" r="3.6" fill="#e0a94f"/>
-<circle cx="575.6" cy="87.0" r="3.6" fill="#e0a94f"/>
-<circle cx="575.6" cy="78.0" r="3.6" fill="#e0a94f"/>
-<circle cx="575.6" cy="69.0" r="3.6" fill="#e0a94f"/>
-<circle cx="575.6" cy="60.0" r="3.6" fill="#e0a94f"/>
-<circle cx="587.3" cy="123.0" r="3.6" fill="#e0a94f"/>
-<circle cx="587.3" cy="114.0" r="3.6" fill="#e0a94f"/>
-<circle cx="587.3" cy="105.0" r="3.6" fill="#e0a94f"/>
-<circle cx="587.3" cy="96.0" r="3.6" fill="#e0a94f"/>
-<circle cx="587.3" cy="87.0" r="3.6" fill="#e0a94f"/>
-<circle cx="599.1" cy="123.0" r="3.6" fill="#e0a94f"/>
-<circle cx="599.1" cy="114.0" r="3.6" fill="#e0a94f"/>
-<circle cx="599.1" cy="105.0" r="3.6" fill="#e0a94f"/>
-<circle cx="599.1" cy="96.0" r="3.6" fill="#e0a94f"/>
-<circle cx="599.1" cy="87.0" r="3.6" fill="#e0a94f"/>
-<circle cx="599.1" cy="78.0" r="3.6" fill="#e0a94f"/>
-<circle cx="610.8" cy="123.0" r="3.6" fill="#e0a94f"/>
-<circle cx="610.8" cy="114.0" r="3.6" fill="#e0a94f"/>
-<circle cx="610.8" cy="105.0" r="3.6" fill="#e0a94f"/>
-<circle cx="622.5" cy="123.0" r="3.6" fill="#e0a94f"/>
-<circle cx="622.5" cy="114.0" r="3.6" fill="#e0a94f"/>
-<circle cx="622.5" cy="105.0" r="3.6" fill="#e0a94f"/>
-<circle cx="622.5" cy="96.0" r="3.6" fill="#e0a94f"/>
-<circle cx="622.5" cy="87.0" r="3.6" fill="#e0a94f"/>
-<circle cx="622.5" cy="78.0" r="3.6" fill="#e0a94f"/>
-<circle cx="634.2" cy="123.0" r="3.6" fill="#e0a94f"/>
-<circle cx="634.2" cy="114.0" r="3.6" fill="#e0a94f"/>
-<circle cx="634.2" cy="105.0" r="3.6" fill="#e0a94f"/>
-<circle cx="634.2" cy="96.0" r="3.6" fill="#e0a94f"/>
-<circle cx="634.2" cy="87.0" r="3.6" fill="#e0a94f"/>
-<circle cx="634.2" cy="78.0" r="3.6" fill="#e0a94f"/>
-<circle cx="645.9" cy="123.0" r="3.6" fill="#e0a94f"/>
-<circle cx="645.9" cy="114.0" r="3.6" fill="#e0a94f"/>
-<circle cx="657.7" cy="123.0" r="3.6" fill="#e0a94f"/>
-<circle cx="657.7" cy="114.0" r="3.6" fill="#e0a94f"/>
-<circle cx="669.4" cy="123.0" r="3.6" fill="#e0a94f"/>
-<circle cx="669.4" cy="114.0" r="3.6" fill="#e0a94f"/>
-<circle cx="669.4" cy="105.0" r="3.6" fill="#e0a94f"/>
-<circle cx="669.4" cy="96.0" r="3.6" fill="#e0a94f"/>
-<circle cx="681.1" cy="123.0" r="3.6" fill="#e0a94f"/>
-<circle cx="681.1" cy="114.0" r="3.6" fill="#e0a94f"/>
-<circle cx="681.1" cy="105.0" r="3.6" fill="#e0a94f"/>
-<circle cx="681.1" cy="96.0" r="3.6" fill="#e0a94f"/>
-<circle cx="692.8" cy="123.0" r="3.6" fill="#e0a94f"/>
-<circle cx="692.8" cy="114.0" r="3.6" fill="#e0a94f"/>
-<circle cx="692.8" cy="105.0" r="3.6" fill="#e0a94f"/>
-<circle cx="704.5" cy="123.0" r="3.6" fill="#e0a94f"/>
-<circle cx="704.5" cy="114.0" r="3.6" fill="#e0a94f"/>
-<circle cx="704.5" cy="105.0" r="3.6" fill="#e0a94f"/>
-<circle cx="704.5" cy="96.0" r="3.6" fill="#e0a94f"/>
-<circle cx="704.5" cy="87.0" r="3.6" fill="#e0a94f"/>
-<circle cx="704.5" cy="78.0" r="3.6" fill="#e0a94f"/>
-<circle cx="763.1" cy="123.0" r="3.6" fill="#e0a94f"/>
+<circle cx="153.8" cy="123.0" r="3.6" fill="var(--accent)"/>
+<circle cx="165.5" cy="123.0" r="3.6" fill="var(--accent)"/>
+<circle cx="247.5" cy="123.0" r="3.6" fill="var(--accent)"/>
+<circle cx="259.2" cy="123.0" r="3.6" fill="var(--accent)"/>
+<circle cx="259.2" cy="114.0" r="3.6" fill="var(--accent)"/>
+<circle cx="294.4" cy="123.0" r="3.6" fill="var(--accent)"/>
+<circle cx="329.5" cy="123.0" r="3.6" fill="var(--accent)"/>
+<circle cx="341.2" cy="123.0" r="3.6" fill="var(--accent)"/>
+<circle cx="353.0" cy="123.0" r="3.6" fill="var(--accent)"/>
+<circle cx="376.4" cy="123.0" r="3.6" fill="var(--accent)"/>
+<circle cx="376.4" cy="114.0" r="3.6" fill="var(--accent)"/>
+<circle cx="388.1" cy="123.0" r="3.6" fill="var(--accent)"/>
+<circle cx="399.8" cy="123.0" r="3.6" fill="var(--accent)"/>
+<circle cx="411.6" cy="123.0" r="3.6" fill="var(--accent)"/>
+<circle cx="435.0" cy="123.0" r="3.6" fill="var(--accent)"/>
+<circle cx="470.2" cy="123.0" r="3.6" fill="var(--accent)"/>
+<circle cx="481.9" cy="123.0" r="3.6" fill="var(--accent)"/>
+<circle cx="481.9" cy="114.0" r="3.6" fill="var(--accent)"/>
+<circle cx="481.9" cy="105.0" r="3.6" fill="var(--accent)"/>
+<circle cx="493.6" cy="123.0" r="3.6" fill="var(--accent)"/>
+<circle cx="493.6" cy="114.0" r="3.6" fill="var(--accent)"/>
+<circle cx="505.3" cy="123.0" r="3.6" fill="var(--accent)"/>
+<circle cx="505.3" cy="114.0" r="3.6" fill="var(--accent)"/>
+<circle cx="505.3" cy="105.0" r="3.6" fill="var(--accent)"/>
+<circle cx="528.8" cy="123.0" r="3.6" fill="var(--accent)"/>
+<circle cx="528.8" cy="114.0" r="3.6" fill="var(--accent)"/>
+<circle cx="528.8" cy="105.0" r="3.6" fill="var(--accent)"/>
+<circle cx="540.5" cy="123.0" r="3.6" fill="var(--accent)"/>
+<circle cx="540.5" cy="114.0" r="3.6" fill="var(--accent)"/>
+<circle cx="552.2" cy="123.0" r="3.6" fill="var(--accent)"/>
+<circle cx="552.2" cy="114.0" r="3.6" fill="var(--accent)"/>
+<circle cx="552.2" cy="105.0" r="3.6" fill="var(--accent)"/>
+<circle cx="552.2" cy="96.0" r="3.6" fill="var(--accent)"/>
+<circle cx="552.2" cy="87.0" r="3.6" fill="var(--accent)"/>
+<circle cx="552.2" cy="78.0" r="3.6" fill="var(--accent)"/>
+<circle cx="563.9" cy="123.0" r="3.6" fill="var(--accent)"/>
+<circle cx="563.9" cy="114.0" r="3.6" fill="var(--accent)"/>
+<circle cx="563.9" cy="105.0" r="3.6" fill="var(--accent)"/>
+<circle cx="563.9" cy="96.0" r="3.6" fill="var(--accent)"/>
+<circle cx="563.9" cy="87.0" r="3.6" fill="var(--accent)"/>
+<circle cx="575.6" cy="123.0" r="3.6" fill="var(--accent)"/>
+<circle cx="575.6" cy="114.0" r="3.6" fill="var(--accent)"/>
+<circle cx="575.6" cy="105.0" r="3.6" fill="var(--accent)"/>
+<circle cx="575.6" cy="96.0" r="3.6" fill="var(--accent)"/>
+<circle cx="575.6" cy="87.0" r="3.6" fill="var(--accent)"/>
+<circle cx="575.6" cy="78.0" r="3.6" fill="var(--accent)"/>
+<circle cx="575.6" cy="69.0" r="3.6" fill="var(--accent)"/>
+<circle cx="575.6" cy="60.0" r="3.6" fill="var(--accent)"/>
+<circle cx="587.3" cy="123.0" r="3.6" fill="var(--accent)"/>
+<circle cx="587.3" cy="114.0" r="3.6" fill="var(--accent)"/>
+<circle cx="587.3" cy="105.0" r="3.6" fill="var(--accent)"/>
+<circle cx="587.3" cy="96.0" r="3.6" fill="var(--accent)"/>
+<circle cx="587.3" cy="87.0" r="3.6" fill="var(--accent)"/>
+<circle cx="599.1" cy="123.0" r="3.6" fill="var(--accent)"/>
+<circle cx="599.1" cy="114.0" r="3.6" fill="var(--accent)"/>
+<circle cx="599.1" cy="105.0" r="3.6" fill="var(--accent)"/>
+<circle cx="599.1" cy="96.0" r="3.6" fill="var(--accent)"/>
+<circle cx="599.1" cy="87.0" r="3.6" fill="var(--accent)"/>
+<circle cx="599.1" cy="78.0" r="3.6" fill="var(--accent)"/>
+<circle cx="610.8" cy="123.0" r="3.6" fill="var(--accent)"/>
+<circle cx="610.8" cy="114.0" r="3.6" fill="var(--accent)"/>
+<circle cx="610.8" cy="105.0" r="3.6" fill="var(--accent)"/>
+<circle cx="622.5" cy="123.0" r="3.6" fill="var(--accent)"/>
+<circle cx="622.5" cy="114.0" r="3.6" fill="var(--accent)"/>
+<circle cx="622.5" cy="105.0" r="3.6" fill="var(--accent)"/>
+<circle cx="622.5" cy="96.0" r="3.6" fill="var(--accent)"/>
+<circle cx="622.5" cy="87.0" r="3.6" fill="var(--accent)"/>
+<circle cx="622.5" cy="78.0" r="3.6" fill="var(--accent)"/>
+<circle cx="634.2" cy="123.0" r="3.6" fill="var(--accent)"/>
+<circle cx="634.2" cy="114.0" r="3.6" fill="var(--accent)"/>
+<circle cx="634.2" cy="105.0" r="3.6" fill="var(--accent)"/>
+<circle cx="634.2" cy="96.0" r="3.6" fill="var(--accent)"/>
+<circle cx="634.2" cy="87.0" r="3.6" fill="var(--accent)"/>
+<circle cx="634.2" cy="78.0" r="3.6" fill="var(--accent)"/>
+<circle cx="645.9" cy="123.0" r="3.6" fill="var(--accent)"/>
+<circle cx="645.9" cy="114.0" r="3.6" fill="var(--accent)"/>
+<circle cx="657.7" cy="123.0" r="3.6" fill="var(--accent)"/>
+<circle cx="657.7" cy="114.0" r="3.6" fill="var(--accent)"/>
+<circle cx="669.4" cy="123.0" r="3.6" fill="var(--accent)"/>
+<circle cx="669.4" cy="114.0" r="3.6" fill="var(--accent)"/>
+<circle cx="669.4" cy="105.0" r="3.6" fill="var(--accent)"/>
+<circle cx="669.4" cy="96.0" r="3.6" fill="var(--accent)"/>
+<circle cx="681.1" cy="123.0" r="3.6" fill="var(--accent)"/>
+<circle cx="681.1" cy="114.0" r="3.6" fill="var(--accent)"/>
+<circle cx="681.1" cy="105.0" r="3.6" fill="var(--accent)"/>
+<circle cx="681.1" cy="96.0" r="3.6" fill="var(--accent)"/>
+<circle cx="692.8" cy="123.0" r="3.6" fill="var(--accent)"/>
+<circle cx="692.8" cy="114.0" r="3.6" fill="var(--accent)"/>
+<circle cx="692.8" cy="105.0" r="3.6" fill="var(--accent)"/>
+<circle cx="704.5" cy="123.0" r="3.6" fill="var(--accent)"/>
+<circle cx="704.5" cy="114.0" r="3.6" fill="var(--accent)"/>
+<circle cx="704.5" cy="105.0" r="3.6" fill="var(--accent)"/>
+<circle cx="704.5" cy="96.0" r="3.6" fill="var(--accent)"/>
+<circle cx="704.5" cy="87.0" r="3.6" fill="var(--accent)"/>
+<circle cx="704.5" cy="78.0" r="3.6" fill="var(--accent)"/>
+<circle cx="763.1" cy="123.0" r="3.6" fill="var(--accent)"/>
 <text x="60" y="144" class="lt-b">first 96 trials: the balanced block, every option equally often</text>
-<circle cx="505.3" cy="231.0" r="3.6" fill="none" stroke="#ece7de" stroke-width="1.4"/>
-<circle cx="575.6" cy="231.0" r="3.6" fill="none" stroke="#ece7de" stroke-width="1.4"/>
-<circle cx="587.3" cy="231.0" r="3.6" fill="none" stroke="#ece7de" stroke-width="1.4"/>
-<circle cx="599.1" cy="231.0" r="3.6" fill="none" stroke="#ece7de" stroke-width="1.4"/>
-<circle cx="599.1" cy="222.0" r="3.6" fill="none" stroke="#ece7de" stroke-width="1.4"/>
-<circle cx="634.2" cy="231.0" r="3.6" fill="#ece7de"/>
-<circle cx="657.7" cy="231.0" r="3.6" fill="#ece7de"/>
-<circle cx="657.7" cy="222.0" r="3.6" fill="#ece7de"/>
-<circle cx="669.4" cy="231.0" r="3.6" fill="#ece7de"/>
-<circle cx="681.1" cy="231.0" r="3.6" fill="#ece7de"/>
-<circle cx="681.1" cy="222.0" r="3.6" fill="#ece7de"/>
-<circle cx="681.1" cy="213.0" r="3.6" fill="#ece7de"/>
-<circle cx="681.1" cy="204.0" r="3.6" fill="#ece7de"/>
-<circle cx="681.1" cy="195.0" r="3.6" fill="#ece7de"/>
-<circle cx="704.5" cy="231.0" r="3.6" fill="#ece7de"/>
-<circle cx="704.5" cy="222.0" r="3.6" fill="#ece7de"/>
-<circle cx="704.5" cy="213.0" r="3.6" fill="#ece7de"/>
-<circle cx="704.5" cy="204.0" r="3.6" fill="#ece7de"/>
-<circle cx="704.5" cy="195.0" r="3.6" fill="#ece7de"/>
-<circle cx="704.5" cy="186.0" r="3.6" fill="#ece7de"/>
-<circle cx="704.5" cy="177.0" r="3.6" fill="#ece7de"/>
-<circle cx="704.5" cy="168.0" r="3.6" fill="#ece7de"/>
-<circle cx="716.2" cy="231.0" r="3.6" fill="#ece7de"/>
-<circle cx="716.2" cy="222.0" r="3.6" fill="#ece7de"/>
-<circle cx="716.2" cy="213.0" r="3.6" fill="#ece7de"/>
-<circle cx="716.2" cy="204.0" r="3.6" fill="#ece7de"/>
-<circle cx="716.2" cy="195.0" r="3.6" fill="#ece7de"/>
-<circle cx="716.2" cy="186.0" r="3.6" fill="#ece7de"/>
-<circle cx="716.2" cy="177.0" r="3.6" fill="#ece7de"/>
-<circle cx="728.0" cy="231.0" r="3.6" fill="#ece7de"/>
-<circle cx="728.0" cy="222.0" r="3.6" fill="#ece7de"/>
-<circle cx="728.0" cy="213.0" r="3.6" fill="#ece7de"/>
-<circle cx="728.0" cy="204.0" r="3.6" fill="#ece7de"/>
-<circle cx="728.0" cy="195.0" r="3.6" fill="#ece7de"/>
-<circle cx="728.0" cy="186.0" r="3.6" fill="#ece7de"/>
-<circle cx="739.7" cy="231.0" r="3.6" fill="#ece7de"/>
-<circle cx="739.7" cy="222.0" r="3.6" fill="#ece7de"/>
-<circle cx="739.7" cy="213.0" r="3.6" fill="#ece7de"/>
-<circle cx="751.4" cy="231.0" r="3.6" fill="#ece7de"/>
+<circle cx="505.3" cy="231.0" r="3.6" fill="none" stroke="var(--series-1)" stroke-width="1.4"/>
+<circle cx="575.6" cy="231.0" r="3.6" fill="none" stroke="var(--series-1)" stroke-width="1.4"/>
+<circle cx="587.3" cy="231.0" r="3.6" fill="none" stroke="var(--series-1)" stroke-width="1.4"/>
+<circle cx="599.1" cy="231.0" r="3.6" fill="none" stroke="var(--series-1)" stroke-width="1.4"/>
+<circle cx="599.1" cy="222.0" r="3.6" fill="none" stroke="var(--series-1)" stroke-width="1.4"/>
+<circle cx="634.2" cy="231.0" r="3.6" fill="var(--series-1)"/>
+<circle cx="657.7" cy="231.0" r="3.6" fill="var(--series-1)"/>
+<circle cx="657.7" cy="222.0" r="3.6" fill="var(--series-1)"/>
+<circle cx="669.4" cy="231.0" r="3.6" fill="var(--series-1)"/>
+<circle cx="681.1" cy="231.0" r="3.6" fill="var(--series-1)"/>
+<circle cx="681.1" cy="222.0" r="3.6" fill="var(--series-1)"/>
+<circle cx="681.1" cy="213.0" r="3.6" fill="var(--series-1)"/>
+<circle cx="681.1" cy="204.0" r="3.6" fill="var(--series-1)"/>
+<circle cx="681.1" cy="195.0" r="3.6" fill="var(--series-1)"/>
+<circle cx="704.5" cy="231.0" r="3.6" fill="var(--series-1)"/>
+<circle cx="704.5" cy="222.0" r="3.6" fill="var(--series-1)"/>
+<circle cx="704.5" cy="213.0" r="3.6" fill="var(--series-1)"/>
+<circle cx="704.5" cy="204.0" r="3.6" fill="var(--series-1)"/>
+<circle cx="704.5" cy="195.0" r="3.6" fill="var(--series-1)"/>
+<circle cx="704.5" cy="186.0" r="3.6" fill="var(--series-1)"/>
+<circle cx="704.5" cy="177.0" r="3.6" fill="var(--series-1)"/>
+<circle cx="704.5" cy="168.0" r="3.6" fill="var(--series-1)"/>
+<circle cx="716.2" cy="231.0" r="3.6" fill="var(--series-1)"/>
+<circle cx="716.2" cy="222.0" r="3.6" fill="var(--series-1)"/>
+<circle cx="716.2" cy="213.0" r="3.6" fill="var(--series-1)"/>
+<circle cx="716.2" cy="204.0" r="3.6" fill="var(--series-1)"/>
+<circle cx="716.2" cy="195.0" r="3.6" fill="var(--series-1)"/>
+<circle cx="716.2" cy="186.0" r="3.6" fill="var(--series-1)"/>
+<circle cx="716.2" cy="177.0" r="3.6" fill="var(--series-1)"/>
+<circle cx="728.0" cy="231.0" r="3.6" fill="var(--series-1)"/>
+<circle cx="728.0" cy="222.0" r="3.6" fill="var(--series-1)"/>
+<circle cx="728.0" cy="213.0" r="3.6" fill="var(--series-1)"/>
+<circle cx="728.0" cy="204.0" r="3.6" fill="var(--series-1)"/>
+<circle cx="728.0" cy="195.0" r="3.6" fill="var(--series-1)"/>
+<circle cx="728.0" cy="186.0" r="3.6" fill="var(--series-1)"/>
+<circle cx="739.7" cy="231.0" r="3.6" fill="var(--series-1)"/>
+<circle cx="739.7" cy="222.0" r="3.6" fill="var(--series-1)"/>
+<circle cx="739.7" cy="213.0" r="3.6" fill="var(--series-1)"/>
+<circle cx="751.4" cy="231.0" r="3.6" fill="var(--series-1)"/>
 <text x="60" y="252" class="lt-b">next 39 trained: proposed by the sampler (hollow: stopped at epoch 30)</text>
-<rect x="560" y="92" width="194" height="16" fill="#050505"/><text x="750.4" y="104" class="lt-a end">0.745: the example network</text>
+<rect x="560" y="92" width="194" height="16" fill="var(--viz-bg)"/><text x="750.4" y="104" class="lt-a end">0.745: the example network</text>
 </svg></div><figcaption>Every trained network so far, one dot each, placed by its deployed validation accuracy. The balanced block spreads widely, from 10% to 74.5%, because it deliberately includes bad options; the sampler's trials then crowd near the top.</figcaption></figure>
 <p>Five things stand out.</p>
 <ul>

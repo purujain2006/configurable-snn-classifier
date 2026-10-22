@@ -1,6 +1,7 @@
 /* demo-flush.js: how much evidence flush steps save (page A). */
 (function () {
   "use strict";
+  const C = window.Site.C;
   const $ = id => document.getElementById(id);
 
   /* ---------- evidence moving through the layers, with and without flush steps (page A) ---------- */
@@ -9,7 +10,7 @@
     if (!cv) return;
     const T = 8;
     let playT = -1, timer = null;
-    const COLORS = ["#cf6b58", "#c98a4e", "#e0a94f", "#a3a878", "#9bb17a", "#7f9c8b", "#ece7de", "#cf8763"];
+    const COLORS = C.frames;
 
     function draw() {
       const L = +$("fl-l").value;
@@ -26,7 +27,7 @@
 
       // row labels
       const labels = ["input frame"].concat(Array.from({ length: L }, (_, i) => "layer " + i)).concat(["output count"]);
-      ctx.fillStyle = "#a7a29a"; ctx.textAlign = "right"; ctx.textBaseline = "middle";
+      ctx.fillStyle = C.muted; ctx.textAlign = "right"; ctx.textBaseline = "middle";
       labels.forEach((lb, i) => ctx.fillText(lb, padL - 8, padT + i * rh + rh / 2));
 
       let reached = 0;
@@ -34,7 +35,7 @@
         const x = padL + t * cw;
         const inFlush = t >= T;
         // column header
-        ctx.fillStyle = inFlush ? "#e0a94f" : "#7d7871";
+        ctx.fillStyle = inFlush ? C.accent : C.faint;
         ctx.textAlign = "center"; ctx.textBaseline = "bottom";
         ctx.fillText(inFlush ? "∅" : "t" + t, x + cw / 2, padT - 4);
         const visible = playT < 0 || t <= playT;
@@ -42,12 +43,12 @@
           const y = padT + rI * rh;
           // stage rI at time t carries frame (t - rI) if 0 <= t-rI < T
           let frame = t - rI;
-          let fill = "#111110";
-          if (rI === 0) { frame = t; fill = (t < T) ? COLORS[t % COLORS.length] : "#111110"; }
-          else if (rI <= L) { fill = (frame >= 0 && frame < T) ? COLORS[frame % COLORS.length] : "#111110"; }
+          let fill = C.cell;
+          if (rI === 0) { frame = t; fill = (t < T) ? COLORS[t % COLORS.length] : C.cell; }
+          else if (rI <= L) { fill = (frame >= 0 && frame < T) ? COLORS[frame % COLORS.length] : C.cell; }
           else { // output row: frame arriving = t - L
             const fa = t - L;
-            fill = (fa >= 0 && fa < T) ? COLORS[fa % COLORS.length] : "#111110";
+            fill = (fa >= 0 && fa < T) ? COLORS[fa % COLORS.length] : C.cell;
             if (fa >= 0 && fa < T && visible) reached = Math.max(reached, fa + 1);
           }
           ctx.globalAlpha = visible ? 1 : 0.13;
@@ -56,16 +57,16 @@
           ctx.globalAlpha = 1;
         }
         if (inFlush) {
-          ctx.strokeStyle = "#e0a94f40";
+          ctx.strokeStyle = Site.a(C.accent, .25);
           ctx.strokeRect(x, padT, cw, rows * rh);
         }
       }
       // flush divider
-      ctx.strokeStyle = "#e0a94f"; ctx.setLineDash([4, 4]);
+      ctx.strokeStyle = C.accent; ctx.setLineDash([4, 4]);
       ctx.beginPath(); ctx.moveTo(padL + T * cw, padT - 14); ctx.lineTo(padL + T * cw, padT + rows * rh); ctx.stroke();
       ctx.setLineDash([]);
       if (doFlush) {
-        ctx.fillStyle = "#e0a94f"; ctx.textAlign = "left"; ctx.textBaseline = "bottom";
+        ctx.fillStyle = C.accent; ctx.textAlign = "left"; ctx.textBaseline = "bottom";
         ctx.fillText("← input ends · flush →", padL + T * cw + 4, padT - 14);
       }
 
