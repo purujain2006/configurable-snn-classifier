@@ -294,7 +294,7 @@
 
 <section class="reveal" id="work">
 <h2><span class="sec-num">A.9</span>Why spikes can save work</h2>
-<p>In an ordinary network every connection multiplies its input on every pass, whether or not the input carries anything. In a spiking network nothing happens unless a neuron fires, and a spike only adds its weight to the neurons it connects to. A layer in which few neurons fire does very little work. That is the case for neuromorphic hardware: the work, and so the energy, grows with activity rather than with the size of the network.</p>
+<p>In an ordinary network every connection multiplies its input on every pass, whether or not the input carries anything. This is called dense computation. In a spiking network nothing happens unless a neuron fires, and a spike only adds its weight to the neurons it connects to. A layer in which few neurons fire does very little work. That is the case for neuromorphic hardware: the work, and so the energy, grows with activity rather than with the size of the network.</p>
 <div class="demo" id="demo-work">
 <div class="demo-head">
 <span class="demo-tag">ANIMATION</span>
@@ -323,8 +323,98 @@
 <figure class="figure"><div class="figure-scroll lv" id="signed-vis"></div><figcaption>One signed unit fed a drive that swings positive and negative. The positive neuron fires during the positive stretches and the negative neuron during the negative ones; the unit's output is +1 or −1 accordingly.</figcaption></figure>
 <p>The second neuron's outgoing connections carry negated weights, so the next layer receives +w or −w. Every neuron of a signed unit connects to both neurons of each unit in the next layer, which is why the neurons double and the connections can quadruple, and the chip check (<a href="hardware.html#limits">page G</a>) counts them that way. A max pool stays exact with one OR neuron per sign.</p>
 <aside class="aka" data-viz="net" data-hl="signed_spikes"><div class="aka-head"><span class="aka-k">In the search records</span><button class="aka-name" data-hl="signed_spikes" type="button">signed_spikes</button></div><p><b><code>signed_spikes</code> = True</b> in the example network: every spiking layer, marked ±, is built from pairs of chip neurons.</p><div class="aka-viz"></div></aside>
-<div class="recap"><strong>In short</strong><p>An artificial neuron is a weighted sum and an activation, and a network is layers of them, trained by gradient descent on a loss. Convolutions reuse small kernels across the picture, stride and pooling shrink the maps, and the head turns maps into class scores. Spiking neurons and spiking convolutions do the same job with spikes over time: fire, reset, leak, integrate, and count the output spikes. Squeezing numbers into spikes rounds them and costs some accuracy. Training uses a smooth stand-in for the spike's slope.</p></div>
+
 </section>
+
+<section class="reveal" id="batchnorm">
+<h2><span class="sec-num">A.12</span>Keeping activity in range: batch normalization</h2>
+<div class="why"><span class="why-k">Why this exists</span><p>While a network trains, every layer's weights keep changing, so the size of the numbers each layer passes on keeps drifting. The next layer has to keep adjusting to a moving target, and training slows down or stalls. For a spiking neuron the drift is worse. Input that is too weak never reaches the threshold, and input that is too strong fires the neuron on every step. Either way the neuron tells the next layer nothing.</p></div>
+<p><strong>Batch normalization</strong>, usually shortened to batch norm, holds each channel's values in a steady range. During training it looks at one channel across the whole batch of examples and works out two numbers, the average of the values and their spread. The spread is the standard deviation, the typical distance of a value from the average. Batch norm subtracts the average and divides by the spread, so the values sit around 0 with a spread of 1. Then it multiplies by a learned scale γ (gamma) and adds a learned shift β (beta), so training can still pick a different range if one works better.</p>
+<p>While training, the average and spread come from the current batch, and batch norm keeps a running average of both. After training it uses those running averages, so for each channel it becomes one fixed multiply and one fixed add. That fixed form is what lets it be merged into the weights and thresholds before the network goes on the chip (<a href="hardware.html#folding">G.5</a>).</p>
+<p>Batch norm was designed for ordinary networks, where a layer runs once per example. A spiking layer runs once per timestep, and plain batch norm works out a separate average and spread for every step. <strong>tdBN</strong>, threshold-dependent batch normalization (Zheng and coauthors, 2021), is a version made for spiking networks. It works out one average and one spread over all the timesteps of the clip together. It also starts the spread of its output at α times the neuron's threshold θ, so a typical input is about the size of the threshold. The search tries α from 0.5 to 2, and training can still adjust the scale from there.</p>
+<div class="demo" id="demo-bn">
+<div class="demo-head">
+<span class="demo-tag">INTERACTIVE</span>
+<span class="demo-title">One channel's input, with and without normalization</span>
+<span class="demo-sub">The bars show how 400 values arriving at a spiking layer are spread out. The dashed line is the threshold θ, and values to its right make a neuron fire. Drag the drift slider to see what training does to a layer with no normalization, then switch normalization on.</span>
+</div>
+<div class="demo-body">
+<div class="controls">
+<div class="ctl"><label for="bn-drift">training drift <output id="bn-drift-out"></output></label><input id="bn-drift" max="4" min="-4" step="0.5" type="range" value="2"/></div>
+<div class="ctl"><label for="bn-theta">threshold θ <output id="bn-theta-out"></output></label><input id="bn-theta" max="1" min="0.25" step="0.05" type="range" value="1"/></div>
+<div class="seg" id="bn-mode"><button class="on" data-v="none" type="button">none</button><button data-v="bn" type="button">batch norm</button><button data-v="tdbn" type="button">tdBN</button></div>
+</div>
+<div class="lv" id="bn-vis"></div>
+<div class="play-row"><span class="readout" id="bn-readout"></span></div>
+</div>
+<div class="demo-note"><p>With no normalization, a little drift pushes almost every value below θ or above it. Batch norm keeps the values in the same range whatever the drift, but it ignores θ, so a lower threshold makes the neuron fire more often. tdBN follows θ, so the share of values above the threshold stays the same.</p></div>
+</div>
+</section>
+
+<section class="reveal" id="regularize">
+<h2><span class="sec-num">A.13</span>Making memorizing harder</h2>
+<div class="why"><span class="why-k">Why this exists</span><p>A network with many weights can memorize a small dataset, down to details that only belong to the people it trained on. It then does well on those people and worse on anyone new, which is called overfitting (page B). The tools below each make memorizing a little harder, so the network has to rely on what the gestures have in common. Together they are called regularization.</p></div>
+<dl class="kv">
+<dt>Dropout</dt><dd>On every training step a random set of units is switched off, a different set each step. The network cannot count on any one unit being there, so it learns several ways to reach the same answer. After training, every unit is on. The search tries switching off 10% to 45% of the classifier's inputs, and 5% to 30% of the units between convolution layers.</dd>
+<dt>Weight decay</dt><dd>On every step each weight is pulled a small amount toward zero. A weight stays large only if the training examples keep pushing it there, which makes it harder to build on rare details. One number sets the strength of the pull.</dd>
+<dt>Label smoothing</dt><dd>The usual target says the right gesture has probability 100% and every other gesture 0%. Label smoothing moves a little of that 100% onto the other gestures. With a smoothing of 0.11, the right gesture's target is 90% and each of the other ten gets 1%. The network is no longer rewarded for being completely certain, which tends to make it less overconfident with new people.</dd>
+<dt>Augmentation</dt><dd>Training clips are changed in ways that keep their label, for example shifted a few pixels, so the network never sees exactly the same clip twice (<a href="data.html#augment">B.7</a>).</dd>
+</dl>
+<div class="demo" id="demo-dropout">
+<div class="demo-head">
+<span class="demo-tag">ANIMATION</span>
+<span class="demo-title">Dropout on a small network</span>
+<span class="demo-sub">Each training step switches off a different random 30% of the hidden units, shown crossed out, along with their connections. After training, every unit is used.</span>
+</div>
+<div class="demo-body">
+<div class="lv" id="dropout-vis"></div>
+<div class="play-row"><button class="btn primary" id="dropout-play" type="button">Play</button><div class="seg" id="dropout-mode"><button class="on" data-v="train" type="button">training</button><button data-v="after" type="button">after training</button></div><span class="readout" id="dropout-readout"></span></div>
+</div>
+</div>
+</section>
+
+<section class="reveal" id="optimizers">
+<h2><span class="sec-num">A.14</span>Taking better steps</h2>
+<div class="why"><span class="why-k">Why this exists</span><p>Plain gradient descent (<a href="#learning">A.3</a>) moves every weight by the same multiple of its gradient. Where the loss forms a long, narrow valley, the steep direction makes it bounce from wall to wall while it crawls along the gentle direction toward the bottom. Real networks are full of valleys like that.</p></div>
+<p><strong>Momentum</strong> keeps a running average of recent gradients and steps along that average instead of the latest gradient alone. A direction that stays the same from step to step builds up speed, and bouncing back and forth cancels out.</p>
+<p><strong>Adam</strong> (Kingma and Ba, 2014) uses momentum and adds a second running average, of each weight's squared gradient. It divides every step by the square root of that average. A weight whose gradients are large and noisy takes smaller steps, and a weight whose gradients are small takes larger ones, so every weight moves at a similar pace. Adam is the most common optimizer in deep learning. <strong>AdamW</strong> is the same except for weight decay. Adam adds the pull toward zero into the gradient, where the division shrinks it more for some weights than for others. AdamW applies the pull to each weight directly, the same for all of them. The search tries both.</p>
+<div class="demo" id="demo-optim">
+<div class="demo-head">
+<span class="demo-tag">ANIMATION</span>
+<span class="demo-title">Three optimizers in a narrow valley</span>
+<span class="demo-sub">All three start from the same point and take 40 steps. The shading gets stronger toward the bottom of the valley, which is the dot in the middle.</span>
+</div>
+<div class="demo-body">
+<div class="lv" id="optim-vis"></div>
+<div class="play-row"><button class="btn primary" id="optim-play" type="button">Play</button><button class="btn" id="optim-restart" type="button">Restart</button><span class="readout" id="optim-readout"></span></div>
+</div>
+<div class="demo-note"><p>After 40 steps, plain gradient descent has zigzagged across the valley and is still far from the bottom. Momentum overshoots at first, then speeds along the valley and ends closest. Adam heads for the bottom more directly, because it scales each direction's step separately.</p></div>
+</div>
+<p>The learning rate itself can change during a run, following a <strong>schedule</strong>. Most schedules start large, to cover ground quickly, and end small, to settle into the bottom of a valley. Cosine lowers the rate smoothly along a cosine curve, step drops it in a few sudden stages, and one-cycle raises it first and then lowers it. A <strong>warm-up</strong> starts with a tiny rate for the first few epochs, because large steps from random starting weights can throw training off. <a href="settings.html#optimization">D.9</a> draws all four schedules.</p>
+<p><strong>Gradient clipping</strong> caps the size of a single step. If one unusual batch produces a huge gradient, the step is shrunk to the cap, so it cannot undo many good steps at once.</p>
+</section>
+
+<section class="reveal" id="losses">
+<h2><span class="sec-num">A.15</span>Scoring a spiking network</h2>
+<div class="why"><span class="why-k">Why this exists</span><p>The loss turns a network's answer into one number that training pushes down. A spiking network answers with spikes collected over many steps, so there is a choice about which part of that answer to score.</p></div>
+<p>The <strong>rate loss</strong> scores what the chip reports. It counts each output neuron's spikes over the whole clip, turns the counts into probabilities with softmax (<a href="#layers">A.2</a>), and scores them with cross-entropy (<a href="#learning">A.3</a>). Only the total counts, so the network can point at the wrong gesture for the first half of the clip as long as the total comes out right.</p>
+<p><strong>TET</strong>, temporal efficient training (Deng and coauthors, 2022), works out the loss at every step from that step's output alone and averages over the steps. Every step is pushed to point at the right gesture, which tends to make training smoother and the final counts more reliable. The chip still answers by counting spikes, so a network trained with TET is scored the same way as any other.</p>
+<p>Every spike costs energy on the chip. The <strong>firing-rate penalty</strong> adds a second term to the loss, the average firing rate of the neurons times a small weight, so training also rewards firing less. A larger weight gives up some accuracy in exchange for less work (<a href="#work">A.9</a>).</p>
+<div class="demo" id="demo-tet">
+<div class="demo-head">
+<span class="demo-tag">INTERACTIVE</span>
+<span class="demo-title">What each loss looks at</span>
+<span class="demo-sub">Three output neurons over 12 steps of one clip, where the right answer is gesture 1. Switch between the two losses to see which part of the output each one scores.</span>
+</div>
+<div class="demo-body">
+<div class="play-row" style="margin:0 0 14px"><div class="seg" id="tet-mode"><button class="on" data-v="rate" type="button">rate loss</button><button data-v="tet" type="button">TET</button></div><button class="btn" id="tet-new" type="button">New clip</button></div>
+<div class="lv" id="tet-vis"></div>
+<div class="play-row"><span class="readout" id="tet-readout"></span></div>
+</div>
+</div>
+<div class="recap"><strong>In short</strong><p>An artificial neuron is a weighted sum and an activation, and a network is layers of them, trained by gradient descent on a loss. Convolutions reuse small kernels across the picture, stride and pooling shrink the maps, and the head turns maps into class scores. Spiking neurons and spiking convolutions do the same job with spikes over time: fire, reset, leak, integrate, and count the output spikes. Squeezing numbers into spikes rounds them and costs some accuracy. Training uses a smooth stand-in for the spike's slope. Batch norm keeps each layer's values in a steady range, dropout, weight decay and label smoothing make memorizing harder, momentum and Adam take better steps, and the loss scores either the clip's total spike count or every step.</p></div>
+</section>
+
 
 </div>
 <aside class="toc"></aside>
@@ -340,6 +430,7 @@
 <script src="assets/learn.js"></script>
 <script src="assets/demo-basics.js"></script>
 <script src="assets/demo-flush.js"></script>
+<script src="assets/demo-tools.js"></script>
 <script src="assets/aka.js"></script>
 <script src="assets/glossary-data.js"></script>
 <script src="assets/gloss.js"></script>

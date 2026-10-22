@@ -30,7 +30,7 @@
 <section class="reveal" id="camera">
 <h2><span class="sec-num">B.1</span>An event camera</h2>
 <div class="why"><span class="why-k">Why this exists</span><p>An ordinary camera sends every pixel of every frame, even when nothing in the scene moves, which wastes data and power, and fast motion between frames blurs or goes missing. The eye's retina mostly reports change. Event cameras copy that idea, and their output already looks like spikes, which suits a spiking chip.</p></div>
-<p>An ordinary camera takes whole pictures at a fixed rate. An <span class="term">event camera</span>, also called a dynamic vision sensor or DVS, has no frames at all. Each pixel watches its own brightness and reports an <span class="term">event</span> the moment the brightness changes enough: where it happened, when (to the microsecond), and which way it went, brighter or darker. A still scene produces almost nothing, and a moving hand produces a stream of events along its edges.</p>
+<p>An ordinary camera takes whole pictures at a fixed rate. An <span class="term">event camera</span>, also called a dynamic vision sensor or DVS, has no frames at all. Each pixel watches its own brightness and reports an <span class="term">event</span> the moment the brightness changes enough: where it happened, when (to the microsecond), and which way it went, brighter or darker, called its polarity. A still scene produces almost nothing, and a moving hand produces a stream of events along its edges.</p>
 <p>That makes event cameras a natural partner for spiking networks: the data already arrives as spikes, and it costs nothing where nothing moves.</p>
 <div class="demo" id="demo-dvs">
 <div class="demo-head">
@@ -45,7 +45,7 @@
 </div>
 <div class="demo-note"><p>Only the moving arm and hand make events. The body, the background and the arm's still upper half are invisible to the sensor, because nothing about them changes.</p></div>
 </div>
-<p>The dataset is <strong>DVS128 Gesture</strong>: 29 people performing 11 gestures in front of a 128 × 128 event camera, under several lighting conditions. The gestures are hand clap, right and left hand wave, right and left arm circles in each direction, arm roll, air drums, air guitar, and a class for other movements. There are 1,464 recordings: 1,176 from 23 people for training and 288 from 6 other people for testing.</p>
+<p>The dataset is <strong>DVS128 Gesture</strong>: 29 people performing 11 gestures in front of a 128 × 128 event camera, under several lighting conditions. The gestures are hand clap, right and left hand wave, right and left arm circles in each direction, arm roll, air drums, air guitar, and a class for other movements. There are 1,464 recordings, called clips. 1,176 come from 23 people for training and 288 from 6 other people for testing.</p>
 </section>
 
 <section class="reveal" id="frames">

@@ -64,7 +64,7 @@
 </section>
 <section class="reveal" id="leak">
 <h2><span class="sec-num">F.3</span>The leak is a shift</h2>
-<p>The chip stores the leak as a shift amount <code>k</code> and subtracts <code>v &gt;&gt; k</code> each step, which equals <code>v / 2<sup>k</sup></code> rounded down. So τ can only be a power of two: 2, 4, 8, 16 and so on. A network trained with τ = 3 has nothing on the chip to run it with.</p>
+<p>The chip stores the leak as a shift amount <code>k</code> and subtracts <code>v &gt;&gt; k</code> each step. That is a bit shift, and it equals <code>v / 2<sup>k</sup></code> rounded down. So τ can only be a power of two: 2, 4, 8, 16 and so on. A network trained with τ = 3 has nothing on the chip to run it with.</p>
 <p>Letting training learn τ is still useful, which motivates learning <code>log2(τ)</code> and rounding it during training. The forward pass always uses a power of two, and the gradient still reaches the parameter through a surrogate, the trick <a href="basics.html#surrogate">page A</a> uses for spikes. A search samples the starting τ from {2, 4, 8, 16}, and whether τ stays fixed, is learned once per layer, or is learned separately for each channel. The chip stores settings for every neuron, so a different τ in each channel costs nothing to deploy.</p>
 <p>The rounding down also matters. When the potential is smaller than 2<sup>k</sup> in the chip's integer units, the leak rounds to zero and the potential does not decay at all. Training rounds the leak the same way. Behind an average pool the potential moves in finer steps (<a href="hardware.html#limits">page G</a>), and there the leak rounds down on that finer grid, as the chip does.</p>
 <div class="demo">
