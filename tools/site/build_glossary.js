@@ -38,7 +38,7 @@ const page = `<!DOCTYPE html>
 <div class="hero-inner">
 <p class="kicker">Glossary</p>
 <h1>Every term, in plain words</h1>
-<p class="lede">Each term below is underlined with dots the first time it appears on a page; point at it there to see this definition. Most also say why the thing exists: the problem that led someone to invent it. The link after each one goes to where the site explains it in full.</p>
+<p class="lede">Each term below is underlined with dots the first time it appears on a page, and pointing at it there shows this definition. Most also say why the thing exists, meaning the problem that led someone to invent it. The link after each one goes to where the site explains it in full.</p>
 </div>
 </header>
 <main>

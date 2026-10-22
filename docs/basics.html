@@ -27,14 +27,14 @@
 
 <section class="reveal" id="neuron">
 <h2><span class="sec-num">A.1</span>One artificial neuron</h2>
-<div class="why"><span class="why-k">Why this exists</span><p>Some tasks are easy for people and nearly impossible to write down as rules. Exactly which pixels make a hand wave? Hands, distances and speeds all differ from one person to the next. A neural network gets around this: it is built from many small adjustable calculations and learns the rule by tuning them on recorded examples. Each calculation is kept simple so that huge numbers of them can be combined and tuned automatically.</p></div>
+<div class="why"><span class="why-k">Why this exists</span><p>Some tasks are easy for people and nearly impossible to write down as rules. Exactly which pixels make a hand wave? Hands, distances and speeds all differ from one person to the next. A neural network gets around this. It is built from many small adjustable calculations and learns the rule by tuning them on recorded examples. Each calculation is kept simple so that huge numbers of them can be combined and tuned automatically.</p></div>
 <p>An artificial neuron is a small calculation. It takes a few numbers in, multiplies each by its own <span class="term">weight</span>, adds the results together with one more number called the <span class="term">bias</span>, and passes the total through an <span class="term">activation function</span>. The most common activation, ReLU, keeps a positive total and turns a negative one into zero.</p>
 <p>The weights are what a network learns. A large positive weight means "this input pushes me to respond", a negative one means "this input argues against it", and a weight near zero means "ignore this input".</p>
 <div class="demo" id="demo-neuron">
 <div class="demo-head">
 <span class="demo-tag">INTERACTIVE</span>
 <span class="demo-title">One neuron, one calculation</span>
-<span class="demo-sub">Each input is multiplied by its weight. <span class="cw" data-c="accent">Blue</span> lines are positive weights and <span class="cw" data-c="rust">orange</span> lines are negative; a thicker line is a larger weight.</span>
+<span class="demo-sub">Each input is multiplied by its weight. <span class="cw" data-c="accent">Blue</span> lines are positive weights and <span class="cw" data-c="rust">orange</span> lines are negative. A thicker line is a larger weight.</span>
 </div>
 <div class="demo-body">
 <div class="controls">
@@ -49,13 +49,13 @@
 <div class="lv" id="neuron-vis"></div>
 <div class="stats"><div class="stat"><div class="k">Weighted sum plus bias</div><output class="val" id="neuron-sum">0</output></div><div class="stat"><div class="k">Output after ReLU</div><output class="val" id="neuron-out">0</output></div></div>
 </div>
-<div class="demo-note"><p>Make weight 2 strongly negative and input 2 large: the total drops below zero and ReLU silences the neuron. That on and off behavior, repeated across thousands of neurons, is what lets a network make complicated decisions.</p></div>
+<div class="demo-note"><p>Make weight 2 strongly negative and input 2 large. The total drops below zero and ReLU silences the neuron. That on and off behavior, repeated across thousands of neurons, is what lets a network make complicated decisions.</p></div>
 </div>
 </section>
 
 <section class="reveal" id="layers">
 <h2><span class="sec-num">A.2</span>Layers, and one pass through a network</h2>
-<div class="why"><span class="why-k">Why this exists</span><p>One neuron can only split its inputs along a single straight line: more of this, less of that. Hard tasks need more. Stacked layers let later neurons combine the simple patterns earlier ones found, edges into strokes and strokes into a hand, which is where a network's power comes from.</p></div>
+<div class="why"><span class="why-k">Why this exists</span><p>One neuron can only split its inputs along a single straight line, more of this and less of that. Hard tasks need more. Stacked layers let later neurons combine the simple patterns earlier ones found, edges into strokes and strokes into a hand, which is where a network's power comes from.</p></div>
 <p>Neurons are arranged in layers. Each neuron in a layer reads every output of the layer before it, so information flows from the input, through the <span class="term">hidden layers</span>, to the output layer, which has one neuron per class. Running one input through the network is called a <span class="term">forward pass</span>.</p>
 <p>The output layer gives one score per class. A function called softmax turns the scores into probabilities that add up to 100%, and the network's answer is the class with the highest probability.</p>
 <div class="demo" id="demo-forward">
@@ -68,7 +68,7 @@
 <div class="lv" id="fwd-vis"></div>
 <div class="play-row"><button class="btn primary" id="fwd-new" type="button">New input</button><button class="btn" id="fwd-run" type="button">Replay</button><span class="readout" id="fwd-answer"></span></div>
 </div>
-<div class="demo-note"><p>The weights never change between inputs here, only the input does. A trained network is exactly this: a fixed function from an input to an answer. Training is what picked the weights.</p></div>
+<div class="demo-note"><p>The weights never change between inputs here, only the input does. A trained network is exactly this, a fixed function from an input to an answer. Training is what picked the weights.</p></div>
 </div>
 </section>
 
@@ -121,14 +121,14 @@
 <div class="demo-note"><p>Click pixels in the picture to draw your own shape. The vertical-edge kernel turns <span class="cw" data-c="accent">blue</span> where a bar begins and <span class="cw" data-c="rust">orange</span> where it ends, and the horizontal one does the same from top to bottom. A trained network learns its kernels instead of being given them.</p></div>
 </div>
 
-<aside class="aka" data-viz="net" data-hl="k_1"><div class="aka-head"><span class="aka-k">In the search records</span><button class="aka-name" data-hl="k_0" type="button">k_0</button><button class="aka-name" data-hl="k_1" type="button">k_1</button><button class="aka-name" data-hl="k_2" type="button">k_2</button></div><p>The project's search (<a href="pipeline.html#why-search">page C</a>) trains hundreds of networks and saves each one as a record: a list of short names, each with a value. Boxes like this one show how an idea appears in those records, always with the same real network as the example. Each layer's kernel size is named <code>k_</code> plus the layer's number, counting from 0. In the example network, <b><code>k_0</code> = 5</b>, <b><code>k_1</code> = 5</b> and <b><code>k_2</code> = 3</b>: the first two layers slide a 5 × 5 window and the third a 3 × 3 one. So <code>k_1</code> is the second layer's window, highlighted below. Point at a name to move the highlight.</p><div class="aka-viz"></div></aside>
+<aside class="aka" data-viz="net" data-hl="k_1"><div class="aka-head"><span class="aka-k">In the search records</span><button class="aka-name" data-hl="k_0" type="button">k_0</button><button class="aka-name" data-hl="k_1" type="button">k_1</button><button class="aka-name" data-hl="k_2" type="button">k_2</button></div><p>The project's search (<a href="pipeline.html#why-search">page C</a>) trains hundreds of networks and saves each one as a record, a list of short names, each with a value. Boxes like this one show how an idea appears in those records, always with the same real network as the example. Each layer's kernel size is named <code>k_</code> plus the layer's number, counting from 0. In the example network, <b><code>k_0</code> = 5</b>, <b><code>k_1</code> = 5</b> and <b><code>k_2</code> = 3</b>: the first two layers slide a 5 × 5 window and the third a 3 × 3 one. So <code>k_1</code> is the second layer's window, highlighted below. Point at a name to move the highlight.</p><div class="aka-viz"></div></aside>
 <h3>Channels</h3>
-<p>One kernel finds one kind of pattern, so a layer has many kernels, one per output <span class="term">channel</span>, and each produces its own feature map. The kernels of the next layer read all of those maps at once, so they can combine "edge here" and "corner there" into larger shapes. Early layers find edges and blobs; later ones respond to parts of hands and arms.</p>
+<p>One kernel finds one kind of pattern, so a layer has many kernels, one per output <span class="term">channel</span>, and each produces its own feature map. The kernels of the next layer read all of those maps at once, so they can combine "edge here" and "corner there" into larger shapes. Early layers find edges and blobs. Later ones respond to parts of hands and arms.</p>
 <figure class="figure"><div class="figure-scroll lv" id="channels-vis"></div><figcaption>The input has two channels, one for events where the scene got brighter and one for events where it got darker. A layer with three channels has three kernels, each spanning both input channels, and makes three maps. Every kernel in the next layer spans all three.</figcaption></figure>
 
 <aside class="aka" data-viz="net" data-hl="ch_0"><div class="aka-head"><span class="aka-k">In the search records</span><button class="aka-name" data-hl="ch_0" type="button">ch_0</button><button class="aka-name" data-hl="ch_1" type="button">ch_1</button><button class="aka-name" data-hl="ch_2" type="button">ch_2</button><button class="aka-name" data-hl="depth" type="button">depth</button></div><p><b><code>ch_0</code> = 71</b> means the first layer has 71 kernels and so makes 71 feature maps, drawn as the depth of its block. There are three convolution layers, so <b><code>depth</code> = 3</b>.</p><div class="aka-viz"></div></aside>
 <h3>Shrinking the map</h3>
-<p>Each layer usually makes the map smaller, so later layers see more of the picture per cell and the network stays affordable. There are two ways to do it. A <span class="term">stride</span> of 2 moves the kernel two cells at a time instead of one. <span class="term">Pooling</span> runs the convolution normally and then replaces each 2 × 2 block of the result with one number: its average, or its largest value.</p>
+<p>Each layer usually makes the map smaller, so later layers see more of the picture per cell and the network stays affordable. There are two ways to do it. A <span class="term">stride</span> of 2 moves the kernel two cells at a time instead of one. <span class="term">Pooling</span> runs the convolution normally and then replaces each 2 × 2 block of the result with one number, either its average or its largest value.</p>
 <div class="demo" id="demo-shrink">
 <div class="demo-head">
 <span class="demo-tag">ANIMATION</span>
@@ -142,18 +142,18 @@
 <div class="demo-note"><p id="shrink-note"></p></div>
 </div>
 
-<aside class="aka" data-viz="net" data-hl="ds_0"><div class="aka-head"><span class="aka-k">In the search records</span><button class="aka-name" data-hl="ds_0" type="button">ds_0</button><button class="aka-name" data-hl="ds_1" type="button">ds_1</button><button class="aka-name" data-hl="ds_2" type="button">ds_2</button></div><p><code>ds_</code> plus a layer number says how that layer shrinks its map: <code>stride</code>, <code>pool</code> or <code>none</code>. In the example network, <b><code>ds_0</code> = stride</b> shrinks the 40 × 40 input to 18 × 18. The second layer has <b><code>ds_1</code> = none</b>: it does not shrink on purpose, though the map still loses a thin border, because the 5 × 5 window cannot hang over the edge, so 18 × 18 becomes 14 × 14. Then <b><code>ds_2</code> = stride</b> shrinks it again, to 6 × 6.</p><div class="aka-viz"></div></aside>
+<aside class="aka" data-viz="net" data-hl="ds_0"><div class="aka-head"><span class="aka-k">In the search records</span><button class="aka-name" data-hl="ds_0" type="button">ds_0</button><button class="aka-name" data-hl="ds_1" type="button">ds_1</button><button class="aka-name" data-hl="ds_2" type="button">ds_2</button></div><p><code>ds_</code> plus a layer number says how that layer shrinks its map, with <code>stride</code>, <code>pool</code> or <code>none</code>. In the example network, <b><code>ds_0</code> = stride</b> shrinks the 40 × 40 input to 18 × 18. The second layer has <b><code>ds_1</code> = none</b>: it does not shrink on purpose, though the map still loses a thin border, because the 5 × 5 window cannot hang over the edge, so 18 × 18 becomes 14 × 14. Then <b><code>ds_2</code> = stride</b> shrinks it again, to 6 × 6.</p><div class="aka-viz"></div></aside>
 <h3>The head</h3>
 <p>After the last convolution, the feature maps have to become 11 scores, one per gesture. <span class="term">Flatten</span> lays every cell of every map out in a line and connects all of them to the classifier, so the classifier knows where each feature appeared. <span class="term">Global average pooling</span>, or GAP, averages each map down to one number, so the classifier knows how much of each feature there was but not where.</p>
 <figure class="figure"><div class="figure-scroll lv" id="head-vis"></div><figcaption>The same three 4 × 4 maps turned into classifier inputs two ways. With 41 maps of 6 × 6, flatten would give the classifier 1,476 inputs and GAP would give it 41.</figcaption></figure>
 <p>On the chip, GAP does not save connections. An average has no neurons of its own, so it is folded into the next layer's connections, and every class neuron still connects to every neuron of the last convolution layer (<a href="hardware.html#limits">page G</a>). GAP still has far fewer weights to learn, which can reduce overfitting. Between the head and the 11 outputs there can also be one hidden layer of spiking neurons.</p>
-<aside class="aka" data-viz="net" data-hl="final_reduction"><div class="aka-head"><span class="aka-k">In the search records</span><button class="aka-name" data-hl="final_reduction" type="button">final_reduction</button><button class="aka-name" data-hl="fc_layers" type="button">fc_layers</button><button class="aka-name" data-hl="fc_width_0" type="button">fc_width_0</button></div><p><b><code>final_reduction</code> = flatten</b> in the example network: its 41 maps of 6 × 6 reach the classifier as 1,476 numbers. Then comes one hidden layer of 128 neurons, which the record writes as <b><code>fc_layers</code> = 1</b> (one hidden layer) and <b><code>fc_width_0</code> = 128</b> (its width), and finally the 11 output neurons, one per gesture.</p><div class="aka-viz"></div></aside>
+<aside class="aka" data-viz="net" data-hl="final_reduction"><div class="aka-head"><span class="aka-k">In the search records</span><button class="aka-name" data-hl="final_reduction" type="button">final_reduction</button><button class="aka-name" data-hl="fc_layers" type="button">fc_layers</button><button class="aka-name" data-hl="fc_width_0" type="button">fc_width_0</button></div><p><b><code>final_reduction</code> = flatten</b> in the example network, so its 41 maps of 6 × 6 reach the classifier as 1,476 numbers. Then comes one hidden layer of 128 neurons, which the record writes as <b><code>fc_layers</code> = 1</b> (one hidden layer) and <b><code>fc_width_0</code> = 128</b> (its width), and finally the 11 output neurons, one per gesture.</p><div class="aka-viz"></div></aside>
 
 </section>
 
 <section class="reveal" id="snn">
 <h2><span class="sec-num">A.5</span>Spiking neurons</h2>
-<div class="why"><span class="why-k">Why this exists</span><p>Page 0 told the story. On an ordinary computer most of a network's energy goes into moving numbers around, and a chip whose neurons send brief spikes only when something happens avoids most of that traffic. The cost is that a value can no longer travel in one message. It has to be spread over time as a pattern of spikes, so a spiking network runs step by step.</p></div>
+<div class="why"><span class="why-k">Why this exists</span><p>Page 0 explains the reason. On an ordinary computer most of a network's energy goes into moving numbers around, and a chip whose neurons send brief spikes only when something happens avoids most of that traffic. The cost is that a value can no longer travel in one message. It has to be spread over time as a pattern of spikes, so a spiking network runs step by step.</p></div>
 <p>The neurons above pass around numbers like 0.73. Neurons in a brain, and on a neuromorphic chip such as HiAER-Spike, pass around <span class="term">spikes</span>: at each moment a neuron either fires or it does not. So a spiking network runs through time. The input arrives as a sequence of T frames, every layer updates once per frame, and the answer comes from counting spikes.</p>
 <p>The spiking neuron used here is the <span class="term">leaky integrate-and-fire</span> neuron. It keeps one number, its <span class="term">membrane potential</span>, and at every timestep it does four things, in this order:</p>
 <ol class="steps">
@@ -162,12 +162,12 @@
 <li><span class="s-title">Leak</span>The potential loses a fraction 1/τ of itself, so old input fades away. τ (tau) is the leak constant.</li>
 <li><span class="s-title">Integrate</span>Add the weights of the input spikes that just arrived.</li>
 </ol>
-<p>The picture below puts the neuron from A.1 next to its spiking version, with the same inputs and the same weights. The only change in the inputs is how they arrive: a value of 0.8 becomes a spike on 80% of the steps. Its weighted sum becomes the membrane potential, which keeps adding up what arrives step after step, and ReLU becomes a threshold: fire, or stay silent.</p>
+<p>The picture below puts the neuron from A.1 next to its spiking version, with the same inputs and the same weights. The only change in the inputs is how they arrive. A value of 0.8 becomes a spike on 80% of the steps. Its weighted sum becomes the membrane potential, which keeps adding up what arrives step after step, and ReLU becomes a threshold that decides whether to fire or stay silent.</p>
 <div class="demo" id="demo-sneuron">
 <div class="demo-head">
 <span class="demo-tag">ANIMATION</span>
 <span class="demo-title">The same neuron, passing a number and passing spikes</span>
-<span class="demo-sub">Top: the artificial neuron from A.1. Bottom: the spiking version. The strips on the left are the last 20 steps of each input; the box in the middle is the membrane potential over those steps, with the threshold dashed; the strip on the right is what the neuron sends on.</span>
+<span class="demo-sub">At the top, the artificial neuron from A.1. At the bottom, the spiking version. The strips on the left are the last 20 steps of each input. The box in the middle is the membrane potential over those steps, with the threshold dashed. The strip on the right is what the neuron sends on.</span>
 </div>
 <div class="demo-body">
 <div class="controls">
@@ -185,31 +185,31 @@
 <div class="lv lv-scroll" id="sneuron-vis"></div>
 <div class="stats"><div class="stat"><div class="k">Artificial neuron sends</div><output class="val" id="s-ann">-</output></div><div class="stat"><div class="k">Spiking neuron sends</div><output class="val" id="s-rate" style="font-size:18px">-</output></div><div class="stat"><div class="k">Last step, in order</div><output class="val" id="s-last" style="font-size:15px">-</output></div></div>
 </div>
-<div class="demo-note"><p>The artificial neuron answers at once with one exact number. The spiking neuron answers with a stream of spikes, and the number only shows up as how often it fires. Raise τ and it remembers longer, so scattered inputs can add up to a spike; raise the threshold and it needs more input. Because it checks for a spike before adding new input, an input arriving now can only cause an output spike on the next step.</p></div>
+<div class="demo-note"><p>The artificial neuron answers at once with one exact number. The spiking neuron answers with a stream of spikes, and the number only shows up as how often it fires. Raise τ and it remembers longer, so scattered inputs can add up to a spike. Raise the threshold and it needs more input. Because it checks for a spike before adding new input, an input arriving now can only cause an output spike on the next step.</p></div>
 </div>
 <details class="technical-details"><summary>The exact arithmetic on the chip, worked by hand</summary><div class="detail-body">
-<p>The chip stores the potential as a whole number, so two details matter. It fires only when the potential is strictly greater than θ, and the leak is rounded down: each step the potential loses <code>v/τ</code>, rounded down to a whole step of the chip's grid. A potential smaller than τ grid steps therefore does not leak at all.</p>
+<p>The chip stores the potential as a whole number, so two details matter. It fires only when the potential is strictly greater than θ, and the leak is rounded down. Each step the potential loses <code>v/τ</code>, rounded down to a whole step of the chip's grid. A potential smaller than τ grid steps therefore does not leak at all.</p>
 <p>Start at <code>v</code> = 0 with τ = 4, θ = 1, and an input of 0.6 on every step.</p>
 <ol><li>Step 1: 0 is below θ, so no spike. The leak leaves 0, and the input raises <code>v</code> to 0.6.</li><li>Step 2: 0.6 is below θ. The leak removes 0.6 / 4 = 0.15, and the input raises <code>v</code> to 1.05.</li><li>Step 3: 1.05 is above θ, so the neuron fires and resets to 0. The input raises <code>v</code> to 0.6 again.</li></ol>
 <p>The spike comes one step after the potential first passed 1. Each layer of a network adds one such step. <a href="neurons.html">Page F</a> shows how training reproduces this exact arithmetic, rounding included, so that the trained network and the chip agree spike for spike.</p>
 </div></details>
-<aside class="aka" data-viz="net" data-hl="tau"><div class="aka-head"><span class="aka-k">In the search records</span><button class="aka-name" data-hl="tau" type="button">tau</button></div><p><b><code>tau</code> = 4</b> in the example network: every spiking neuron loses a quarter of its potential each step. The spiking neurons are marked by the dots above each layer. Training can also be allowed to adjust τ; page F covers that.</p><div class="aka-viz"></div></aside>
+<aside class="aka" data-viz="net" data-hl="tau"><div class="aka-head"><span class="aka-k">In the search records</span><button class="aka-name" data-hl="tau" type="button">tau</button></div><p><b><code>tau</code> = 4</b> in the example network, so every spiking neuron loses a quarter of its potential each step. The spiking neurons are marked by the dots above each layer. Training can also be allowed to adjust τ. Page F covers that.</p><div class="aka-viz"></div></aside>
 </section>
 
 <section class="reveal" id="snn-conv">
 <h2><span class="sec-num">A.6</span>Spiking convolutions</h2>
-<p>A convolution works the same way with spikes. The kernel slides over the input exactly as in A.4, but each cell of the output is now a spiking neuron: the weighted sum under the kernel is added to that cell's membrane potential, the potential leaks, and the cell fires when it crosses the threshold. A new input frame arrives every step, so the layer produces a new map of spikes every step, and counting each cell's spikes over the clip gives a picture much like the ordinary feature map.</p>
+<p>A convolution works the same way with spikes. The kernel slides over the input exactly as in A.4, but each cell of the output is now a spiking neuron. The weighted sum under the kernel is added to that cell's membrane potential, the potential leaks, and the cell fires when it crosses the threshold. A new input frame arrives every step, so the layer produces a new map of spikes every step, and counting each cell's spikes over the clip gives a picture much like the ordinary feature map.</p>
 <div class="demo" id="demo-sconv">
 <div class="demo-head">
 <span class="demo-tag">ANIMATION</span>
 <span class="demo-title">An edge-detecting kernel on a moving bar, one step at a time</span>
-<span class="demo-sub">Left to right: this step's input spikes, the kernel, every output cell's membrane potential (<span class="cw" data-c="accent">blue</span> is positive, <span class="cw" data-c="rust">orange</span> negative), the cells that fired this step, and each cell's spike count so far.</span>
+<span class="demo-sub">From left to right, this step's input spikes, the kernel, every output cell's membrane potential (<span class="cw" data-c="accent">blue</span> is positive, <span class="cw" data-c="rust">orange</span> negative), the cells that fired this step, and each cell's spike count so far.</span>
 </div>
 <div class="demo-body">
 <div class="lv lv-scroll" id="sconv-vis"></div>
 <div class="play-row"><button class="btn primary" id="sconv-play" type="button">Play</button><button class="btn" id="sconv-step" type="button">One step</button><button class="btn" id="sconv-restart" type="button">Restart</button><span class="readout" id="sconv-readout"></span></div>
 </div>
-<div class="demo-note"><p>The kernel is the vertical-edge detector from A.4, flipped to respond where bright turns to dark, and it is applied at every position at once on every step. Cells at the bar's front edge build up potential and fire on the next step; cells behind the bar are pushed negative and stay silent. As the bar sweeps across, its front edge leaves a trail of spikes, and the count map on the right is the spiking layer's version of a feature map, made of whole numbers.</p></div>
+<div class="demo-note"><p>The kernel is the vertical-edge detector from A.4, flipped to respond where bright turns to dark, and it is applied at every position at once on every step. Cells at the bar's front edge build up potential and fire on the next step. Cells behind the bar are pushed negative and stay silent. As the bar sweeps across, its front edge leaves a trail of spikes, and the count map on the right is the spiking layer's version of a feature map, made of whole numbers.</p></div>
 </div>
 </section>
 
@@ -221,7 +221,7 @@
 <div class="demo-head">
 <span class="demo-tag">ANIMATION</span>
 <span class="demo-title">A bar sweeping across the input, read by a two-layer spiking network</span>
-<span class="demo-sub">The 8 × 8 input fires where the bar is. Each hidden neuron watches one column. The output neurons count spikes; the strip at the bottom is the clip, with the flush steps shaded.</span>
+<span class="demo-sub">The 8 × 8 input fires where the bar is. Each hidden neuron watches one column. The output neurons count spikes. The strip at the bottom is the clip, with the flush steps shaded.</span>
 </div>
 <div class="demo-body">
 <div class="controls">
@@ -232,7 +232,7 @@
 <div class="lv" id="snn-vis"></div>
 <div class="stats"><div class="stat"><div class="k">Timestep</div><output class="val" id="snn-t">0</output></div><div class="stat"><div class="k">Answer so far</div><output class="val" id="snn-pred">-</output></div></div>
 </div>
-<div class="demo-note"><p>The output counts nothing for the first two steps: activity needs one step to reach the hidden layer and another to reach the output. More frames give the network more evidence before it has to answer, at the cost of more time and work.</p></div>
+<div class="demo-note"><p>The output counts nothing for the first two steps, because activity needs one step to reach the hidden layer and another to reach the output. More frames give the network more evidence before it has to answer, at the cost of more time and work.</p></div>
 </div>
 <p>Without flush steps, the last frames of every clip never reach the output, and a deeper network loses more of them. Each max pool also adds a flush step, because its OR neurons (<a href="hardware.html#limits">page G</a>) are a layer of chip neurons too. The output count is divided by T, so scores stay comparable between networks of different depths.</p>
 <div class="demo" id="demo-flush">
@@ -255,7 +255,7 @@
 <div class="stat"><div class="k">evidence discarded</div><div class="val good" id="fl-lost">0%</div></div>
 </div>
 </div>
-<div class="demo-note"><p>Turn the flush off and raise the layer count: a six-layer network loses the last six frames of an eight-frame clip.</p></div>
+<div class="demo-note"><p>Turn the flush off and raise the layer count. A six-layer network loses the last six frames of an eight-frame clip.</p></div>
 </div>
 <aside class="aka" data-viz="net" data-hl="T"><div class="aka-head"><span class="aka-k">In the search records</span><button class="aka-name" data-hl="T" type="button">T</button></div><p><b><code>T</code> = 48</b>: each clip is cut into 48 frames, drawn as the stack on the left. The example network has five spiking layers (three convolutions, the hidden layer and the outputs), so it runs 48 + 5 = 53 steps per clip.</p><div class="aka-viz"></div></aside>
 </section>
@@ -266,13 +266,13 @@
 <dl class="kv">
 <dt>Too weak to fire</dt><dd>The leak drains a weak input faster than it builds up, so the potential never reaches the threshold and a small but real value comes out as exactly zero.</dd>
 <dt>Reset to zero</dt><dd>When the neuron fires, whatever the potential overshot the threshold by is thrown away instead of being carried into the next step.</dd>
-<dt>At most one spike per step</dt><dd>Every value above the threshold comes out the same: a spike on every step.</dd>
+<dt>At most one spike per step</dt><dd>Every value above the threshold comes out the same, as a spike on every step.</dd>
 </dl>
 <div class="demo" id="demo-binarize">
 <div class="demo-head">
 <span class="demo-tag">ANIMATION</span>
 <span class="demo-title">A number in, a spike count out</span>
-<span class="demo-sub">Left: a neuron given the same input on every step, its potential and its spikes. Right: what it sends on, measured as spikes per step, for every input. The dashed line is the number an artificial neuron would pass on; the <span class="cw" data-c="accent">blue</span> staircase is what the spiking neuron manages; <span class="cw" data-c="red">red</span> marks the error at the current input.</span>
+<span class="demo-sub">On the left, a neuron given the same input on every step, its potential and its spikes. On the right, what it sends on, measured as spikes per step, for every input. The dashed line is the number an artificial neuron would pass on. The <span class="cw" data-c="accent">blue</span> staircase is what the spiking neuron manages, and <span class="cw" data-c="red">red</span> marks the error at the current input.</span>
 </div>
 <div class="demo-body">
 <div class="controls">
@@ -285,16 +285,16 @@
 <div class="lv lv-scroll" id="bz-vis"></div>
 <div class="stats"><div class="stat"><div class="k">Artificial neuron sends</div><output class="val" id="bz-ideal">-</output></div><div class="stat"><div class="k">Spiking neuron sends</div><output class="val" id="bz-snn">-</output></div><div class="stat"><div class="k">Lost</div><output class="val" id="bz-err">-</output></div><div class="stat"><div class="k">Values it can express</div><output class="val" id="bz-levels">-</output></div></div>
 </div>
-<div class="demo-note"><p>Press sweep and watch the staircase: flat at zero for weak inputs, then jumping in steps of 1/T, then flat again at one spike per step. More frames make the steps finer but cost more time and work on the chip. Without a leak and with the overshoot carried over, the staircase hugs the line; the chip resets to zero and leaks, so its staircase sits further from the line.</p></div>
+<div class="demo-note"><p>Press sweep and watch the staircase. It is flat at zero for weak inputs, then jumping in steps of 1/T, then flat again at one spike per step. More frames make the steps finer but cost more time and work on the chip. Without a leak and with the overshoot carried over, the staircase hugs the line, but the chip resets to zero and leaks, so its staircase sits further from the line.</p></div>
 </div>
 <p>Every layer passes its rounded answer on to the next, so the errors compound through the network. This is the main reason a spiking network usually scores somewhat below an ordinary network of the same shape, and why converting an already trained ordinary network into a spiking one loses accuracy. Training the network as a spiking network from the start, as this project does, lets the weights adapt to these limits, which recovers much of the gap but not all of it. The all-or-nothing spike is also why training needs a trick to compute gradients (A.10).</p>
 <div class="callout key"><span class="callout-title">Is this what limits accuracy here?</span>
-<p>Mostly not. The networks here reach 90 to 99% accuracy on their own training data, so turning numbers into spikes does not stop them from learning the gestures. What holds validation accuracy below about 80% is overfitting: the networks learn the 19 training people rather than the gestures (<a href="data.html#overfit">page B</a>). Binarizing still costs something, and more frames would shrink that cost at the price of time and energy on the chip.</p></div>
+<p>Mostly not. The networks here reach 90 to 99% accuracy on their own training data, so turning numbers into spikes does not stop them from learning the gestures. What holds validation accuracy below about 80% is overfitting. The networks learn the 19 training people instead of the gestures (<a href="data.html#overfit">page B</a>). Binarizing still costs something, and more frames would shrink that cost at the price of time and energy on the chip.</p></div>
 </section>
 
 <section class="reveal" id="work">
 <h2><span class="sec-num">A.9</span>Why spikes can save work</h2>
-<p>In an ordinary network every connection multiplies its input on every pass, whether or not the input carries anything. This is called dense computation. In a spiking network nothing happens unless a neuron fires, and a spike only adds its weight to the neurons it connects to. A layer in which few neurons fire does very little work. That is the case for neuromorphic hardware: the work, and so the energy, grows with activity rather than with the size of the network.</p>
+<p>In an ordinary network every connection multiplies its input on every pass, whether or not the input carries anything. This is called dense computation. In a spiking network nothing happens unless a neuron fires, and a spike only adds its weight to the neurons it connects to. A layer in which few neurons fire does very little work. That is the reason for neuromorphic hardware. The work, and so the energy, grows with activity and not with the size of the network.</p>
 <div class="demo" id="demo-work">
 <div class="demo-head">
 <span class="demo-tag">ANIMATION</span>
@@ -305,29 +305,29 @@
 <div class="lv" id="work-vis"></div>
 <div class="play-row"><button class="btn primary" id="work-play" type="button">Play</button><span class="readout" id="work-readout"></span></div>
 </div>
-<div class="demo-note"><p>Each lit connection on the spiking side is one <span class="term">synaptic operation</span> (SynOp): one spike adding one weight to one neuron. Counting SynOps is the usual way to compare how much work spiking networks do.</p></div>
+<div class="demo-note"><p>Each lit connection on the spiking side is one <span class="term">synaptic operation</span> (SynOp), one spike adding one weight to one neuron. Counting SynOps is the usual way to compare how much work spiking networks do.</p></div>
 </div>
 <aside class="aka" data-viz="none"><div class="aka-head"><span class="aka-k">In the search records</span><code class="aka-name">synops_per_sample</code></div><p>The measured count per clip. For one earlier network it is <b>50,100,000</b>: about 50 million spike-triggered additions to classify one clip. A conventional network of the same shape would do about 69 million multiply-adds, so that network does 0.73 times the work. The best networks so far do several times more (<a href="results.html#work">page H</a>).</p></aside>
 </section>
 
 <section class="reveal" id="surrogate">
 <h2><span class="sec-num">A.10</span>Training through a spike</h2>
-<p>A spike is a step: below the threshold the output is 0, above it the output is 1. The slope of a step is zero everywhere except at the jump, where it is infinite, so gradient descent gets no useful direction from it. Spiking networks are trained with a <span class="term">surrogate gradient</span> instead. The forward pass keeps the real step, so the network behaves exactly as it will on the chip. Only when the gradient is computed is the step treated as a smooth curve, whose slope tells each weight "this neuron was close to firing, and here is which way to push it".</p>
-<figure class="figure"><div class="figure-scroll lv" id="surrogate-vis"></div><figcaption>Left: what the neuron outputs, a hard step (<span class="cw" data-c="accent">blue</span>), and the smooth curve used in its place for learning (dashed). Right: their slopes. The true slope gives no direction; the stand-in's slope is largest near the threshold and fades away from it.</figcaption></figure>
-<p>The stand-in used here is the slope of an arctangent curve. A neuron that came close to firing gets a large gradient, which matches the intuition that a small weight change there would have flipped the spike, and a neuron far from θ gets almost none. The same trick, passing a gradient through a rounding step as if the rounding were not there, is called the <em>straight-through estimator</em>. Training uses it for the chip's integer weights (<a href="hardware.html#ste">page G</a>) and for its rounded-down leak.</p>
+<p>A spike is a step. Below the threshold the output is 0, and above it the output is 1. The slope of a step is zero everywhere except at the jump, where it is infinite, so gradient descent gets no useful direction from it. Spiking networks are trained with a <span class="term">surrogate gradient</span> instead. The forward pass keeps the real step, so the network behaves exactly as it will on the chip. Only when the gradient is computed is the step treated as a smooth curve, whose slope tells each weight "this neuron was close to firing, and here is which way to push it".</p>
+<figure class="figure"><div class="figure-scroll lv" id="surrogate-vis"></div><figcaption>On the left, what the neuron outputs, a hard step (<span class="cw" data-c="accent">blue</span>), and the smooth curve used in its place for learning (dashed). On the right, their slopes. The true slope gives no direction. The stand-in's slope is largest near the threshold and fades away from it.</figcaption></figure>
+<p>The stand-in used here is the slope of an arctangent curve. A neuron that came close to firing gets a large gradient, which matches the intuition that a small weight change there would have flipped the spike, and a neuron far from θ gets almost none. The same idea, passing a gradient through a rounding step as if the rounding were not there, is called the <em>straight-through estimator</em>. Training uses it for the chip's integer weights (<a href="hardware.html#ste">page G</a>) and for its rounded-down leak.</p>
 </section>
 
 <section class="reveal" id="signed">
 <h2><span class="sec-num">A.11</span>Signed spikes</h2>
-<p>An ordinary spiking neuron can only say "yes". With <span class="term">signed spikes</span>, a unit can also fire a negative spike. On the chip such a unit is two neurons: one integrates the input, the other integrates its negative, and whichever crosses its threshold sends a +1 or a −1. A layer can then say "strongly not this" as well as "strongly this", at the cost of twice the neurons and up to four times the connections.</p>
-<figure class="figure"><div class="figure-scroll lv" id="signed-vis"></div><figcaption>One signed unit fed a drive that swings positive and negative. The positive neuron fires during the positive stretches and the negative neuron during the negative ones; the unit's output is +1 or −1 accordingly.</figcaption></figure>
+<p>An ordinary spiking neuron can only say "yes". With <span class="term">signed spikes</span>, a unit can also fire a negative spike. On the chip such a unit is two neurons. One integrates the input, the other integrates its negative, and whichever crosses its threshold sends a +1 or a −1. A layer can then say "strongly not this" as well as "strongly this", at the cost of twice the neurons and up to four times the connections.</p>
+<figure class="figure"><div class="figure-scroll lv" id="signed-vis"></div><figcaption>One signed unit fed a drive that swings positive and negative. The positive neuron fires during the positive stretches and the negative neuron during the negative ones. The unit's output is +1 or −1 accordingly.</figcaption></figure>
 <p>The second neuron's outgoing connections carry negated weights, so the next layer receives +w or −w. Every neuron of a signed unit connects to both neurons of each unit in the next layer, which is why the neurons double and the connections can quadruple, and the chip check (<a href="hardware.html#limits">page G</a>) counts them that way. A max pool stays exact with one OR neuron per sign.</p>
-<aside class="aka" data-viz="net" data-hl="signed_spikes"><div class="aka-head"><span class="aka-k">In the search records</span><button class="aka-name" data-hl="signed_spikes" type="button">signed_spikes</button></div><p><b><code>signed_spikes</code> = True</b> in the example network: every spiking layer, marked ±, is built from pairs of chip neurons.</p><div class="aka-viz"></div></aside>
+<aside class="aka" data-viz="net" data-hl="signed_spikes"><div class="aka-head"><span class="aka-k">In the search records</span><button class="aka-name" data-hl="signed_spikes" type="button">signed_spikes</button></div><p><b><code>signed_spikes</code> = True</b> in the example network, so every spiking layer, marked ±, is built from pairs of chip neurons.</p><div class="aka-viz"></div></aside>
 
 </section>
 
 <section class="reveal" id="batchnorm">
-<h2><span class="sec-num">A.12</span>Keeping activity in range: batch normalization</h2>
+<h2><span class="sec-num">A.12</span>Batch normalization</h2>
 <div class="why"><span class="why-k">Why this exists</span><p>While a network trains, every layer's weights keep changing, so the size of the numbers each layer passes on keeps drifting. The next layer has to keep adjusting to a moving target, and training slows down or stalls. For a spiking neuron the drift is worse. Input that is too weak never reaches the threshold, and input that is too strong fires the neuron on every step. Either way the neuron tells the next layer nothing.</p></div>
 <p><strong>Batch normalization</strong>, usually shortened to batch norm, holds each channel's values in a steady range. During training it looks at one channel across the whole batch of examples and works out two numbers, the average of the values and their spread. The spread is the standard deviation, the typical distance of a value from the average. Batch norm subtracts the average and divides by the spread, so the values sit around 0 with a spread of 1. Then it multiplies by a learned scale γ (gamma) and adds a learned shift β (beta), so training can still pick a different range if one works better.</p>
 <p>While training, the average and spread come from the current batch, and batch norm keeps a running average of both. After training it uses those running averages, so for each channel it becomes one fixed multiply and one fixed add. That fixed form is what lets it be merged into the weights and thresholds before the network goes on the chip (<a href="hardware.html#folding">G.5</a>).</p>
@@ -412,7 +412,7 @@
 <div class="play-row"><span class="readout" id="tet-readout"></span></div>
 </div>
 </div>
-<div class="recap"><strong>In short</strong><p>An artificial neuron is a weighted sum and an activation, and a network is layers of them, trained by gradient descent on a loss. Convolutions reuse small kernels across the picture, stride and pooling shrink the maps, and the head turns maps into class scores. Spiking neurons and spiking convolutions do the same job with spikes over time: fire, reset, leak, integrate, and count the output spikes. Squeezing numbers into spikes rounds them and costs some accuracy. Training uses a smooth stand-in for the spike's slope. Batch norm keeps each layer's values in a steady range, dropout, weight decay and label smoothing make memorizing harder, momentum and Adam take better steps, and the loss scores either the clip's total spike count or every step.</p></div>
+<div class="recap"><strong>In short</strong><p>An artificial neuron is a weighted sum and an activation, and a network is layers of them, trained by gradient descent on a loss. Convolutions reuse small kernels across the picture, stride and pooling shrink the maps, and the head turns maps into class scores. Spiking neurons and spiking convolutions do the same job with spikes over time, firing, resetting, leaking and integrating, and the network's answer is the count of its output spikes. Squeezing numbers into spikes rounds them and costs some accuracy. Training uses a smooth stand-in for the spike's slope. Batch norm keeps each layer's values in a steady range, dropout, weight decay and label smoothing make memorizing harder, momentum and Adam take better steps, and the loss scores either the clip's total spike count or every step.</p></div>
 </section>
 
 

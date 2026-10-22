@@ -25,10 +25,10 @@
   /* ---------- C.1 the pipeline ---------- */
   const STAGES = [
     { t: ["Propose a", "configuration"], title: "Propose a configuration",
-      text: "The search picks one value for every setting: how many layers and how wide, how each layer shrinks the map, how the input is encoded, how the neurons behave, and how training runs. The first 96 trials are a designed, balanced set; after that, a sampler proposes each one from what has scored well.",
+      text: "The search picks one value for every setting. That covers how many layers and how wide, how each layer shrinks the map, how the input is encoded, how the neurons behave, and how training runs. The first 96 trials are a designed, balanced set. After that, a sampler proposes each one from what has scored well.",
       why: "Settings change how much the others matter, so they are chosen together as one configuration." },
     { t: ["Check it fits", "the chip"], title: "Check that it fits the chip",
-      text: "Before anything is trained, the network's sizes are worked out and compared with the chip's limits: 16,000 input axons, and caps on how many connections each neuron may receive and send. A shape that fails ends the trial with a score of zero.",
+      text: "Before anything is trained, the network's sizes are worked out and compared with the chip's limits, which are 16,000 input axons and caps on how many connections each neuron may receive and send. A shape that fails ends the trial with a score of zero.",
       why: "A network the chip cannot hold is useless however accurate it is, and this check takes microseconds." },
     { t: ["Recordings", "to frames"], title: "Turn recordings into frames",
       text: "Every recording is cut into T frames with equal numbers of events, shrunk to the chosen size, and encoded with the chosen number of bits per pixel.",
@@ -38,25 +38,25 @@
       why: "Batch normalization needs real statistics of the data before it can be folded into the weights." },
     { t: ["Fold and round", "to integers"], title: "Fold and round to the chip's integers",
       text: "Batch normalization is folded into the convolution weights and the neurons' thresholds, and every weight is rounded to one of the 16-bit integer values the chip stores.",
-      why: "The chip has no batch normalization and no floating point. From here on, the network being trained is the network that would deploy." },
+      why: "The chip has no batch normalization and no floating point. From here on, training uses exactly the network the chip would run." },
     { t: ["Train on the", "integer grid"], title: "Keep training on the integer grid",
       text: "The remaining 60 epochs train with the integer weights in place, at half the learning rate. The network learns to work with exactly the weights it will deploy with.",
-      why: "Rounding only at the end would break the precise balances training relies on; training on the grid avoids that." },
+      why: "Rounding only at the end would break the precise balances training relies on. Training on the grid avoids that." },
     { t: ["Checkpoint", "at epoch 30"], title: "Early-stopping checkpoint at epoch 30",
-      text: "At epoch 30 each trial is ranked against every other trial that has reached epoch 30. Only the best third continue to epoch 80; the rest stop and free their slot. Trials in the designed block always run to the end.",
+      text: "At epoch 30 each trial is ranked against every other trial that has reached epoch 30. Only the best third continue to epoch 80, and the rest stop and free their slot. Trials in the designed block always run to the end.",
       why: "Most trials will not win, and it is usually clear by then. The checkpoint comes ten epochs after the switch to integers, once accuracy has recovered from the switch." },
     { t: ["Export to the", "chip's format"], title: "Export to the chip's format",
-      text: "Each layer is written out as the chip stores it: neurons, connections, integer weights, integer thresholds and leak settings.",
+      text: "Each layer is written out as the chip stores it, as neurons, connections, integer weights, integer thresholds and leak settings.",
       why: "This is the network the chip would load, so it is what gets scored." },
     { t: ["Check on a", "chip simulator"], title: "Check it on a simulator of the chip",
       text: "Every validation clip runs through a simulator that uses the chip's exact integer arithmetic, and its answers are compared with the trained network's. A network the simulator cannot run is marked not deployable.",
-      why: "It confirms that what was trained is what the chip would actually do." },
+      why: "It confirms that the chip would give the same answers as the trained network." },
     { t: ["Score on held-", "out people"], title: "Score the deployed network",
       text: "The trial's score is the deployed network's accuracy on the validation people, who were never trained on. The search records it, learns from it, and starts the next trial.",
       why: "Scoring the deployed network rather than the training-time one means the search optimizes exactly what runs on the chip." },
-    { t: ["Finalists:", "retrain the top 5"], title: "After the last trial: finalists",
+    { t: ["Finalists,", "retrain the top 5"], title: "After the last trial, the finalists",
       text: "The five best configurations are trained again from scratch with three new random seeds each. The configuration with the best average wins, and only then is its accuracy on the test people measured, once.",
-      why: "One lucky run should not decide the winner, and the test set stays an honest final check." }
+      why: "One lucky run should not decide the winner, and the test set stays untouched until the final check." }
   ];
   function pipe() {
     const boxEl = document.getElementById("pipe-vis");
@@ -353,7 +353,7 @@
       });
       const stopped = tr.filter(t => t.stop).length;
       document.getElementById("asha-readout").innerHTML = e < RUNG ? `epoch <b>${Math.floor(e)}</b>: every trial still training`
-        : `epoch <b>${Math.floor(e)}</b>: ${stopped} of ${n - 3} sampled trials stopped at the checkpoint; their slots go to new trials`;
+        : `epoch <b>${Math.floor(e)}</b>: ${stopped} of ${n - 3} sampled trials stopped at the checkpoint, and their slots went to new trials`;
     }
     let acc = 0;
     const ctrl = L.loop(canvas, dt => { acc += dt * 12; while (acc >= 1 && e < E) { acc--; e++; } draw(); return e < E; },

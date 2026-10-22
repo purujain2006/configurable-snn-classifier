@@ -402,8 +402,8 @@
     const g = [...Array(N)].map(() => [...Array(N)].map(() => (r() < 0.33 ? 1 : 0)));
     const NOTES = {
       stride: "A 3 × 3 kernel that moves two cells at a time (here every weight is 1, so each output counts the spikes in its window). The windows overlap by one cell, and the 8 × 8 map becomes 3 × 3 without padding.",
-      avg: "Each output is the average of a 2 × 2 block, so a block holding one spike gives 0.25. The chip has no pooling unit: the average is folded into the next layer's weights, so that layer reads all four cells and has four times the connections.",
-      max: "Each output is the largest value in its block. For spikes that means: did any of the four fire? On the chip this is one extra neuron per block that fires if any input fired. It adds one step of delay, but the next layer only reads the pooled map."
+      avg: "Each output is the average of a 2 × 2 block, so a block holding one spike gives 0.25. The chip has no pooling unit, so the average is folded into the next layer's weights, so that layer reads all four cells and has four times the connections.",
+      max: "Each output is the largest value in its block. For spikes that means asking whether any of the four fired. On the chip this is one extra neuron per block that fires if any input fired. It adds one step of delay, but the next layer only reads the pooled map."
     };
     let mode = "stride", idx = 0;
     const s = L.svg(box, 700, 250, "Shrinking a map of spikes by stride or pooling");

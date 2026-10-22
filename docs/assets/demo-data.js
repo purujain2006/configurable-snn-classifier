@@ -152,7 +152,7 @@
     const order = pool.slice().sort(() => r() - 0.5), val = new Set(order.slice(0, 4));
     const dotsVal = [...Array(29)].map(() => [...Array(12)].map(() => r() < 216 / 1176));
     const NOTE = {
-      person: "Whole people are held out. Every validation score asks the question the test set asks: how well does the network handle someone it has never seen?",
+      person: "Whole people are held out. Every validation score then asks what the test set asks, which is how well the network handles someone it has never seen.",
       clip: "Split by clip instead, and every training person lands on both sides. The network can score well on validation by recognizing each person's style rather than the gesture, and the validation score stops predicting the test score."
     };
     function draw(mode) {

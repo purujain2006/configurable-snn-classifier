@@ -17,7 +17,7 @@ function textBlocks(html) {
   while ((m = re.exec(h))) {
     let t = m[2].replace(/<[^>]+>/g, ' ')
       .replace(/&#8722;/g,'-').replace(/&#215;/g,'x').replace(/&#183;/g,'.')
-      .replace(/&#(\d+);/g, (_,d)=>String.fromCharCode(+d))
+      .replace(/&#(\d+);/g, (_,d)=>String.fromCharCode(+d)).replace(/&#x([0-9a-f]+);/gi, (_,h)=>String.fromCharCode(parseInt(h,16)))
       .replace(/&[a-z]+;/gi,' ')
       .replace(/\s+/g,' ').trim();
     if (t.length > 25) blocks.push({tag:m[1], text:t, idx:m.index});
@@ -40,6 +40,9 @@ const RULES = [
   { id:'fwdRef', re:/\b(?:as we(?:'ll| will)|we(?:'ll| will) (?:see|cover|get to|explore)|later (?:on|we)|coming up|in the next section|below,? we)\b/gi, label:'forward reference' },
   { id:'weRoyal', re:/\b(?:we|our|us)\b|\blet's\b/gi, label:'first person' },
   { id:'crucial', re:/\b(?:crucial(?:ly)?|essential(?:ly)?|vital|key to|critical(?:ly)?|fundamental(?:ly)?|significantly|notably|importantly)\b/gi, label:'intensifier' },
+  { id:'semicolon', re:/;/g, label:'semicolon (split into two sentences)' },
+  { id:'colon', re:/[a-z)\]'"]:\s+[a-zA-Z(]/g, label:'colon mid-sentence (use a period or a comma)' },
+  { id:'filler', re:/(?:honest(?:ly)?|simply|actually|basically|essentially|the point is|the catch|it turns out|in short|worth noting|of course|clearly|obviously|the promise|answers both)/gi, label:'filler or framing word' },
   { id:'ensure', re:/\b(?:ensur\w+|facilitat\w+|utiliz\w+|myriad|plethora|comprehensive|holistic|streamlin\w+|optimiz\w+ for|in order to)\b/gi, label:'inflated diction' },
 ];
 

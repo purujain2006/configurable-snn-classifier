@@ -10,7 +10,7 @@
       const k = +$("fb-k").value, cin = +$("fb-cin").value, cout = +$("fb-cout").value,
             s = +$("fb-s").value, inHW = +$("fb-hw").value;
 
-      // the head's fan-in is not a free choice: it is this layer's output volume
+      // the head's fan-in is fixed by this layer's output volume
       const oh = SNN.convOutSize(inHW, k, s, 0, 1);
       const ow = oh;
       const collapsed = oh < 1 || ow < 1;

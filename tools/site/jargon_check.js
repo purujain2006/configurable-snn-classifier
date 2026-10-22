@@ -32,7 +32,7 @@ const TERMS = [
   ['momentum',           'basics.html',       '<strong>Momentum</strong> keeps a running average'],
   ['Adam',               'basics.html',       '<strong>Adam</strong> (Kingma and Ba, 2014)'],
   ['cross-validation',   'data.html',         '<strong>K-fold cross-validation</strong>'],
-  ['overfitting',        'index.html',        'overfitting, learning the training people rather than the gestures'],
+  ['overfitting',        'index.html',        'The networks overfit, which means they learn the training people'],
   ['SynOp',              'basics.html',       'class="term">synaptic operation</span> (SynOp)'],
   ['weight scale',       'hardware.html',     'The weight scale α says'],
   ['flush',              'basics.html',       'class="term">flush steps<'],

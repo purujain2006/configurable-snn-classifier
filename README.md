@@ -1,94 +1,113 @@
-# snnsearch
+# configurable-snn-classifier
 
-Finds good hyperparameters for a **spiking neural network** under hardware
-constraints, and tells you whether the result can actually be deployed.
+This tool searches for spiking neural networks that can run on HiAER-Spike, a
+neuromorphic computer built at UC San Diego. Every network it reports fits the
+chip's limits, was trained with the chip's own arithmetic, and was checked
+clip by clip against a simulator of the chip.
 
-Built around **HiAER-Spike**, but the limits are configuration rather than
-constants, so it retargets as the hardware changes. Any dataset, any input
-coding, any architecture the configuration can express.
+The chip's limits are settings in the config, so the search still works if the
+hardware changes. It runs on any dataset the config can load and any network
+the config can describe.
 
-**New here? Start with [GUIDE.md](GUIDE.md):** install, data, configs, the
-preflight, running a search, reading results, the option study, and a
-troubleshooting table.
+The website explains the project from the beginning, with a demo for each idea,
+and assumes no background in neural networks or chips:
+https://purujain2006.github.io/configurable-snn-classifier/
 
-## What to run
+To install the tool and run it, read [GUIDE.md](GUIDE.md).
+
+## Commands
 
 ```bash
 python main.py check                                        # what this machine is missing
-python main.py summary   -c configs/dvs128_search05.yaml    # size and chip fit, no GPU
-python main.py preflight -c configs/dvs128_search05.yaml    # every stage of a search, ~15 min
-python main.py search    -c configs/dvs128_search05.yaml    # the search
+python main.py summary   -c configs/dvs128_search05.yaml    # network size and chip fit, no GPU needed
+python main.py preflight -c configs/dvs128_search05.yaml    # every stage of a search in miniature
+python main.py search    -c configs/dvs128_search05.yaml    # the search itself
 python main.py study     -c configs/dvs128_search05.yaml --from-best results/dvs128_search05/best_finalist.json
 python main.py single    -c configs/dvs128_search05.yaml --from-best results/dvs128_search05/best_finalist.json --epochs 300
+python main.py single    -c configs/dvs128_search05.yaml --from-best results/dvs128_search05/best_finalist.json --epochs 300 --folds 5
 python main.py report    results/dvs128_search05            # rebuild report.html
 ```
 
 A search will not start until `preflight` has passed for the same config and
-code. The preflight runs a miniature search end to end on the real data and
-GPU, so a problem that used to surface hours into a run (a missing package, a
-dataset path, a trial too big for its share of the GPU, a bug in the steps
-after the trials) surfaces in minutes instead.
+code. The preflight runs a small search from start to finish on the real data
+and GPU. Problems that would otherwise show up hours into a search, such as a
+missing package, a wrong dataset path, a trial too large for its share of the
+GPU or a bug in the steps after training, show up in minutes.
 
-The tests, each runnable on its own on a laptop:
+`single --folds 5` scores a chosen network with five-fold cross-validation.
+Every training person is held out once, and the result is an average with a
+standard error. It costs five trainings, so it is for comparing a few finished
+networks.
+
+## Tests
+
+Each test runs on its own on a laptop, without a GPU. The last one needs ray and optuna and takes about five minutes.
 
 ```bash
-python tools/checks/check_static.py      # undefined names and call signatures, no torch
-python tests/smoke_test.py               # the whole pipeline on synthetic data, ~1 min
+python tools/checks/check_static.py      # undefined names and call signatures, no torch needed
+python tests/smoke_test.py               # the whole pipeline on synthetic data, about a minute
 python tests/test_chip_rules.py          # tau, weight decay, fan-in behind pools, bias neurons
-python tests/test_search_space.py        # every option sampled, balanced block, any dataset's shape
-python tests/test_sim_match.py           # PyTorch and IntegerSim fire identical spikes, every feature
+python tests/test_search_space.py        # every option sampled, the balanced block, any dataset's shape
+python tests/test_sim_match.py           # PyTorch and the integer simulator fire the same spikes
 python tests/test_training_options.py    # augmentation, TET loss, seeds, exact measurement
 python tests/test_preflight.py           # config rules, the preflight record, early stopping
 python tests/test_study.py               # the option study's variants and verdicts
 python tests/test_docs.py                # GUIDE.md covers every setting, command and test
-python tests/test_input_pipeline.py      # sampled inputs, replay flags, warmup ordering
-python tests/test_frame_cache.py         # incomplete caches and sequential rebuilds
-python tests/test_synops.py              # weight-layer arithmetic and dense ceilings
-python tests/test_search_e2e.py          # a real search and study through Ray, ~5 min
-node tests/test_snn_port.js              # the site's JavaScript math against Python
+python tests/test_input_pipeline.py      # sampled inputs, replay flags, warm-up ordering
+python tests/test_frame_cache.py         # incomplete caches and rebuilds
+python tests/test_synops.py              # SynOps counted the way the chip does the work
+python tests/test_per_subject.py         # accuracy per person
+python tests/test_val_folds.py           # the cross-validation folds
+python tests/test_early_exit.py          # accuracy and SynOps from the first k frames
+python tests/test_recount_synops.py      # recounting SynOps for saved networks
+node tests/test_snn_port.js              # the website's arithmetic against the Python package
+python tests/test_search_e2e.py          # a real search and option study through Ray, about 5 minutes
 ```
 
-## Why it exists
+## Why the search scores the converted network
 
-A network trained in floating point is not the network the chip runs. They
-differ in weight precision, threshold precision, leak resolution, neuron update
-order, and whether batch normalization is still present. Every one of those
-changes the output, and none of them appear in a training accuracy figure.
+A network trained the usual way, with 32-bit decimal numbers, is a different
+network from the one the chip runs. The chip rounds every weight and threshold
+to a 16-bit whole number, leaks by halving, updates its neurons in a fixed
+order, and has no batch normalization. Each of these changes the output, and
+none of them shows up in a training accuracy.
 
-So the search optimizes accuracy measured **after** conversion. A configuration
-must fit the connection limits, survive batch-norm folding, and quantize to
-INT16 without driving a threshold out of range. One that cannot be represented
-on chip scores zero regardless of how well it trained.
+So the search measures accuracy after the network has been converted for the
+chip. A network has to fit the connection limits, keep working once batch norm
+is folded into its weights, and keep its thresholds in range after rounding. A
+network that cannot run on the chip scores zero, however well it trained.
 
 ## What the search tries
 
-Nothing in the search is specific to one dataset: the input channels, size
-and class count come from the dataset, and the range of input sizes is worked
-out from them and the chip's 16,000 input axons. Besides the network's shape
-and the training recipe, it tries each of these on and off:
+The input channels, input size and number of classes come from the dataset,
+and the range of input sizes to try is worked out from them and the chip's
+16,000 input lines. Besides the network's shape and the training recipe, the
+search tries each of these options:
 
-| option | what it is |
+| option | values |
 |---|---|
-| pooling | none, average (folded into the next layer), or max (one OR neuron per window) |
-| bias | folded into the threshold, or delivered by always-on bias neurons |
-| head | flatten or global average pooling |
-| signed spikes | a unit sends +1 or -1, as two chip neurons |
-| bits per input value | 1 to 4, one input axon per bit |
-| tau | fixed, learned per layer, or learned per channel (always a power of two) |
-| loss | spike rate over the clip, or TET (a loss at every timestep) |
-| augmentation | shifts, cutout, dropped inputs, and flips where they keep the label |
-| conv dropout, firing-rate penalty | regularizers |
+| pooling | none, average (merged into the next layer), or max (one OR neuron per window) |
+| bias | merged into the threshold, or added by bias neurons that fire on every step |
+| head | flatten, or global average pooling |
+| signed spikes | off, or each unit sends +1 or -1 using two chip neurons |
+| bits per input value | 1 to 4, one input line per bit |
+| tau (the leak) | fixed, learned per layer, or learned per channel, always a power of two |
+| loss | spike count over the clip, or TET (a loss at every timestep) |
+| augmentation | shifts, cutout, dropped events, and flips where a flip keeps the label |
+| dropout between layers, firing-rate penalty | off or on |
 
-A search starts with a balanced block (`search.balanced_trials`) in which each
-option appears equally often, so all of them get a fair test before Optuna
-starts steering. When it ends, the top `search.finalists` trials are trained
-again with `search.finalist_seeds` new seeds each, and the one with the best
-mean validation score is written to `best_finalist.json`. Replay it with
-`python main.py single -c <config> --from-best results/<run>/best_finalist.json`.
+A search starts with a balanced block of trials (`search.balanced_trials`) in
+which every option appears equally often, so each one gets a fair test before
+Optuna starts choosing. At the end, the best `search.finalists` trials are
+trained again with `search.finalist_seeds` new seeds each. The one with the
+best average validation score is written to `best_finalist.json`, and
+`python main.py single -c <config> --from-best results/<run>/best_finalist.json`
+trains it again.
 
-## Bringing your own data
+## Your own data
 
-Values go in the config. A dataset is code, so the config points at it:
+Settings go in the config. A dataset is code, so the config names the file
+that builds it:
 
 ```yaml
 dataset:
@@ -96,101 +115,99 @@ dataset:
   factory: make_datasets
   root: ./data/cifar10
 encoding:
-  coding: levels     # levels | passthrough | poisson | temporal | direct
+  coding: levels     # levels, passthrough, poisson, temporal or direct
   T: 8
 ```
 
-The factory returns a `DatasetBundle`; see `examples/cifar10_data.py`. Built-in
-names (`dvs128`, `cifar10`, `cifar100`, `mnist`, `fashion_mnist`) need no module.
+The factory returns a `DatasetBundle`, as in `examples/cifar10_data.py`. The
+built-in datasets (`dvs128`, `cifar10`, `cifar100`, `mnist`, `fashion_mnist`)
+need no module.
 
-### Coding
+Event-camera data is already made of spikes. A still image has no time axis,
+and the coding decides what the network receives at each timestep.
 
-Event data is already spikes. A static image is not, and how you give it a time
-axis matters:
-
-| coding | what it does | when |
+| coding | what it sends | use it for |
 |---|---|---|
-| `levels` | each value as a whole number 0..2^B-1, repeated each step, on B axons | default for images; B is searched |
-| `passthrough` | resize existing events; 1 bit = any event, B bits = event counts | DVS and other event cameras |
-| `poisson` | stochastic spikes, probability = intensity | fully spiking, noisier at small T |
-| `temporal` | one spike per unit, earlier = brighter | sparsest by SynOps, harder to train |
-| `direct` | analog value repeated each step | software only: no axon carries an analog value |
+| `levels` | each value as a whole number from 0 to 2^B - 1 on B input lines, every step | still images (the default) |
+| `passthrough` | resized events, as 1 bit for any event or B bits for the count | DVS and other event cameras |
+| `poisson` | a random spike with probability equal to the brightness | still images, noisy when T is small |
+| `temporal` | one spike per pixel, earlier for brighter pixels | the fewest spikes, but harder to train |
+| `direct` | the raw value at every step | software only, since the chip's input lines carry spikes |
 
-Which one wins is task-dependent, so it is a config field rather than a constant.
+The best coding depends on the task, so it is a config setting.
 
 ## SynOps
 
-Every run reports **synaptic operations per sample**: how many accumulate
-events the network actually performs, counted from real spike activity.
+Every run counts synaptic operations (SynOps) per sample, the number of times
+a spike adds a weight to a neuron on the chip, measured on real inputs. Papers on
+neuromorphic hardware report the same count, so results can be compared with
+other chips. SynOps count work, and energy also depends on memory traffic and
+on the power the chip draws while idle, which can be the larger part on an FPGA.
 
-This is the number neuromorphic papers quote, so it compares against Loihi and
-SpiNNaker results without owning either. It is **not joules** -- real energy also
-includes memory traffic and static power, which on an FPGA may dominate. The
-column is called `synops` for that reason.
-
-Optimizing for it is opt-in:
+Searching for fewer SynOps is optional:
 
 ```yaml
 objective:
-  mode: pareto          # accuracy | constrained | weighted | pareto
+  mode: pareto          # accuracy, constrained, weighted or pareto
   synops_budget: 2.0e6  # for constrained
 ```
 
-`pareto` is the honest default when the trade-off has not been decided: it
-returns the front and lets you choose with the data in front of you.
+`pareto` keeps every network that no other network beats on both accuracy and
+SynOps, which suits a search where the trade-off is not settled yet.
 
-## Documentation site
+## The website
 
-A full site under `docs/`, written for readers with no background in spiking
-networks:
-
-> **https://purujain2006.github.io/configurable-snn-classifier/**
-
-Eight pages in reading order. The interactive demonstrations use arithmetic
-ported from the package and verified against it by `tests/test_snn_port.js`.
+The site lives in `docs/` and GitHub Pages serves it. Its demos use arithmetic
+ported from the package, and `tests/test_snn_port.js` checks that port against
+the Python. It has a light theme and a dark theme.
 
 | Page | Covers |
 |---|---|
-| [01 · The problem](docs/index.html) | HiAER-Spike and its constraints, conventional networks, spiking networks, why their costs differ, and how the code is organized |
-| [02 · The neuron](docs/neurons.html) | The neuron the chip implements: update order, integer leak, quantized threshold, surrogate gradients |
-| [03 · The architecture](docs/architecture.html) | The network as configuration, shape planning, the four measures of size including SynOps, an interactive builder |
-| [04 · Fitting the chip](docs/hardware.html) | Connection limits as arithmetic, the INT16 grid, batch-norm folding, quantization-aware training |
-| [05 · Training](docs/training.html) | Turning an input into spikes, reading a prediction, the pipeline flush, the training schedule |
-| [06 · The search](docs/search.html) | Evaluation tiers, early stopping, the conditional search space, results recording |
-| [07 · Results](docs/results.html) | Every run on record, the statistics recomputed from the raw trial files, what the data cannot answer |
-| [08 · Reference](docs/reference.html) | Every class and function, grouped by module, searchable |
+| [Home](docs/index.html) | what the project is, the chip's rules, and where it stands |
+| [0 · Why](docs/why.html) | the chain of problems that led to this project, from the energy cost of neural networks to the search |
+| [A · Neural networks](docs/basics.html) | neurons, layers, learning, convolutions, spiking neurons, and the tools that help a network train |
+| [B · Data and testing](docs/data.html) | the event camera, frames, the train, validation and test split, overfitting, cross-validation, augmentation |
+| [C · Pipeline and search](docs/pipeline.html) | one trial from start to finish, then the search and what it has found so far |
+| [D · Every setting](docs/settings.html) | each setting the search tries, with a picture and how it moved accuracy |
+| [E · Bit encoding](docs/bits.html) | sending a pixel's event count to the chip one bit per input line |
+| [F · The chip's neuron](docs/neurons.html) | the update order, the leak and the threshold, and how training matches the chip |
+| [G · Fitting the chip](docs/hardware.html) | layer sizes, connection limits, 16-bit weights, removing batch norm |
+| [H · Results](docs/results.html) | the best networks so far and how far to trust the numbers |
+| [Guide](docs/guide.html) | questions such as "will my network fit?", each with sections to read and commands to run |
+| [Glossary](docs/glossary.html) | every term, in plain words |
+| [Code reference](docs/reference.html) | every class and function, grouped by module |
 
-To read it locally, open `docs/index.html`. Network access is used only for
-fonts and syntax highlighting.
+To read it offline, open `docs/index.html`. It uses the network only for fonts.
 
 ## Layout
 
 ```
 main.py                  launcher
 configs/                 YAML run configurations
-examples/                a user-supplied dataset, worked
-snnsearch/               the package; snnsearch/README.md maps every file
-docs/                    the explainer site (GitHub Pages serves this folder)
-tests/                   every test, each runnable on its own
+examples/                a user-supplied dataset, worked through
+snnsearch/               the package (snnsearch/README.md describes every file)
+docs/                    the website
+tests/                   the tests, each runnable on its own
 GUIDE.md                 how to use the tool, start to finish
 tools/
-  match_simplesim.py     per-clip match against the simulator; --selftest against hs_api
+  match_simplesim.py     compare the tool's simulator with HiAER-Spike's, clip by clip
+  fpga_diff.py           find where the FPGA's spikes depart from the simulator's
   replay_top.py          retrain the best N trials of a search
   build_cache.py         build the frame cache without a GPU
-  hpo_analysis.py        which knobs moved accuracy, with multiple-comparison control
+  hpo_analysis.py        which settings moved accuracy, corrected for many comparisons
   leaderboard_from_trials.py   rebuild a complete leaderboard from trials.jsonl
-  read_ckpt.py           read a .pth into numpy with no torch installed
+  read_ckpt.py           read a .pth file into numpy without torch
   checks/                check_env, check_static, train_and_verify
-  analysis/              top_trials, factor_effects, and one-off studies
-  site/                  website tooling: page validation, prose and jargon checks
+  analysis/              top_trials, factor_effects, per_subject, early_exit, recount_synops
+  site/                  website tools: page checks, the glossary build
   archive/               Practice2.py, the single file the package was split from
 ```
 
 ## Dependencies
 
-`summary` and `check` need nothing but Python 3.9+. Training needs `torch` and
-`spikingjelly`; the search additionally needs `ray[tune]` and `optuna`. Install
-torch first, or spikingjelly may pull a different build.
+`summary` and `check` need only Python 3.9 or later. Training needs `torch` and
+`spikingjelly`, and the search also needs `ray[tune]` and `optuna`. Install
+torch first, or spikingjelly may install a different build of it.
 
 ```bash
 pip install torch --index-url https://download.pytorch.org/whl/cu121

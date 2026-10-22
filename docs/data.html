@@ -24,14 +24,14 @@
 </header>
 <main class="with-toc">
 <div class="wrap">
-<details class="refresh" data-terms="snn,spike,timestep,channel,axon,epoch"><summary><span class="rf-k">Forgot some of these?</span><span class="rf-list">spiking network · spike · timestep · channel · axon · epoch</span></summary><dl class="rf-dl"><dt>spiking network (SNN)</dt><dd>A network whose neurons pass spikes instead of numbers and run step by step through time. <a href="basics.html#snn">A.5</a></dd><dt>spike</dt><dd>A single all-or-nothing signal: at each step a neuron either fires or it does not. <a href="basics.html#snn">A.5</a></dd><dt>timestep</dt><dd>One tick of the clock in a spiking network. Every layer updates once per step. <a href="basics.html#snn">A.5</a></dd><dt>channel</dt><dd>One of several stacked pictures. The camera gives two (brighter and darker events), and each layer makes one per kernel. <a href="basics.html#cnn">A.4</a></dd><dt>axon</dt><dd>An input line that carries spikes into the chip from outside. The chip has 16,000, so the input frame must be small enough to fit. <a href="index.html#rules">Home</a></dd><dt>epoch</dt><dd>One pass through all of the training data. A trial here trains for up to 80 epochs. <a href="basics.html#learning">A.3</a></dd></dl></details>
+<details class="refresh" data-terms="snn,spike,timestep,channel,axon,epoch"><summary><span class="rf-k">Forgot some of these?</span><span class="rf-list">spiking network · spike · timestep · channel · axon · epoch</span></summary><dl class="rf-dl"><dt>spiking network (SNN)</dt><dd>A network whose neurons pass spikes instead of numbers and run step by step through time. <a href="basics.html#snn">A.5</a></dd><dt>spike</dt><dd>A single all-or-nothing signal. At each step a neuron either fires or it does not. <a href="basics.html#snn">A.5</a></dd><dt>timestep</dt><dd>One tick of the clock in a spiking network. Every layer updates once per step. <a href="basics.html#snn">A.5</a></dd><dt>channel</dt><dd>One of several stacked pictures. The camera gives two (brighter and darker events), and each layer makes one per kernel. <a href="basics.html#cnn">A.4</a></dd><dt>axon</dt><dd>An input line that carries spikes into the chip from outside. The chip has 16,000, so the input frame must be small enough to fit. <a href="index.html#rules">Home</a></dd><dt>epoch</dt><dd>One pass through all of the training data. A trial here trains for up to 80 epochs. <a href="basics.html#learning">A.3</a></dd></dl></details>
 
 
 <section class="reveal" id="camera">
 <h2><span class="sec-num">B.1</span>An event camera</h2>
 <div class="why"><span class="why-k">Why this exists</span><p>An ordinary camera sends every pixel of every frame, even when nothing in the scene moves, which wastes data and power, and fast motion between frames blurs or goes missing. The eye's retina mostly reports change. Event cameras copy that idea, and their output already looks like spikes, which suits a spiking chip.</p></div>
-<p>An ordinary camera takes whole pictures at a fixed rate. An <span class="term">event camera</span>, also called a dynamic vision sensor or DVS, has no frames at all. Each pixel watches its own brightness and reports an <span class="term">event</span> the moment the brightness changes enough: where it happened, when (to the microsecond), and which way it went, brighter or darker, called its polarity. A still scene produces almost nothing, and a moving hand produces a stream of events along its edges.</p>
-<p>That makes event cameras a natural partner for spiking networks: the data already arrives as spikes, and it costs nothing where nothing moves.</p>
+<p>An ordinary camera takes whole pictures at a fixed rate. An <span class="term">event camera</span>, also called a dynamic vision sensor or DVS, has no frames at all. Each pixel watches its own brightness and reports an <span class="term">event</span> the moment the brightness changes enough. The event says where it happened, when (to the microsecond), and which way it went, brighter or darker, which is called its polarity. A still scene produces almost nothing, and a moving hand produces a stream of events along its edges.</p>
+<p>That makes event cameras a natural partner for spiking networks. The data already arrives as spikes, and it costs nothing where nothing moves.</p>
 <div class="demo" id="demo-dvs">
 <div class="demo-head">
 <span class="demo-tag">ANIMATION</span>
@@ -50,12 +50,12 @@
 
 <section class="reveal" id="frames">
 <h2><span class="sec-num">B.2</span>From events to frames</h2>
-<p>A spiking network runs in timesteps, so each recording is cut into <span class="term">T</span> slices holding the same number of events, and each slice becomes one frame with two channels: one for brighter events and one for darker events. With one bit per pixel, a pixel is 1 if any event landed on it during the slice. More slices give finer timing but more steps to run, and every step costs time on the chip.</p>
+<p>A spiking network runs in timesteps, so each recording is cut into <span class="term">T</span> slices holding the same number of events, and each slice becomes one frame with two channels, one for brighter events and one for darker events. With one bit per pixel, a pixel is 1 if any event landed on it during the slice. More slices give finer timing but more steps to run, and every step costs time on the chip.</p>
 <div class="demo" id="demo-frames">
 <div class="demo-head">
 <span class="demo-tag">INTERACTIVE</span>
 <span class="demo-title">One recording cut into T frames</span>
-<span class="demo-sub">The strip shows how many events arrive over time; the lines cut it into slices with equal numbers of events, so slices are short where the hand moves fast. Each tile below is one frame.</span>
+<span class="demo-sub">The strip shows how many events arrive over time. The lines cut it into slices with equal numbers of events, so slices are short where the hand moves fast. Each tile below is one frame.</span>
 </div>
 <div class="demo-body">
 <div class="play-row" style="margin:0 0 14px"><span class="readout">frames T</span><div class="seg" id="frames-T"><button data-v="8" type="button">8</button><button class="on" data-v="16" type="button">16</button><button data-v="32" type="button">32</button><button data-v="48" type="button">48</button></div></div>
@@ -66,12 +66,12 @@
 </div>
 
 <h3>Making the picture smaller</h3>
-<p>The chip receives its input on input lines called <span class="term">axons</span>, and it has 16,000 of them. A 128 × 128 frame with two channels needs 32,768, so frames are shrunk first: each pixel of the small frame covers a block of the large one, and is 1 if any event landed anywhere in that block. The largest square that fits is 89 × 89, and the search tries sizes from 24 to 88. Smaller frames are cheaper but lose detail. With more than one bit per pixel, each pixel needs several axons (<a href="bits.html">page E</a>), which lowers the largest size that fits.</p>
+<p>The chip receives its input on input lines called <span class="term">axons</span>, and it has 16,000 of them. A 128 × 128 frame with two channels needs 32,768, so frames are shrunk first. Each pixel of the small frame covers a block of the large one, and is 1 if any event landed anywhere in that block. The largest square that fits is 89 × 89, and the search tries sizes from 24 to 88. Smaller frames are cheaper but lose detail. With more than one bit per pixel, each pixel needs several axons (<a href="bits.html">page E</a>), which lowers the largest size that fits.</p>
 <div class="demo" id="demo-resize">
 <div class="demo-head">
 <span class="demo-tag">INTERACTIVE</span>
 <span class="demo-title">Shrinking a frame to fit the chip's input</span>
-<span class="demo-sub">Left: one frame at the camera's 128 × 128. Right: the same frame at the chosen size. The bar shows how many of the chip's 16,000 input axons it uses.</span>
+<span class="demo-sub">On the left, one frame at the camera's 128 × 128. On the right, the same frame at the chosen size. The bar shows how many of the chip's 16,000 input axons it uses.</span>
 </div>
 <div class="demo-body">
 <div class="controls">
@@ -88,7 +88,7 @@
 <div class="demo-head">
 <span class="demo-tag">INTERACTIVE</span>
 <span class="demo-title">Two ways to shrink a sparse frame</span>
-<span class="demo-sub">Left: a 16 × 16 frame of events, editable by clicking. Right: the 8 × 8 result under each rule.</span>
+<span class="demo-sub">On the left, a 16 × 16 frame of events that you can edit by clicking. On the right, the 8 × 8 result under each rule.</span>
 </div>
 <div class="demo-body">
 <div class="controls">
@@ -107,18 +107,18 @@
 </div>
 </div>
 </div>
-<p>The range of frame sizes a search tries comes from the dataset: from about a quarter of the largest size up to the camera's own size or the largest square that fits in 16,000 axons, whichever is smaller. For DVS128 Gesture that is 24 × 24 to 88 × 88, in steps of 8.</p>
+<p>The range of frame sizes a search tries comes from the dataset. It runs from about a quarter of the largest size up to the camera's own size or the largest square that fits in 16,000 axons, whichever is smaller. For DVS128 Gesture that is 24 × 24 to 88 × 88, in steps of 8.</p>
 </div></details>
-<details class="technical-details"><summary>Other kinds of input: still images</summary><div class="detail-body">
+<details class="technical-details"><summary>Other kinds of input, such as still images</summary><div class="detail-body">
 <p>The tool also runs on ordinary photos and digits, which have no time axis. An input coding decides what such a network receives at each step.</p>
 <div class="tbl-wrap">
 <table class="tbl">
 <thead><tr><th>Coding</th><th>What it does</th><th>Fits</th></tr></thead>
 <tbody>
 <tr><td class="layer-name">levels</td><td>Rounds each pixel to a whole number from 0 to 2<sup>B</sup> − 1 and sends it at every step, on B input lines (<a href="bits.html">page E</a>).</td><td>Still images on the chip. The default for still images.</td></tr>
-<tr><td class="layer-name">direct</td><td>Sends the same pixel values at every step.</td><td>Still images in software only: the chip's input lines carry spikes, so it cannot run on the chip as is.</td></tr>
+<tr><td class="layer-name">direct</td><td>Sends the same pixel values at every step.</td><td>Still images in software only, because the chip's input lines carry spikes, so it cannot run on the chip as is.</td></tr>
 <tr><td class="layer-name">poisson</td><td>Each step, fires a pixel with probability equal to its brightness.</td><td>Still images on the chip. The randomness costs accuracy when T is small.</td></tr>
-<tr><td class="layer-name">temporal</td><td>Each pixel fires once; brighter pixels fire earlier.</td><td>The fewest spikes, and the hardest to train.</td></tr>
+<tr><td class="layer-name">temporal</td><td>Each pixel fires once. Brighter pixels fire earlier.</td><td>The fewest spikes, and the hardest to train.</td></tr>
 <tr><td class="layer-name">passthrough</td><td>Shrinks event frames and sends any nonzero pixel as a spike, or with B bits, its event count up to 2<sup>B</sup> − 1.</td><td>Event cameras, including DVS128 Gesture.</td></tr>
 </tbody>
 </table>
@@ -134,9 +134,9 @@
 <dl class="kv">
 <dt>Training set</dt><dd>The examples the network learns from. Its weights are adjusted to fit these.</dd>
 <dt>Validation set</dt><dd>Examples held back from training and used to choose between networks. Every trial in a search is scored on it. Because the search keeps whichever network does best here, the winner's validation score is a little optimistic.</dd>
-<dt>Test set</dt><dd>Examples nobody looks at until the very end, scored once on the final network. It is the honest estimate of how the network does on new data.</dd>
+<dt>Test set</dt><dd>Examples nobody looks at until the very end, scored once on the final network. It gives a fair estimate of how the network does on new data.</dd>
 </dl>
-<p>How the split is made matters as much as its size. The test set is 6 people who never appear in training, so the real question is how well a network handles people it has never seen. The validation set asks the same question by holding out whole people too: four of the 23 training people, 216 clips, are set aside, and the network trains on the other 19.</p>
+<p>How the split is made matters as much as its size. The test set is 6 people who never appear in training, so the test asks how well a network handles people it has never seen. The validation set asks the same question by holding out whole people too. Four of the 23 training people, 216 clips, are set aside, and the network trains on the other 19.</p>
 <div class="demo" id="demo-split">
 <div class="demo-head">
 <span class="demo-tag">INTERACTIVE</span>
@@ -150,12 +150,12 @@
 </div>
 <div class="demo-note"><p id="split-note"></p></div>
 </div>
-<aside class="aka" data-viz="none"><div class="aka-head"><span class="aka-k">In the search records</span><code class="aka-name">hw_val_accuracy</code><code class="aka-name">val_accuracy</code><code class="aka-name">hw_test_accuracy</code></div><p>Every score in the records is a fraction of clips. For the example network, <b><code>hw_val_accuracy</code> = 0.745</b> means it got 161 of the 216 validation clips right; <i>hw</i> stands for hardware, because the score belongs to the network as written out for the chip. Trials are ranked by <code>val_accuracy</code>: the same score for a network that can run on the chip, and 0 for one that cannot. The test score, measured once at the very end, is <code>hw_test_accuracy</code>: 0.854 for the network the search finally picked (<a href="results.html#headline">page H</a>), or 246 of the 288 test clips.</p></aside>
+<aside class="aka" data-viz="none"><div class="aka-head"><span class="aka-k">In the search records</span><code class="aka-name">hw_val_accuracy</code><code class="aka-name">val_accuracy</code><code class="aka-name">hw_test_accuracy</code></div><p>Every score in the records is a fraction of clips. For the example network, <b><code>hw_val_accuracy</code> = 0.745</b> means it got 161 of the 216 validation clips right. The <i>hw</i> stands for hardware, because the score belongs to the network as written out for the chip. Trials are ranked by <code>val_accuracy</code>: the same score for a network that can run on the chip, and 0 for one that cannot. The test score, measured once at the very end, is <code>hw_test_accuracy</code>: 0.854 for the network the search finally picked (<a href="results.html#headline">page H</a>), or 246 of the 288 test clips.</p></aside>
 </section>
 
 <section class="reveal" id="overfit">
 <h2><span class="sec-num">B.4</span>Overfitting</h2>
-<details class="refresh" data-terms="weight,epoch,training-set,validation"><summary><span class="rf-k">Forgot some of these?</span><span class="rf-list">weight · epoch · training set · validation set</span></summary><dl class="rf-dl"><dt>weight</dt><dd>A number on a connection that says how strongly one neuron's output pushes the next neuron, and in which direction. Learning means adjusting weights. <a href="basics.html#neuron">A.1</a></dd><dt>epoch</dt><dd>One pass through all of the training data. A trial here trains for up to 80 epochs. <a href="basics.html#learning">A.3</a></dd><dt>training set</dt><dd>The examples the network learns from. <a href="data.html#split">B.3</a></dd><dt>validation set</dt><dd>Examples held back from training and used to choose between networks: here 216 clips from 4 people. <a href="data.html#split">B.3</a></dd></dl></details>
+<details class="refresh" data-terms="weight,epoch,training-set,validation"><summary><span class="rf-k">Forgot some of these?</span><span class="rf-list">weight · epoch · training set · validation set</span></summary><dl class="rf-dl"><dt>weight</dt><dd>A number on a connection that says how strongly one neuron's output pushes the next neuron, and in which direction. Learning means adjusting weights. <a href="basics.html#neuron">A.1</a></dd><dt>epoch</dt><dd>One pass through all of the training data. A trial here trains for up to 80 epochs. <a href="basics.html#learning">A.3</a></dd><dt>training set</dt><dd>The examples the network learns from. <a href="data.html#split">B.3</a></dd><dt>validation set</dt><dd>Examples held back from training and used to choose between networks. Here it is 216 clips from 4 people. <a href="data.html#split">B.3</a></dd></dl></details>
 
 <p>A network can learn its training examples too well. It memorizes details that belong to those 19 people, such as how one person holds their arm or where another stands, instead of what makes a wave a wave. The sign is a gap between accuracy on the training set and accuracy on the validation set.</p>
 <figure class="figure"><div class="lv" style="padding:18px 18px 8px"><canvas id="overfit-canvas"></canvas></div><figcaption>One real training run of a network that deploys on the chip. Training accuracy climbs to 99.7% while validation settles near 74%. The dashed line marks the switch from ordinary weights to the chip's integer weights (<a href="pipeline.html#phases">page C</a>).</figcaption></figure>
@@ -164,12 +164,12 @@
 
 <section class="reveal" id="noise">
 <h2><span class="sec-num">B.5</span>How much to trust one number</h2>
-<p>The validation set has 216 clips, so each clip is worth 0.46 percentage points, and luck in which clips happen to be hard moves the score. Take a network whose true accuracy on new people is fixed, and score it on many different validation sets of the same size: the measured scores spread out around the truth.</p>
+<p>The validation set has 216 clips, so each clip is worth 0.46 percentage points, and luck in which clips happen to be hard moves the score. Take a network whose true accuracy on new people is fixed, and score it on many different validation sets of the same size. The measured scores spread out around the truth.</p>
 <div class="demo" id="demo-noise">
 <div class="demo-head">
 <span class="demo-tag">INTERACTIVE</span>
 <span class="demo-title">The same network, scored on many validation sets</span>
-<span class="demo-sub">Each draw scores the network on a fresh set of clips. The dashed line is its true accuracy; the bars count how often each measured score came up.</span>
+<span class="demo-sub">Each draw scores the network on a fresh set of clips. The dashed line is its true accuracy. The bars count how often each measured score came up.</span>
 </div>
 <div class="demo-body">
 <div class="controls">
@@ -200,7 +200,7 @@
 <div class="lv" id="folds-vis"></div>
 <div class="play-row"><button class="btn primary" id="folds-play" type="button">Play</button><button class="btn" id="folds-step" type="button">One fold</button><button class="btn" id="folds-restart" type="button">Restart</button><span class="readout" id="folds-readout"></span></div>
 </div>
-<div class="demo-note"><p>The people and their scores are made up, with the same pattern as the real data: one fold, like the usual four validation people, is harder than the rest. Its score on its own sits well below the average over all five folds.</p></div>
+<div class="demo-note"><p>The people and their scores are made up, with the same pattern as the real data. One fold, like the usual four validation people, is harder than the rest. Its score on its own sits well below the average over all five folds.</p></div>
 </div>
 <p>On DVS128 Gesture the usual four validation people are harder than average. Three of the four score below the test average for every network trained so far, which is one reason validation reads about 6 points below test (<a href="results.html#topfive">H.3</a>).</p>
 <p>Cross-validation costs k full training runs per network. With 5 folds of 300 epochs, one network takes as long as five long runs. So the tool uses it only to choose between a few finished networks, never inside the search, and fold runs never touch the test set.</p>
@@ -215,12 +215,12 @@
 <dt>Cutout</dt><dd>Blank out one square, so the network cannot depend on any single region.</dd>
 <dt>Event drop</dt><dd>Delete each event with some probability, as if the sensor were less sensitive.</dd>
 </dl>
-<p>Each change is drawn once per clip and applied to every frame of that clip alike, so the motion inside the clip stays intact. Augmentation happens only during training: validation, test and the chip always see clips exactly as recorded.</p>
+<p>Each change is drawn once per clip and applied to every frame of that clip alike, so the motion inside the clip stays intact. Augmentation happens only during training. Validation, test and the chip always see clips exactly as recorded.</p>
 <div class="demo" id="demo-aug">
 <div class="demo-head">
 <span class="demo-tag">INTERACTIVE</span>
 <span class="demo-title">One clip, augmented five ways</span>
-<span class="demo-sub">Each picture shows three consecutive frames of the clip. The first is the original; the others are random draws with the strengths set here.</span>
+<span class="demo-sub">Each picture shows three consecutive frames of the clip. The first is the original. The others are random draws with the strengths set here.</span>
 </div>
 <div class="demo-body">
 <div class="controls">
@@ -235,11 +235,11 @@
 <p>Every changed clip is still made of whole event values the chip could receive, so augmentation never teaches the network something the chip could not show it.</p>
 <aside class="aka" data-viz="none"><div class="aka-head"><span class="aka-k">In the search records</span><code class="aka-name">use_augment</code><code class="aka-name">aug_shift</code><code class="aka-name">aug_cutout</code><code class="aka-name">aug_drop</code><code class="aka-name">aug_flip</code></div><p><code>use_augment</code> switches augmentation on or off for a trial. When it is on, <b><code>aug_shift</code> = 0.1</b> moves each clip by up to a tenth of the frame, <b><code>aug_cutout</code> = 0.2</b> blanks a square up to a fifth of the frame's side, and <b><code>aug_drop</code> = 0.1</b> deletes about one event in ten. <code>aug_flip</code> mirrors clips, and only when the dataset says a mirrored clip keeps its label, which DVS128 Gesture does not. The sliders above use the same three strengths.</p></aside>
 <div class="callout key"><span class="callout-title">Why no mirror flips</span>
-<p>Flipping left to right is the most common augmentation for photographs, but here it changes the answer: a mirrored right-hand wave is a left-hand wave, and a clockwise arm circle becomes counter-clockwise. So flips are switched off for this dataset.</p>
+<p>Flipping left to right is the most common augmentation for photographs, but here it changes the answer. A mirrored right-hand wave is a left-hand wave, and a clockwise arm circle becomes counter-clockwise. So flips are switched off for this dataset.</p>
 <div class="aug-grid small" id="flip-grid"></div>
 </div>
 <p>Augmentation makes the training task harder, so it needs longer training to pay off. Judged after a short run it can look as if it hurts, which is why the strength of each change is searched rather than fixed.</p>
-<div class="recap"><strong>In short</strong><p>An event camera reports changes, not pictures. Each recording is cut into T frames with equal numbers of events and shrunk to fit the chip's 16,000 input axons. Training data teaches, validation data chooses, and test data is scored once at the end; all three are split by person, because the real question is how a network handles people it has never seen. Small validation sets are noisy, and the gap between training and validation accuracy is the overfitting that augmentation and regularization fight.</p></div>
+<div class="recap"><strong>In short</strong><p>An event camera reports changes, not pictures. Each recording is cut into T frames with equal numbers of events and shrunk to fit the chip's 16,000 input axons. The training set is for learning, the validation set is for choosing between networks, and the test set is scored once at the end. All three are split by person, because what matters is how a network handles people it has never seen. Small validation sets are noisy, and the gap between training and validation accuracy is the overfitting that augmentation and regularization fight.</p></div>
 </section>
 
 </div>
