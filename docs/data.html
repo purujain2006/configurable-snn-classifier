@@ -19,7 +19,7 @@
 <div class="hero-inner">
 <p class="kicker">Start here · B</p>
 <h1>Data, testing and augmentation</h1>
-<p class="lede">Where the training examples come from, how a stream of camera events becomes something a network can read, how the data is split so that a score means something, and how augmentation stretches a small dataset further.</p>
+<p class="lede">Where the training examples come from, how a stream of camera events becomes something a network can read, how the data is split so that a score means something, how cross-validation gives every person a turn, and how augmentation stretches a small dataset further.</p>
 </div>
 </header>
 <main class="with-toc">
@@ -185,8 +185,30 @@
 </div>
 </section>
 
+<section class="reveal" id="folds">
+<h2><span class="sec-num">B.6</span>Giving every person a turn</h2>
+<div class="why"><span class="why-k">Why this exists</span><p>The four validation people are one draw out of 23. If they happen to be hard to read, every network's validation score comes out low, and if they happen to be easy, it comes out high. Comparing two networks on the same four people is still fair, but the score says less about new people than it seems to.</p></div>
+<p><strong>K-fold cross-validation</strong> takes that luck out by giving every training person a turn as validation. The 23 training people are dealt into k groups, called folds, with about the same number of clips in each. The network is trained k times from scratch. Each time, one fold is held out for validation and the network trains on the people in the other folds. After k runs every person has been held out exactly once, and the network's score is the average of the k validation scores.</p>
+<p>The average comes with a <strong>standard error</strong>, which says how far the average could move by chance. It is the spread of the k scores divided by the square root of k. Two networks whose averages are closer than about two standard errors are a tie.</p>
+<div class="demo" id="demo-folds">
+<div class="demo-head">
+<span class="demo-tag">INTERACTIVE</span>
+<span class="demo-title">Five folds of 23 people</span>
+<span class="demo-sub">Each figure is one training person, labeled with the fold it belongs to. Press play to train once per fold. The highlighted fold is the validation set for that run. Below, each bar is one run's validation score.</span>
+</div>
+<div class="demo-body">
+<div class="lv" id="folds-vis"></div>
+<div class="play-row"><button class="btn primary" id="folds-play" type="button">Play</button><button class="btn" id="folds-step" type="button">One fold</button><button class="btn" id="folds-restart" type="button">Restart</button><span class="readout" id="folds-readout"></span></div>
+</div>
+<div class="demo-note"><p>The people and their scores are made up, with the same pattern as the real data: one fold, like the usual four validation people, is harder than the rest. Its score on its own sits well below the average over all five folds.</p></div>
+</div>
+<p>On DVS128 Gesture the usual four validation people are harder than average. Three of the four score below the test average for every network trained so far, which is one reason validation reads about 6 points below test (<a href="results.html#topfive">H.3</a>).</p>
+<p>Cross-validation costs k full training runs per network. With 5 folds of 300 epochs, one network takes as long as five long runs. So the tool uses it only to choose between a few finished networks, never inside the search, and fold runs never touch the test set.</p>
+<aside class="aka" data-viz="none"><div class="aka-head"><span class="aka-k">In the tool</span><code class="aka-name">--folds 5</code><code class="aka-name">folds.json</code></div><p>Adding <code>--folds 5</code> to a <code>single</code> run trains the five folds one after another, each in its own folder. Then <code>folds.json</code> lists every fold's validation people and score, the average with its standard error, and the score over every clip at once. Adding <code>--fold 2</code> trains only fold 2, so the folds can run on different GPUs at the same time.</p></aside>
+</section>
+
 <section class="reveal" id="augment">
-<h2><span class="sec-num">B.6</span>Data augmentation</h2>
+<h2><span class="sec-num">B.7</span>Data augmentation</h2>
 <p><span class="term">Augmentation</span> makes new training examples out of old ones by changing them in ways that do not change the label. A wave moved a few pixels to the left is still a wave. The network sees a slightly different version of every clip each epoch, so memorizing individual clips stops paying off.</p>
 <dl class="kv">
 <dt>Shift</dt><dd>Move the whole clip by up to a set fraction of the frame, filling the uncovered edge with nothing.</dd>
