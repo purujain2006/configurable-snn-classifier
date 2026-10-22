@@ -284,6 +284,21 @@ it person by person, one column per checkpoint, and checks that its overall
 scores equal the ones in each `single.json`. A person has about 50 clips, so a
 pattern every checkpoint shares means more than one number.
 
+Accuracy and SynOps when the chip gets only the first k of a clip's T frames:
+
+```
+python tools/analysis/early_exit.py -c configs/dvs128_search05.yaml --test results/search05_top5/rank1 results/search05_top5/rank2
+```
+
+SynOps grow with the frames processed, and the host can stop sending input
+early. Each DVS128 frame holds the same number of events, so k frames are the
+first k/T of the gesture. This feeds each deployed network the first k frames
+(every 8 up to T by default, `--k 4,12,20` for others) plus the flush steps,
+in the chip's arithmetic, one column per checkpoint, and checks that the
+k = T row equals each `single.json`. It also shows by which frame each clip's
+running prediction had stopped changing, a cheap early-exit signal. No
+training.
+
 SynOps again, for checkpoints already trained, with today's counter:
 
 ```
@@ -582,6 +597,7 @@ python tests/test_frame_cache.py
 python tests/test_synops.py
 python tests/test_recount_synops.py
 python tests/test_per_subject.py
+python tests/test_early_exit.py
 python tests/test_docs.py
 python tests/smoke_test.py
 ```
