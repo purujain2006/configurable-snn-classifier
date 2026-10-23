@@ -5,9 +5,9 @@
 
 Reads trials.jsonl and trial_progress.jsonl and, for each choice the balanced
 block covers, prints per level: how many trials used it, how many were
-rejected by the chip check, stopped early, or finished; the median and best
+rejected by the chip check, stopped early, or finished. The median and best
 validation accuracy of the finished ones (deployed network, and on the
-simulator); and the median validation accuracy every trial had at one fixed
+simulator). And the median validation accuracy every trial had at one fixed
 epoch (--epoch, default 19, the last epoch before the first early-stopping
 checkpoint).
 

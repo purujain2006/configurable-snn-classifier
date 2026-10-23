@@ -5,7 +5,7 @@ a fair comparison. ASHA undid that: it stops a trial at its first checkpoint
 if it trails the others then, and options that learn slowly at first
 (augmentation, TET, dropout, GAP, signed spikes) trail early. In Search 04, 77
 of the 96 block trials were stopped at epoch 20, the end of the float
-warm-up, before any of them had trained on integer weights; augmentation kept
+warm-up, before any of them had trained on integer weights. Augmentation kept
 5 of 48 trials and GAP 8.
 
 BalancedBlockASHA never stops the first `protect` trials it is given, which

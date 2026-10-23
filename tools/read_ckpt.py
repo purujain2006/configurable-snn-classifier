@@ -49,7 +49,7 @@ def _rebuild_tensor(storage, offset, size, stride, *rest):
     flat = np.frombuffer(buf, dtype=dtype, count=n, offset=offset * dtype.itemsize)
     if not size:
         return flat.reshape(())
-    # strides in the pickle are element counts; convert to bytes for numpy
+    # strides in the pickle are element counts. Convert to bytes for numpy
     try:
         return np.lib.stride_tricks.as_strided(
             flat, shape=tuple(size), strides=tuple(s * dtype.itemsize for s in stride)).copy()

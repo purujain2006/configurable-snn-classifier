@@ -1,17 +1,17 @@
 """Catch the errors that a successful import does not.
 
-Python binds names when a line runs, not when a module loads. So a module can
-import cleanly while every function in it references a name that was never
-imported, and the failure only appears when that function is finally called.
-For a training path that is twenty minutes into a run, on a machine holding a
-GPU. Splitting Practice2.py into a package produced exactly that: 28 undefined
-names across 7 modules, none of which the import check could see.
+Python looks up a name only when the line that uses it runs. So a module can
+import cleanly while a function in it uses a name that was never imported, and
+the error appears only when that function is called. On a training path that
+can be twenty minutes into a run on a GPU machine. Splitting Practice2.py into a
+package produced exactly that, 28 undefined names across 7 modules, and the
+import check saw none of them.
 
-Two checks, both static, both run without torch:
+It runs two static checks, without torch.
 
-  undefined names     -- pyflakes, if it is installed
-  call signatures     -- every call to a function defined in this package,
-                         against that function's parameter list
+  undefined names     pyflakes, if it is installed
+  call signatures     every call to a function defined in this package,
+                      against that function's parameter list
 
     python tools/checks/check_static.py
 """
@@ -43,7 +43,7 @@ def undefined_names():
     # bad edit ship: two functions inserted mid-function silently absorbed the
     # rest of main(), and check_env.py died on a name that had been local to it.
     # tools/archive is the retired Practice2 migration, and hs_api, fxpmath and
-    # connectome_utils are other people's source clones; none of those is ours
+    # connectome_utils are other people's source clones. None of those is ours
     # to lint.
     skip = {"archive", "hs_api", "fxpmath", "connectome_utils", "__pycache__"}
     tools_dir = os.path.join(ROOT, "tools")
@@ -55,11 +55,11 @@ def undefined_names():
         out = subprocess.run([sys.executable, "-m", "pyflakes"] + targets,
                              capture_output=True, text=True, timeout=120)
     except Exception as exc:
-        print(f"  pyflakes unavailable ({type(exc).__name__}); skipping.")
+        print(f"  pyflakes unavailable ({type(exc).__name__}), skipping.")
         print("  pip install pyflakes")
         return None
     if "No module named" in out.stderr:
-        print("  pyflakes not installed; skipping.  pip install pyflakes")
+        print("  pyflakes not installed, skipping. pip install pyflakes")
         return None
     hits = [ln for ln in out.stdout.splitlines()
             if ln.strip() and not any(s in ln for s in IGNORE)]
@@ -120,9 +120,9 @@ def broken_intra_imports():
     """`from .mod import name` where mod does not define name.
 
     pyflakes will not catch this: it checks names inside a file, not whether
-    another module in the package actually provides what is being imported.
-    And when the import sits inside a function -- which it must, wherever two
-    modules would otherwise import in a circle -- nothing fails until that
+    another module in the package provides what is being imported.
+    And when the import sits inside a function, which it must, wherever two
+    modules would otherwise import in a circle, nothing fails until that
     function is called. A reporting helper imported this way went missing from
     its module and the ImportError arrived after a 28-minute training run, at
     the one moment the results were about to be written.
@@ -165,11 +165,9 @@ def broken_intra_imports():
 
 
 def main():
-    print("=" * 74)
-    print("Static checks: what a successful import cannot tell you")
-    print("=" * 74)
+    print("Static checks")
 
-    print("\n-- undefined names --")
+    print("\nundefined names")
     hits = undefined_names()
     if hits is None:
         flake_ok = True                      # unavailable, not failed
@@ -177,15 +175,15 @@ def main():
         flake_ok = not hits
         print("\n".join(f"  {h}" for h in hits) if hits else "  none")
 
-    print("\n-- call signatures --")
+    print("\ncall signatures")
     problems = bad_calls(collect_defs())
     print("\n".join(f"  {p}" for p in problems) if problems else "  none")
 
-    print("\n-- imports between package modules --")
+    print("\nimports between package modules")
     imports = broken_intra_imports()
     print("\n".join(f"  {p}" for p in imports) if imports else "  none")
 
-    print("\n" + "=" * 74)
+    print()
     ok = flake_ok and not problems and not imports
     print("STATIC CHECKS PASSED" if ok else "STATIC CHECKS FAILED")
     return 0 if ok else 1

@@ -11,17 +11,17 @@ The three standard schemes, and when each is worth using:
               layer's weights convert it into current. No stochasticity, no
               information lost at the input, converges fastest. This is what
               most modern directly-trained SNN work uses and it is the default.
-              The input layer is not itself spiking, which purists dislike; on
+              The input layer is not itself spiking, which purists dislike. On
               HiAER-Spike it means the first layer's input arrives over axons
               carrying a value rather than an event.
 
   POISSON     Emit a spike at each timestep with probability proportional to
-              intensity. Genuinely spiking end to end and the most biologically
-              motivated, but it injects sampling noise that costs accuracy at
+              intensity. It spikes end to end and is closest to biology, but it
+              adds sampling noise that costs accuracy at
               small T, and two runs of the same image differ.
 
-  TEMPORAL    Brighter pixel fires earlier, once. Extremely sparse -- one spike
-              per pixel per sample -- so it is the cheapest by SynOps, but it
+  TEMPORAL    Brighter pixel fires earlier, once. Extremely sparse, one spike
+              per pixel per sample, so it is the cheapest by SynOps, but it
               is fragile to train and needs T large enough to resolve the
               latency code.
 
@@ -91,7 +91,7 @@ class DirectEncoder(Encoder):
 class PoissonEncoder(Encoder):
     """Sample a spike per timestep with probability equal to intensity.
 
-    Input is expected in [0, 1]; values outside are clamped, since a
+    Input is expected in [0, 1]. Values outside are clamped, since a
     probability above 1 would silently saturate instead of erroring.
     """
 
@@ -135,7 +135,7 @@ class PassthroughEncoder(Encoder):
 
     input_bits = 1: anything non-zero after interpolation becomes a full
     spike. Averaging a sparse binary frame during resize produces small
-    fractions a spike cannot represent, and isolated events would vanish; this
+    fractions a spike cannot represent, and isolated events would vanish. This
     way no event is lost.
 
     input_bits = B > 1: each pixel carries its event count, clipped to

@@ -48,7 +48,7 @@ def _vision(name, cls_name, C, H, W, num_classes):
         root = os.path.abspath(os.path.expanduser(root))
         train = cls(root=root, train=True, download=download, transform=transform)
         test = cls(root=root, train=False, download=download, transform=transform)
-        # a mirrored digit can read as a different digit; photos keep their label
+        # a mirrored digit can read as a different digit. Photos keep their label
         return DatasetBundle(train=train, test=test, C=C, H=H, W=W,
                              hflip_ok=name not in ("mnist", "fashion_mnist"),
                              num_classes=num_classes, name=name, is_event=False,
@@ -150,7 +150,7 @@ def validate_dvs_root(data_dir: str) -> str:
             "  spikingjelly builds extract/, events_np/ and frames_number_*/ beside them.")
     if os.path.isdir(os.path.join(abs_dir, "extract")) or \
        os.path.isdir(os.path.join(abs_dir, "events_np")):
-        return abs_dir                       # caches exist; the archive is spent
+        return abs_dir                       # caches exist. The archive is spent
     # spikingjelly wants four files, not just the archive, and reports a missing
     # one from deep inside the library as "does not exist or is corrupted". Ask
     # it for the list rather than hard-coding a guess that will drift.

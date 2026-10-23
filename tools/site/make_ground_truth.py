@@ -5,7 +5,7 @@
 The website's interactive builder runs a JavaScript copy of the planner, the
 cost model and the feasibility check (docs/assets/snn.js). tests/test_snn_port.js
 compares that copy against this file. Regenerate it whenever the Python rules
-change, then run the JavaScript test; a failure means the site and the package
+change, then run the JavaScript test. A failure means the site and the package
 disagree.
 
 The configurations below must match makeCfg() in tests/test_snn_port.js.

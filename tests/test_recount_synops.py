@@ -1,7 +1,5 @@
 """tools/analysis/recount_synops.py on synthetic data: checkpoint in, corrected count out.
 
-WHY THIS EXISTS
-
 The recount is only worth something if it counts the network that was scored,
 the same way a run would have counted it with today's counter. So this builds
 a small signed network, saves it the way run_training saves a checkpoint, and

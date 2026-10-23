@@ -93,7 +93,7 @@ def deployment_report(net) -> dict:
         max_abs_w = max(max_abs_w, m.weight.data.abs().max().item())
 
     # BLOCKING: the network is not representable, so its measured accuracy is
-    # meaningless -- score it 0 and move on.
+    # meaningless. Score it 0 and move on.
     blocking = []
     if not math.isfinite(min_th):
         blocking.append("no spiking layers found")
@@ -165,7 +165,7 @@ def hardware_export(net) -> dict:
     `leak_lif = 63` by hand after reading them off a quantization printout.
     Those two lines are why per-layer neurons were impossible. This emits the
     integer threshold and integer leak PER SPIKING LAYER, so the converter can
-    build one LIF_neuron per layer -- which hs_api already supports, since
+    build one LIF_neuron per layer, which hs_api already supports, since
     CRI_network reads a neuron model per neuron key
     (`self.userConnections[neuronKey][modelIdx]`).
     """
@@ -200,7 +200,7 @@ def deploy_and_measure(net, cfg, train_loader, val_loader, device, report_fn=Non
     Turn a trained float model into the deployable one and measure IT.
 
     Returns (hw_net, metrics). `metrics["hw_val_accuracy"]` is the number the
-    search optimizes -- post-fold, post-INT16, with the converter's neuron
+    search optimizes, post-fold, post-INT16, with the converter's neuron
     dynamics and pipeline latency.
     """
     _require_torch()

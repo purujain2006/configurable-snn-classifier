@@ -1,7 +1,5 @@
 """Check the SynOps arithmetic against cases with a known answer.
 
-WHY THIS EXISTS
-
 A search reported 73,228,244 SynOps per sample for a network whose spiking
 layers hold 3,741,184 outgoing connections driven over 12 passes. The ceiling
 is 44,894,208. The measurement was 1.63x an amount that cannot be exceeded, and
@@ -298,7 +296,7 @@ def signed_spikes():
     check_num("Linear, all -1 == dense MACs", c.summary()["synops_per_sample"], 1024 * 512)
 
     # Channel 0 on a checkerboard, channel 1 on the other squares. The signed
-    # weights drive +1 on one colour and -1 on the other, so every 2x2 window
+    # weights drive +1 on one color and -1 on the other, so every 2x2 window
     # holds two of each and averages to zero.
     board = (torch.arange(4).reshape(4, 1) + torch.arange(4)) % 2
     x = torch.stack([board, 1 - board]).float().unsqueeze(0)      # 1, 2, 4, 4
@@ -411,7 +409,7 @@ def deployed_model(pool_type, head, norm, signed, bits=1):
 
 def deployed_signed_model():
     """The real converted network, signed, through measure_synops: the module
-    types, flush steps and step modes a search trial actually measures."""
+    types, flush steps and step modes a search trial measures."""
     import torch
     from snnsearch.synops import measure_synops
 
@@ -490,7 +488,7 @@ def multi_bit_input():
         check_true(f"{tag} SynOps measured", (s["synops_per_sample"] or 0) > 0,
                    s.get("reason", ""))
         # Each set bit is one axon spike, reaching that value's own synapses
-        # (fewer at the border, where the window holds padding); flush steps
+        # (fewer at the border, where the window holds padding). Flush steps
         # read zeros. The input alone decides it, so the chip reference is
         # exact even for this float32 network.
         ref = chip_events(net, list(x), B)

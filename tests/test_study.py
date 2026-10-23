@@ -101,7 +101,7 @@ class Verdicts(unittest.TestCase):
         self.assertEqual(out["c"]["verdict"], "does not fit")
         self.assertIsNone(out["c"]["mean_val_accuracy"])
         # a spread of 0.05 across seeds would have hidden the +0.05 effect
-        # without pairing; pairing cancels it
+        # without pairing. Pairing cancels it
         self.assertEqual(out["a"]["diff_se"], 0.0)
 
 

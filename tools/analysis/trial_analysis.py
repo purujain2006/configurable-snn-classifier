@@ -158,7 +158,7 @@ def load(root):
 
 
 def hdr(s):
-    print(f"\n{'=' * 76}\n{s}\n{'=' * 76}")
+    print(f"\n{s}")
 
 
 def verdict(claim, holds, detail):
@@ -177,11 +177,11 @@ def main(root):
     # Those rows count for feasibility but cannot enter an accuracy test.
     df["scored"] = df["feasible"] & df["val_accuracy"].notna()
     feas = df[df["scored"]]
-    print(f"  feasible: {int(df['feasible'].sum())};  of those, scored: {len(feas)} "
+    print(f"  feasible: {int(df['feasible'].sum())}, of those scored: {len(feas)} "
           f"({int(df['feasible'].sum()) - len(feas)} pruned before any score landed)")
     print(f"  best recorded accuracy: {feas['val_accuracy'].max():.4f}")
 
-    # ---- claim 1: channel count drives infeasibility ----
+    # claim 1: channel count drives infeasibility
     hdr("CLAIM 1  channels drive infeasibility (recorded: chi-square p=6e-4, Cramer's V=0.59)")
     d = df.dropna(subset=["channels"]).copy()
     d["ch"] = d["channels"].astype(float).astype(int)
@@ -198,7 +198,7 @@ def main(root):
     verdict("wider channels are less feasible", v > 0.3 and p < 0.05,
             f"V={v:.2f} (recorded 0.59), p={p:.4f} (recorded 6e-4)")
 
-    # ---- claim 2: shallow depth wins ----
+    # claim 2: shallow depth wins
     hdr("CLAIM 2  shallow networks score better (recorded: Kruskal-Wallis q=0.08)")
     f = feas.dropna(subset=["depth"]).copy()
     f["depth"] = f["depth"].astype(float).astype(int)
@@ -211,7 +211,7 @@ def main(root):
     H, p = kruskal(groups)
     verdict("depth affects accuracy", p < 0.10, f"Kruskal-Wallis H={H:.2f}, p={p:.4f} (recorded q=0.08)")
 
-    # ---- claim 3: hidden FC layers are waste ----
+    # claim 3: hidden FC layers are waste
     hdr("CLAIM 3  top models use 0 hidden FC layers (recorded: Kruskal-Wallis q=0.04)")
     f = feas.dropna(subset=["fc_layers"]).copy()
     f["fc_layers"] = f["fc_layers"].astype(float).astype(int)
@@ -228,7 +228,7 @@ def main(root):
     verdict("hidden FC layers do not help", n0 >= len(top10) * 0.8,
             f"{n0}/{len(top10)} of the best used none; Kruskal-Wallis p={p:.4f} (recorded q=0.04)")
 
-    # ---- claim 4: no normalization means the network does not learn ----
+    # claim 4: no normalization means the network does not learn
     hdr("CLAIM 4  removing normalization kills learning (recorded: Mann-Whitney p=0.0015, OR 21.8)")
     f = feas.dropna(subset=["norm"]).copy()
     f["norm"] = f["norm"].astype(str)
@@ -246,7 +246,7 @@ def main(root):
         print(f"  [NOT TESTABLE] norm='none' appears {len(none)} times in this data; "
               f"the claim came from an earlier study whose records are not here.")
 
-    # ---- claim 5: learning rate correlates with accuracy ----
+    # claim 5: learning rate correlates with accuracy
     hdr("CLAIM 5  learning rate correlates positively (recorded: Spearman q=0.04)")
     f = feas.dropna(subset=["lr"]).copy()
     rho, p = spearman(f["lr"].astype(float).values, f["val_accuracy"].values)
@@ -256,7 +256,7 @@ def main(root):
     verdict("higher lr scores better", rho > 0 and p < 0.10,
             f"rho={rho:+.3f}, p={p:.4f} (recorded q=0.04)")
 
-    # ---- claim 6: tau's correlation is an artefact of rounding ----
+    # claim 6: tau's correlation is an artefact of rounding
     hdr("CLAIM 6  tau's correlation does not survive the integer register (recorded: rho=-0.60)")
     f = feas.dropna(subset=["tau"]).copy()
     tau = f["tau"].astype(float).values
@@ -273,7 +273,7 @@ def main(root):
             f"{len(np.unique(np.round(tau,6)))} sampled values collapse to "
             f"{len(np.unique(deployed))} on chip")
 
-    # ---- claim 7: kernel sizes 5 and 7 ----
+    # claim 7: kernel sizes 5 and 7
     hdr("CLAIM 7  every top-10 configuration used kernel 5 or 7")
     f = feas.dropna(subset=["kernel_size"]).copy()
     f["kernel_size"] = f["kernel_size"].astype(float).astype(int)
@@ -284,7 +284,7 @@ def main(root):
     verdict("the best models use kernel 5 or 7", hits == len(top10),
             f"{hits}/{len(top10)} of the best used 5 or 7")
 
-    # ---- what actually rejected configurations ----
+    # what rejected configurations
     hdr("WHY CONFIGURATIONS WERE REJECTED")
     infeas = df[df["source"] == "infeasible"]
     if len(infeas):
@@ -299,7 +299,7 @@ def main(root):
     else:
         print("  no infeasible records in this data")
 
-    # ---- what happened at the deployment stage ----
+    # what happened at the deployment stage
     hdr("DEPLOYMENT OUTCOMES  (only runs that report hw_val_accuracy reached this stage)")
     if DEPLOY:
         dep = pd.concat(DEPLOY, ignore_index=True)
@@ -338,7 +338,7 @@ def main(root):
     else:
         print("  no trials.jsonl found")
 
-    # ---- the ceiling ----
+    # the ceiling
     hdr("THE CEILING REACHED")
     print("  target                 : 0.975 (search_config)")
     print(f"  best float accuracy    : {feas['val_accuracy'].max():.4f}")

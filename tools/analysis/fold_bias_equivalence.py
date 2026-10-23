@@ -58,7 +58,7 @@ def main(path):
     print(f"tau={tau:g}  theta={theta:g}  T={T}  flush={flush}  total steps={steps}")
     print(f"qat_mode={ck.get('qat_mode')}  bias_mode={ck.get('bias_mode')}\n")
 
-    # ---- recover every conv+BN pair's folded bias ----
+    # recover every conv+BN pair's folded bias
     convs = {}
     for k, a in sd.items():
         if ".bn." in k:
@@ -88,7 +88,7 @@ def main(path):
               f"   channels <= 0: {(th_p <= 0).sum()}/{th_p.size}")
         print(f"  folded weight W'    max|W'| {np.abs(wp).max():.4f}")
 
-        # cross-check against what the run actually exported
+        # cross-check against what the run exported
         if li < len(export) and isinstance(export[li].get("threshold_int"), list):
             got = np.array(export[li]["threshold_int"], dtype=np.int64)
             want = np.clip(np.round(th_p / W_DELTA), 1, 32767).astype(np.int64)
@@ -98,11 +98,9 @@ def main(path):
                   f"{'  <- confirms theta - b'  if agree == got.size else ''}")
         print()
 
-    # ---- the actual comparison ----
+    # the actual comparison
     rng = np.random.default_rng(0)
-    print("=" * 78)
-    print("SPIKE AGREEMENT: trained behaviour (bias into input) vs deployed (theta - b')")
-    print("=" * 78)
+    print("Spike agreement between training (bias added to the input) and deployment (theta - b')\n")
 
     for L in layers:
         bp, wp = L["b"], L["wp"]

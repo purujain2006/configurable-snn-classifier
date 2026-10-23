@@ -13,8 +13,8 @@ kept exactly, because each was there for a reason:
   drop_last ON TRAIN ONLY
                  A partial final batch gives a noisier gradient and, with batch
                  normalization, batch statistics from very few samples. On
-                 validation it would silently skip up to N-1 samples -- and
-                 with shuffle=False, always the same trailing ones -- biasing
+                 validation it would silently skip up to N-1 samples, and
+                 with shuffle=False, always the same trailing ones, biasing
                  every accuracy figure reported.
 
   num_workers    Was pinned to 0, on the reasoning that each trial is already
@@ -73,7 +73,7 @@ def subject_folds(ids, folds, seed=1):
     The people are shuffled by `seed` and dealt out one at a time, each to the
     fold with the fewest clips so far. People differ in clip count (DVS128
     Gesture has 2 to 5 recordings each), so that can leave folds a person
-    apart; moving one person to a smaller fold, or swapping two, while that
+    apart. Moving one person to a smaller fold, or swapping two, while that
     evens the sizes out, closes most of it.
     """
     count = {}
@@ -130,7 +130,7 @@ def split_indices(dataset, val_fraction=0.15, seed=1, val_split="subject", folds
     `folds` = k > 0 is k-fold cross-subject validation (search.val_folds): the
     people are split into k groups by subject_folds and group `fold` is
     validation. One fixed set of people can be easier or harder than average,
-    which moves every score it gives; over k folds every training person is
+    which moves every score it gives. Over k folds every training person is
     held out once.
     """
     n = len(dataset)
@@ -251,7 +251,7 @@ def _make_collate(bundle, encoder):
         if encoder is not None:
             x = encoder(x)
         if lengths is None:
-            # x is (N, T, C, H, W) after encoding; before it, static input has
+            # x is (N, T, C, H, W) after encoding. Before it, static input has
             # no time axis at all and every sample is one step long.
             T = x.shape[1] if x.dim() == 5 else 1
             lengths = torch.full((x.shape[0],), T, dtype=torch.long)

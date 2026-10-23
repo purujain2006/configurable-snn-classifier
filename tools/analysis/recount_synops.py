@@ -1,7 +1,5 @@
 """Recount SynOps for saved networks with the current counter, without retraining.
 
-WHY THIS EXISTS
-
 A run measures SynOps once, right after training, and writes the number into
 single.json. If the counter is fixed later, that number stays wrong: the
 search05_top5 replays were measured before SynOps counted signed spikes by

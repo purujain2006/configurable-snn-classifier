@@ -43,7 +43,7 @@ class DatasetBundle:
     num_classes: int
     name: str = "dataset"
     is_event: bool = False
-    #: collate_fn for the DataLoader; event datasets need padding
+    #: collate_fn for the DataLoader. Event datasets need padding
     collate_fn: Optional[Callable] = None
     #: anything worth recording in the run report
     meta: dict = field(default_factory=dict)

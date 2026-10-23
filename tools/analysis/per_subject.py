@@ -14,7 +14,7 @@ Each argument is a run folder holding one .pth, as `single` writes it, or a
 .pth file. When the folder also holds single.json, the overall scores must
 equal the ones in it, which proves the clips and the split are the ones the
 run used. A person has about 50 clips, so one person's score moves by about
-6 points by chance; a pattern every checkpoint shares means more than one
+6 points by chance. A pattern every checkpoint shares means more than one
 checkpoint's number.
 
 A folder of fold runs, as `single --folds k` writes it (fold0, fold1, ...),
@@ -115,7 +115,7 @@ class _ClipSets:
         from torch.utils.data import Subset
         from snnsearch.data.loaders import split_indices, split_settings
         bundle = data["bundle"]
-        # the same split as pipeline.make_loaders, from the same settings; a
+        # the same split as pipeline.make_loaders, from the same settings. A
         # fold run's fold comes from its single.json
         settings = {**split_settings(self.cfg), "folds": folds, "fold": fold}
         _train_idx, val_idx, held = split_indices(bundle.train, **settings)
@@ -220,8 +220,8 @@ def score(cfg, targets, device):
     people = [sorted({c["subject"] for c in r["clips"]["val"]}) for r in records]
     if any(p != people[0] for p in people):
         raise SystemExit("these runs were validated on different people "
-                         + "; ".join(f"{t}: {p}" for t, p in zip(targets, people))
-                         + "; score them in separate calls")
+                         + ", ".join(f"{t}: {p}" for t, p in zip(targets, people))
+                         + ". Score them in separate calls")
     return records
 
 

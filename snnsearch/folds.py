@@ -119,7 +119,7 @@ def summarize(path):
 
 
 def write_summary(path):
-    """summarize(path), written to <path>/folds.json; returns the summary."""
+    """summarize(path), written to <path>/folds.json. Returns the summary."""
     summary = summarize(path)
     target = os.path.join(path, "folds.json")
     with open(target + ".tmp", "w", encoding="utf-8") as fh:
@@ -149,6 +149,6 @@ def summary_lines(summary):
         lines.append(f"not run yet: folds {', '.join(map(str, summary['folds_missing']))}")
     for p in summary["problems"]:
         lines.append(f"WARNING: {p}")
-    lines.append("val is the deployed network on its fold's people; train is the last "
+    lines.append("val is the deployed network on its fold's people, and train is the last "
                  "epoch's training accuracy. The test set is not scored.")
     return lines

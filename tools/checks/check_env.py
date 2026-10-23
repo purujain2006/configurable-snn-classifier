@@ -31,19 +31,17 @@ def probe(mod, purpose):
 
 
 def main():
-    print("=" * 74)
-    print("Practice2.py environment check")
-    print("=" * 74)
+    print("snnsearch environment check\n")
 
-    # ---- interpreter -------------------------------------------------------
+    # interpreter
     v = sys.version_info
     py_ok = v >= (3, 9)
     line(OK if py_ok else BAD, "python", f"{v.major}.{v.minor}.{v.micro}  (needs >= 3.9)")
     print(f"        interpreter: {sys.executable}")
     if "conda" not in sys.executable and "envs" not in sys.executable:
-        line(WARN, "conda env", "does not look like a conda env; did you `conda activate myenv`?")
+        line(WARN, "conda env", "does not look like a conda env. Activate the environment that has torch")
 
-    # ---- packages ----------------------------------------------------------
+    # packages
     print("\n-- packages --")
     numpy = probe("numpy", "always required")
     torch_ok = probe("torch", "everything except `summary`")
@@ -66,7 +64,7 @@ def main():
             line(BAD, "spikingjelly API", "too old: needs the activation_based API (>= 0.0.0.0.14)")
             sj = False
 
-    # ---- compute -----------------------------------------------------------
+    # compute
     print("\n-- compute --")
     if torch_ok:
         import torch
@@ -75,17 +73,17 @@ def main():
             line(OK, "CUDA", f"{n} device(s): " + ", ".join(
                 torch.cuda.get_device_name(i) for i in range(n)))
         else:
-            line(WARN, "CUDA", "not available -- torch is CPU-only")
+            line(WARN, "CUDA", "not available, torch is CPU-only")
             print("        The setup guide installs `cpuonly`. Training runs T timesteps")
             print("        per sample, so CPU is roughly one to two orders of magnitude")
-            print("        slower here. Check `nvidia-smi`; if the machine has a GPU,")
+            print("        slower here. Check `nvidia-smi`. If the machine has a GPU,")
             print("        reinstall torch with a CUDA build.")
     if shutil.which("nvidia-smi"):
         line(OK, "nvidia-smi", "present, so the machine has NVIDIA drivers")
     else:
-        line(WARN, "nvidia-smi", "not found; this box may genuinely have no GPU")
+        line(WARN, "nvidia-smi", "not found. This machine may have no GPU")
 
-    # ---- disk --------------------------------------------------------------
+    # disk
     print("\n-- disk --")
     user = os.environ.get("USER", "")
     for path in [os.path.expanduser("~"), f"/local_disk/{user}" if user else "/local_disk"]:
@@ -101,11 +99,11 @@ def main():
     print("        The frame cache is tens of GiB. Keep the dataset off your home")
     print("        directory if it is a small network mount.")
 
-    # ---- dataset -----------------------------------------------------------
+    # dataset
     print("\n-- dataset --")
     root = sys.argv[1] if len(sys.argv) > 1 else None
     if not root:
-        line(WARN, "--data-dir", "not given; pass the DVS128 root to check it")
+        line(WARN, "--data-dir", "not given. Pass the DVS128 root to check it")
     else:
         root = os.path.abspath(os.path.expanduser(root))
         if not os.path.isdir(root):
@@ -116,7 +114,7 @@ def main():
             frames = sorted(d for d in os.listdir(root) if d.startswith("frames_number_"))
             check_dvs_files(root, built)
             line(OK if built else WARN, "caches",
-                 ", ".join(built) if built else "none yet; the first run builds them")
+                 ", ".join(built) if built else "none yet, the first run builds them")
             line(OK if frames else WARN, "frame caches",
                  ", ".join(frames) if frames else "none yet (one per value of T)")
 
@@ -156,11 +154,11 @@ def check_dvs_files(root, built):
             missing.append(name)
             line(WARN if built else BAD, name,
                  "absent, but caches exist so it is no longer needed" if built
-                 else "absent -- spikingjelly checks for this one too")
+                 else "absent, and spikingjelly checks for this one too")
             continue
         size = os.path.getsize(path)
         # Only hash the small files. The archive is 2 GB and spikingjelly will
-        # verify it anyway; re-reading it here would add minutes to a check
+        # verify it anyway. Re-reading it here would add minutes to a check
         # meant to take seconds.
         if size < 8 << 20 and md5:
             got = hashlib.md5(open(path, "rb").read()).hexdigest()
@@ -177,7 +175,7 @@ def check_dvs_files(root, built):
 
 
 def verdict(py_ok, torch_ok, sj, ray_ok, optuna_ok, hs):
-    print("\n" + "=" * 74)
+    print()
     modes = [
         ("summary", py_ok, "architecture table + feasibility, no GPU or dataset needed"),
         ("single", py_ok and torch_ok and sj, "train one configuration"),
@@ -193,7 +191,7 @@ def verdict(py_ok, torch_ok, sj, ray_ok, optuna_ok, hs):
         if not (ray_ok and optuna_ok):
             print('    pip install "ray[tune]" optuna')
         if not hs:
-            print("    # hs_api only if you want the real converter; optional")
+            print("    # hs_api, optional, only for the real converter")
     print()
 
 

@@ -28,7 +28,7 @@ EXCERPTS = [
      "configuration is scored zero."),
     ("synops", "snnsearch/synops.py", 150, 175, "13-22",
      "Four ways to combine accuracy with energy. The mode is a decision the user "
-     "makes; nothing here can guess the trade-off for them."),
+     "makes, and the code cannot guess the trade-off for them."),
     ("encoders", "snnsearch/encoders.py", 118, 145, "6-13",
      "Poisson coding: a spike per timestep with probability equal to intensity. "
      "Every coding shares the resize step and differs only in what it emits."),

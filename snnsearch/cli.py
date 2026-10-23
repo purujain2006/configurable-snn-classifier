@@ -4,7 +4,7 @@ Seven modes, in the order a project uses them:
 
   check      what this machine is missing. No torch needed.
   summary    architecture table, connection limits, cost. No torch, no dataset.
-  preflight  every stage of a search, small, on this machine; required before
+  preflight  every stage of a search, small, on this machine. Required before
              `search` (GUIDE.md, step 4)
   search     the automated search.
   finalists  retrain a search's best trials with new seeds, e.g. after
@@ -13,7 +13,7 @@ Seven modes, in the order a project uses them:
   single     train one configuration end to end, then fold and export.
   report     rebuild report.html from a finished run directory.
 
-The config file supplies values; command-line flags override it, so a saved
+The config file supplies values. Command-line flags override it, so a saved
 config stays the record of intent while a flag can vary one thing.
 """
 
@@ -113,7 +113,7 @@ def build_parser():
                    help="k-fold cross-subject validation (search.val_folds): train "
                         "once per fold, one after another, in RESULTS/fold<i>, and "
                         "write RESULTS/folds.json (validation per fold, mean and "
-                        "standard error). Costs k trainings; the test set is not scored.")
+                        "standard error). Costs k trainings, and the test set is not scored.")
     o.add_argument("--fold", type=int, metavar="I",
                    help="train only fold I (search.val_fold), e.g. one fold per GPU; "
                         "needs --folds or search.val_folds")
@@ -138,7 +138,7 @@ def build_parser():
                         "a search still needs the full preflight")
 
     n = sub.add_parser("finalists", help="retrain a search's best trials with new seeds "
-                                         "(what a search does at its end); for a search "
+                                         "(what a search does at its end), for a search "
                                          "that was stopped or crashed first")
     _add_common(n)
     n.add_argument("--top", type=int, help="how many trials (default search.finalists)")
@@ -223,7 +223,7 @@ def main(argv=None):
 def single_folds(cfg, args):
     """The folds a `single` run trains, or None for the one split.
 
-    --fold I trains fold I; --folds K alone trains all K; with neither, a
+    --fold I trains fold I; --folds K alone trains all K. With neither, a
     config that sets search.val_folds trains its search.val_fold.
     """
     k = cfg["search"].get("val_folds") or 0
@@ -279,7 +279,7 @@ def _summary(cfg, args):
         arch = cfg.get("architecture") or {}
         enc_over = dict(arch.get("encoder") or {})
         # Explicit CLI flags win over the file, so the old one-off invocations
-        # still work; anything not passed comes from the config.
+        # still work. Anything not passed comes from the config.
         for flag, field in (("depth", "depth"), ("channels", "channels"),
                             ("kernel_size", "kernel_size"), ("stride", "stride")):
             val = getattr(args, flag, None)
@@ -318,16 +318,14 @@ def _shape_hint(name):
 
 
 def _check(data_root=None):
-    print("=" * 70)
-    print("snnsearch environment")
-    print("=" * 70)
+    print("snnsearch environment check\n")
     v = sys.version_info
     print(f"[{'ok  ' if v >= (3, 9) else 'MISS'}] python        {v.major}.{v.minor}.{v.micro} (needs >= 3.9)")
     print(f"        {sys.executable}")
     for label, present, hint in [
         ("torch", _HAS_TORCH, "pip install torch --index-url https://download.pytorch.org/whl/cu121"),
         ("spikingjelly", _HAS_SPIKINGJELLY, "pip install spikingjelly   (AFTER torch)"),
-        ("hs_api", _HAS_HS_API, "optional; the arithmetic is mirrored without it"),
+        ("hs_api", _HAS_HS_API, "optional, the arithmetic is mirrored without it"),
     ]:
         mark = "ok  " if present else ("warn" if label == "hs_api" else "MISS")
         print(f"[{mark}] {label:<13} {'' if present else hint}")
@@ -348,7 +346,7 @@ def _check(data_root=None):
         if torch.cuda.is_available():
             print(f"[ok  ] CUDA          {torch.cuda.get_device_name(0)}")
         else:
-            print("[warn] CUDA          not available; training runs T steps per sample, so CPU is slow")
+            print("[warn] CUDA          not available. Training runs T steps per sample, so the CPU is slow")
     if data_root:
         ok = os.path.isdir(os.path.expanduser(data_root))
         print(f"[{'ok  ' if ok else 'MISS'}] dataset root  {data_root}")

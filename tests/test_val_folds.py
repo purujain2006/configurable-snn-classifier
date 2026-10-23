@@ -9,7 +9,7 @@ indices, the folds must cover every person exactly once with near-equal clip
 counts, and val_folds 0 must give the split every run so far used (run.seed 1
 holds out people 6, 10, 17 and 21, 216 clips). Then the summary `single
 --folds` writes, from fold folders made by hand, and two folds of a real
-tiny run. Runs on a CPU in about a minute; no dataset needed.
+tiny run. Runs on a CPU in about a minute. No dataset needed.
 """
 import copy
 import importlib.util

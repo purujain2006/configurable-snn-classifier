@@ -3,7 +3,7 @@
 The chip has no normalization layer, so each (conv, BN) pair becomes one conv.
 The folded bias b' goes wherever TrainSpec.fold_bias_mode says: into the
 neuron's threshold, or onto bias neurons. Used by the tail and PTQ
-quantization modes; inline QAT folds inside ConvBNFoldQuant (neuron.py).
+quantization modes. Inline QAT folds inside ConvBNFoldQuant (neuron.py).
 """
 
 from .hardware import W_ALPHA, W_DELTA, INT16_MAX
@@ -30,27 +30,27 @@ def _fold_conv_bn_params(conv_w, conv_b, bn_gamma, bn_beta, bn_mean, bn_var, eps
 def fold_bn(net: "SpikingCNN", bias_mode: str = "conv") -> "SpikingCNN":
     """
     Return a BN-free deep copy of `net`. `net` must be in eval mode so BN uses
-    running stats (folding in train mode silently uses batch stats -- the single
+    running stats (folding in train mode silently uses batch stats, the single
     most common cause of a "folding lost accuracy" report).
 
     bias_mode="conv"      -> folded conv carries b' (exact). This path runs and
                              verifies exactly inside SpikingJelly.
-    bias_mode="threshold" -> b' moved into a PER-CHANNEL neuron threshold; conv
+    bias_mode="threshold" -> b' moved into a PER-CHANNEL neuron threshold. Conv
                              stays bias-free. This targets the HiAER-Spike
                              conversion, where per-neuron thresholds are native.
                              Note: Custom_LIFNode's jit eval expects a scalar
                              float threshold, so a per-channel tensor will not
-                             run through its jit path in-framework -- verify this
+                             run through its jit path in-framework. Verify this
                              mode on hardware (or with the numpy reference), and
                              use bias_mode="conv" for in-SpikingJelly checks. Its
                              approximation error is set by |b'|/theta
-                             (fold_bias_report); it is only exact at the membrane
+                             (fold_bias_report). It is only exact at the membrane
                              steady state.
     """
     _require_torch()
     import copy
     if net.training:
-        raise RuntimeError("fold_bn requires net.eval() -- fold from running stats, not batch stats.")
+        raise RuntimeError("fold_bn requires net.eval(), so the fold uses running stats instead of batch stats.")
     if bias_mode == "neuron":       # bias neurons: the conv keeps its bias
         bias_mode = "conv"
     if bias_mode not in ("conv", "threshold"):
@@ -104,7 +104,7 @@ def fold_bn(net: "SpikingCNN", bias_mode: str = "conv") -> "SpikingCNN":
                     node.v_threshold = new_th
                 if getattr(node, "signed", False):
                     node._v_threshold_neg_const = base_th + b_prime.reshape(-1, 1, 1)
-            i += 2  # consumed conv + bn; neuron handled in place
+            i += 2  # consumed conv + bn. Neuron handled in place
         else:
             new_mods.append(m)
             i += 1
@@ -114,14 +114,14 @@ def fold_bn(net: "SpikingCNN", bias_mode: str = "conv") -> "SpikingCNN":
         set_step_mode(folded.conv_fc, "m")
 
     # The fused Conv2d modules were freshly constructed, so they default to CPU
-    # even when `net` is on CUDA -- feeding a GPU batch then raises
+    # even when `net` is on CUDA, feeding a GPU batch then raises
     # "Input type (cuda.FloatTensor) and weight type (FloatTensor) differ".
     # Realign the whole folded net to the SOURCE net's device.
     try:
         src_device = next(net.parameters()).device
         folded.to(src_device)
         # threshold-mode stores per-channel theta as a plain attribute, not a
-        # registered buffer, so .to() skips it -- move those tensors by hand.
+        # registered buffer, so .to() skips it. Move those tensors by hand.
         for mod in folded.conv_fc:
             for attr in ("_v_threshold_const", "v_threshold"):
                 val = getattr(mod, attr, None)
@@ -197,7 +197,7 @@ def fold_bias_report(net: "SpikingCNN") -> list[dict]:
 @torch.no_grad() if _HAS_TORCH else (lambda f: f)
 def verify_fold(bn_net, folded_net, loader, device, max_batches: int = None) -> dict:
     """
-    The comparison Christopher asked for, in the order that actually localises
+    The comparison Christopher asked for, in the order that localizes
     bugs. Test accuracy alone is too coarse to catch a subtly wrong fold.
 
       1. spike/output agreement: fraction of argmax predictions that match.

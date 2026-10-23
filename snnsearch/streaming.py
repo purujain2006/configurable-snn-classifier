@@ -1,21 +1,17 @@
 """Write results as the search runs, not only when it finishes.
 
-WHY THIS IS A CALLBACK
-
 Trials are separate processes. Several writing to one file would interleave
 partial lines, so the trial function cannot record shared results itself. A Ray
 Callback runs in the DRIVER process and sees every tune.report() as it arrives,
 which makes it the one safe place to append.
 
-WHY IT MATTERS MORE THAN IT LOOKS
-
-Without it, a search that dies at trial 180 of 200 leaves nothing behind: Ray's
-own directories hold checkpoints rather than the flat records the report and the
-statistics read. With it, every completed trial is already on disk, so an
+Without it, a search that dies at trial 180 of 200 leaves nothing behind.
+Ray's own directories hold checkpoints, and the report and the statistics read
+flat records. With it, every completed trial is already on disk, so an
 interrupted run keeps its work and a running one can be inspected from another
 terminal.
 
-WHAT LANDS WHERE
+The files it writes:
 
     trial_progress.jsonl   one line per epoch, per trial: the learning curves
     trials.jsonl           one line per finished trial, with its full config
@@ -37,7 +33,7 @@ LEADERBOARD_COLS = [
     # best_val_accuracy was written by the row builder and absent from this
     # list, so extrasaction="ignore" discarded it from every leaderboard ever
     # produced. smoothed_val_accuracy is the window mean that best_val_accuracy
-    # now maximizes; keeping both makes the smoothing visible rather than
+    # now maximizes. Keeping both makes the smoothing visible rather than
     # silently changing what an existing column means.
     "best_val_accuracy", "smoothed_val_accuracy",
     "quant_gap", "end_to_end_gain", "deployable", "weight_clip_frac", "min_threshold", "feasible",
@@ -50,10 +46,10 @@ LEADERBOARD_COLS = [
     "fc_layers", "final_reduction", "dropout_rate", "conv_dropout", "norm", "tdbn_alpha",
     "optimizer", "lr", "weight_decay", "scheduler", "label_smoothing", "grad_clip",
     # Appended last so existing column positions do not move. `tau` above is
-    # the value sampled at the start; with trainable tau the deployed one can
+    # the value sampled at the start. With trainable tau the deployed one can
     # differ (rank1: sampled 8, deployed 3,3,3).
     "deployed_tau",
-    # validation through IntegerSim (simpleSim's arithmetic); disagreements
+    # validation through IntegerSim (simpleSim's arithmetic). Disagreements
     # counts clips where it and PyTorch predict differently, and should be 0
     "sim_val_accuracy", "sim_disagreements", "bias_mode",
     # avg (folded into the next layer) or max (one OR neuron per window)
@@ -211,7 +207,7 @@ def make_streaming_callback(writer, target=0.975):
             self.n_done += 1
             r = trial.last_result or {}
             flat = _clean(trial.config)
-            # The deploy report carries epochs_run explicitly; a trial ASHA cut
+            # The deploy report carries epochs_run explicitly. A trial ASHA cut
             # never reaches it, so fall back to the last epoch it did report.
             epochs_run = r.get("epochs_run")
             if epochs_run is None:
@@ -224,7 +220,7 @@ def make_streaming_callback(writer, target=0.975):
                 self.n_pruned += 1
             # An infeasible configuration reports phase="deploy" on its reject
             # path without ever training, so the phase alone would file it
-            # beside trials that actually deployed.
+            # beside trials that deployed.
             deployed = r.get("phase") == "deploy" and feasible
 
             writer.append_jsonl("trials.jsonl", {

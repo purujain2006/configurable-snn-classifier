@@ -138,7 +138,7 @@ def curves(series, w=880, h=320, pad=58, xlab="epoch", ylab="validation accuracy
 
 
 def bars(items, w=880, rowh=34, pad=58):
-    """items: [(label, value, max, colour)]"""
+    """items: [(label, value, max, color)]"""
     if not items:
         return "<p class='sub'>nothing to show</p>"
     h = rowh * len(items) + 24
@@ -182,7 +182,7 @@ def build(run_dir, cfg=None, out_path=None):
     P.append(f'<p class="sub">{len(trials)} trials &#183; generated '
              f'{datetime.now().strftime("%Y-%m-%d %H:%M")}</p>')
 
-    # ---- headline ----
+    # headline
     P.append('<div class="grid">')
     P.append(_cell("Trials recorded", f"{len(trials)}",
                    f"{len(infeas)} rejected before any GPU time"))
@@ -204,7 +204,7 @@ def build(run_dir, cfg=None, out_path=None):
                  'an upper bound rather than a result. Check that early stopping is not '
                  'cutting trials off before the deploy report lands.</div>')
 
-    # ---- accuracy vs SynOps ----
+    # accuracy vs SynOps
     if syn:
         P.append("<h2>Accuracy against energy</h2>")
         P.append('<p>Each point is one trial. Up and to the left is better: same accuracy '
@@ -218,7 +218,7 @@ def build(run_dir, cfg=None, out_path=None):
                  + '<figcaption>Amber marks the highest-scoring trial. Hover a point for its id.'
                    '</figcaption></figure>')
 
-    # ---- learning curves ----
+    # learning curves
     if progress:
         P.append("<h2>Learning curves</h2>")
         series = {}
@@ -231,7 +231,7 @@ def build(run_dir, cfg=None, out_path=None):
                  f'<figcaption>{len(series)} trials. Short lines were stopped early by the '
                  f'scheduler.</figcaption></figure>')
 
-    # ---- leaderboard ----
+    # leaderboard
     if scored:
         P.append("<h2>Leaderboard</h2>")
         cols = [("trial_id", "trial", "k"), ("val_accuracy", "score", "n"),
@@ -248,7 +248,7 @@ def build(run_dir, cfg=None, out_path=None):
             P.append("".join(row) + "</tr>")
         P.append("</tbody></table>")
 
-    # ---- why things were rejected ----
+    # why things were rejected
     if infeas:
         P.append("<h2>Rejected before training</h2>")
         from collections import Counter
@@ -265,7 +265,7 @@ def build(run_dir, cfg=None, out_path=None):
         P.append(f'<p class="sub">{len(infeas)} configurations failed the connection check, '
                  f'which costs microseconds and never reaches a GPU.</p>')
 
-    # ---- config ----
+    # config
     if cfg:
         P.append("<h2>Configuration</h2><pre>" +
                  E(json.dumps({k: v for k, v in cfg.items() if not k.startswith("_")},

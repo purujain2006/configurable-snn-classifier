@@ -15,7 +15,7 @@ of these cost a real search hours or a lost night before this existed:
     search space  options that never fit the chip, a balanced block that cannot
                   be drawn, a combination of options that cannot be exported
     memory        a trial too large for its share of the GPU, measured on the
-                  heaviest of the balanced block; a warning for the heavier
+                  heaviest of the balanced block. A warning for the heavier
                   ones Optuna can propose after it
     exactness     two trained networks, checked clip by clip against the
                   simulator on this machine's GPU
@@ -49,9 +49,7 @@ _SCALE_ONLY = {("search", "trials"), ("search", "skip_preflight"),
                ("search", "max_failures"), ("search", "target")}
 
 
-# ---------------------------------------------------------------------------
 # rules every search config must satisfy
-# ---------------------------------------------------------------------------
 
 def warmup_epochs(epochs: int) -> int:
     """Float epochs before inline QAT folds onto the integer grid (train.py)."""
@@ -61,13 +59,13 @@ def warmup_epochs(epochs: int) -> int:
 
 
 def n_balanced(search: dict) -> int:
-    """Trials in the balanced block; balanced_repeats is the older setting."""
+    """Trials in the balanced block. Balanced_repeats is the older setting."""
     return int(search.get("balanced_trials") or 48 * int(search.get("balanced_repeats") or 0))
 
 
 def check_search_config(cfg):
     """(errors, warnings) for a search config. An error stops the search
-    before Ray starts; a warning is printed and the search goes ahead."""
+    before Ray starts. A warning is printed and the search goes ahead."""
     errors, warnings = [], []
     s = cfg["search"]
     epochs = int(s.get("epochs") or 0)
@@ -95,7 +93,7 @@ def check_search_config(cfg):
         errors.append(f"search.balanced_trials ({nb}) is more than search.trials ({trials})")
     if nb and (s.get("space") or "uniform") == "uniform":
         warnings.append("search.balanced_trials is ignored with space: uniform "
-                        "(the block draws per-layer shapes); use space: per_layer")
+                        "(the block draws per-layer shapes). Use space: per_layer")
     if nb and not s.get("protect_balanced", True):
         warnings.append("search.protect_balanced is off, so early stopping can cut "
                         "balanced-block trials and unbalance the comparison")
@@ -114,9 +112,7 @@ def check_search_config(cfg):
     return errors, warnings
 
 
-# ---------------------------------------------------------------------------
 # the record a search checks for
-# ---------------------------------------------------------------------------
 
 def package_files():
     here = os.path.dirname(os.path.abspath(__file__))
@@ -163,9 +159,7 @@ def preflight_gate(cfg, out_dir):
     return None
 
 
-# ---------------------------------------------------------------------------
 # the stages
-# ---------------------------------------------------------------------------
 
 class _Report:
     def __init__(self):
@@ -224,9 +218,7 @@ def _missing_package_modules():
     return sorted(missing)
 
 
-# ---------------------------------------------------------------------------
 # memory: the heaviest trial the search can propose, and whether it fits
-# ---------------------------------------------------------------------------
 
 # What each trial's process holds on the GPU before its first tensor. It sits
 # outside the cap a trial sets with set_per_process_memory_fraction.
@@ -533,14 +525,14 @@ def run_preflight(cfg, quick=False):
     t_start = time.time()
     print(f"preflight for {cfg.get('_source') or 'config'} -> {out_dir}\n", flush=True)
 
-    # -- config ---------------------------------------------------------------
+    # config
     def config_stage():
         errors, warnings = check_search_config(cfg)
         if errors:
             return "FAIL", errors + warnings
         return ("WARN" if warnings else "PASS"), warnings or ["settings are consistent"]
 
-    # -- environment ----------------------------------------------------------
+    # environment
     def environment_stage():
         lines, warn = [], False
         problems = []
@@ -582,14 +574,14 @@ def run_preflight(cfg, quick=False):
             lines.append(f"Ray scratch {tmp}: writable, {free:.0f} GiB free")
             if free < 20:
                 warn = True
-                lines.append("under 20 GiB free for Ray's scratch; set search.ray_temp_dir "
+                lines.append("under 20 GiB free for Ray's scratch. Set search.ray_temp_dir "
                              "to a short path on a larger disk")
         cpus = os.cpu_count() or 1
         per = s.get("cpu_per_trial") or (int(s.get("num_workers", 0)) + 1)
         lines.append(f"{cpus} CPU cores, {per} per trial: at most {cpus // per} trials at once")
         return ("WARN" if warn else "PASS"), lines
 
-    # -- dataset --------------------------------------------------------------
+    # dataset
     def dataset_stage():
         from .data import build_dataset
         from .spaces import data_facts, MULTI_BIT_CODINGS, MAX_INPUT_BITS
@@ -621,7 +613,7 @@ def run_preflight(cfg, quick=False):
                          f"its inputs are whole numbers; levels or passthrough deploy")
         return ("WARN" if warn else "PASS"), lines
 
-    # -- search space ---------------------------------------------------------
+    # search space
     def space_stage():
         import random
         from .spaces import (make_define_by_run, balanced_points, sample_config,
@@ -648,7 +640,7 @@ def run_preflight(cfg, quick=False):
         lines = [f"balanced block: {len(block)} trials, every one fits the chip",
                  f"{len(fits)} of {len(sampled)} random proposals fit the chip"]
         if not fits:
-            return "FAIL", lines + ["no random proposal fits the chip; the search would "
+            return "FAIL", lines + ["no random proposal fits the chip, so the search would "
                                     "score zero after the block"]
         # every block configuration must build, fold and export, so no
         # combination of options fails at the end of a trial
@@ -663,10 +655,10 @@ def run_preflight(cfg, quick=False):
             ctx.points = fits[:24]
         status = "WARN" if len(fits) < 0.2 * len(sampled) else "PASS"
         if status == "WARN":
-            lines.append("under 20% of proposals fit; consider narrowing the ranges")
+            lines.append("under 20% of proposals fit. Consider narrowing the ranges")
         return status, lines
 
-    # -- memory ---------------------------------------------------------------
+    # memory
     def memory_stage():
         import random
         import torch
@@ -766,7 +758,7 @@ def run_preflight(cfg, quick=False):
                          "range)" + (" or raise search.gpu_fraction" if frac < 1 else ""))
         return "WARN", lines
 
-    # -- exactness ------------------------------------------------------------
+    # exactness
     def exactness_stage():
         from .spaces import config_to_specs
         from .cost import count_neurons_and_synapses
@@ -805,7 +797,7 @@ def run_preflight(cfg, quick=False):
                          + (f", {res['sim_reason']}" if res["sim_reason"] else ""))
         return ("FAIL" if bad else "PASS"), lines
 
-    # -- a real search, small -------------------------------------------------
+    # a real search, small
     def mini_search_stage():
         import copy
         import csv
@@ -840,7 +832,7 @@ def run_preflight(cfg, quick=False):
         done = [r for r in rows if r.get("status") == "complete"]
         lines.append(f"{len(done)} of 6 trials completed")
         if len(done) < 6:
-            bad.append("not every trial completed; see the Ray errors above")
+            bad.append("not every trial completed. See the Ray errors above")
         cut = [r["trial_id"] for r in done if r.get("stopped_early")]
         if cut:
             bad.append(f"balanced-block trials were stopped early: {cut}")
@@ -883,7 +875,7 @@ def run_preflight(cfg, quick=False):
             print(f"start the search with\n  python main.py search -c "
                   f"{cfg.get('_source') or '<config>'}")
     else:
-        print(f"PREFLIGHT FAILED after {minutes:.1f} min; fix the FAIL above and run it again")
+        print(f"PREFLIGHT FAILED after {minutes:.1f} min. Fix the FAIL above and run it again")
     return 0 if passed else 1
 
 

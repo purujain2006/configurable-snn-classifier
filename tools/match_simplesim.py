@@ -1,10 +1,9 @@
 """Per-clip match between the trained model and HiAER-Spike's simpleSim.
 
-Leif's requirement is zero per-clip disagreements, not two accuracies that
-round alike. Two models can both score 0.8333 on 288 clips and disagree on
-forty of them.
+Leif requires zero per-clip disagreements. Two models can both score 0.8333
+on 288 clips and still disagree on forty of them.
 
-TWO STEPS, RUN IN THIS ORDER
+Run the two steps in this order.
 
 1. Prove the fast integer simulator IS simpleSim.
 
@@ -47,13 +46,11 @@ sys.path = [p for p in sys.path if os.path.abspath(p or ".") != _HERE]
 sys.path.insert(0, ROOT)
 
 
-# ---------------------------------------------------------------------------
 # 1. selftest
-# ---------------------------------------------------------------------------
 
 VARIANTS = {
     "rank1": "conv, LIF, 2x2 avg pool, conv, LIF, 2x2 avg pool, linear, LIF",
-    "bias": "the same, with a real bias on every layer (bias neurons); behind a pool "
+    "bias": "the same, with a real bias on every layer (bias neurons). Behind a pool "
             "the bias exceeds one INT16 synapse and is split across bias neurons",
     "gap": "conv, LIF, global average pool, linear with bias, LIF",
     "maxpool": "conv, LIF, OR pool, conv, LIF, OR pool, linear, LIF",
@@ -71,7 +68,7 @@ def _random_layers(rng, leak, small=False, variant="rank1"):
     small=False uses INT16-sized weights, like a real export. small=True uses
     weights of a few units, so membranes land EXACTLY on thresholds and on
     multiples of 2**leak. Those are the cases where `>` versus `>=`, or floor
-    versus truncation of a negative membrane, would show up; with large random
+    versus truncation of a negative membrane, would show up. With large random
     weights they almost never occur and an off-by-one passes unnoticed.
     """
     import numpy as np
@@ -160,7 +157,7 @@ def selftest(args):
         layers = _random_layers(rng, leak, small, variant)
         bits = layers[0].get("input_bits", 1)
         # hs_lif_neuron sets the noise shift to -17, which is zero noise on
-        # every commit; see its docstring
+        # every commit. See its docstring
         axons, conns, groups = unroll_to_hs_api(layers, in_shape)
         group_keys = [keys for layer_groups in groups for keys, _sign in layer_groups]
         all_keys = [k for keys in group_keys for k in keys]
@@ -208,9 +205,7 @@ def selftest(args):
     return 0 if all_ok else 1
 
 
-# ---------------------------------------------------------------------------
 # 2. per-clip comparison
-# ---------------------------------------------------------------------------
 
 def _clips(spec, args):
     """{split: [(frames uint8 (T, C, H, W), label), ...]} from a clips file or the dataset."""
@@ -322,7 +317,7 @@ def _real_simplesim(layers, in_shape, items, flush, target="simpleSim", core=0):
     clear = None
     if target == "CRI":
         from hs_bridge.FPGA_Execution import fpga_controller
-        # padding to whole groups of 32 per neuron model adds neurons; clear them too
+        # padding to whole groups of 32 per neuron model adds neurons. Clear them too
         try:
             n_neurons = sum(1 for n in net.connectome.connectomeDict.values()
                             if n.get_neuron_type() == "neuron")

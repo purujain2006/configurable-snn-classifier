@@ -12,14 +12,14 @@ which is the deploy-phase report.
 max_t = epochs + 1. ASHA stops a trial once it has reported max_t times and
 every report counts, including the deployment one. With max_t = epochs the
 trial was killed on its final epoch, the deploy report never landed, and
-selection silently fell back to floating-point accuracy -- exactly what the
-metric split exists to prevent. Nothing errored; two trials in the recorded
+selection silently fell back to floating-point accuracy, exactly what the
+metric split exists to prevent. Nothing errored. Two trials in the recorded
 data show the symptom.
 
 METRIC PLACEMENT. OptunaSearch must be given metric/mode directly, because its
 set_search_properties returns early when a space is already set. ASHAScheduler
 must NOT also receive them from TuneConfig, or Ray raises. Verified against
-ray 2.56; do not "simplify".
+ray 2.56. Do not "simplify".
 
 BEFORE ANYTHING STARTS. run_search refuses a config that contradicts itself
 (preflight.check_search_config) and, unless told otherwise, a config that has
@@ -162,7 +162,7 @@ def run_search(cfg, out_dir):
 
     # Ray puts its session directory, object store and spill files under /tmp.
     # On a shared cluster /tmp is usually a small partition, and Ray warns at
-    # 95% then fails object creation once spilling is needed -- hours in, with
+    # 95% then fails object creation once spilling is needed, hours in, with
     # every trial lost. The results directory already lives somewhere with room
     # for the frame cache, so put Ray's scratch beside it.
     if not ray.is_initialized():
@@ -173,7 +173,7 @@ def run_search(cfg, out_dir):
             kwargs["_temp_dir"] = tmp
         ray.init(**kwargs)
 
-    # "uniform" shares one kernel/channel/stride across every layer; anything
+    # "uniform" shares one kernel/channel/stride across every layer. Anything
     # else lets the sampler choose them per layer.
     space = make_define_by_run(
         batch_size=s.get("batch_size", 16),
@@ -254,7 +254,7 @@ def run_search(cfg, out_dir):
         ),
         # Streams every result to disk as it arrives. Without it the only
         # durable output is best.json at the very end, so a search that dies
-        # part-way leaves nothing to analyse and report.html has nothing to read.
+        # part-way leaves nothing to analyze and report.html has nothing to read.
         # ray.tune.RunConfig, NOT ray.train.RunConfig. From Ray 2.49 the Train
         # V2 API is on by default, so ray.train.RunConfig became a different
         # class whose `verbose` field holds the string "_DEPRECATED". Tune reads
@@ -541,7 +541,7 @@ def _make_trainable(cfg, out_dir):
         # Make gpu_fraction mean something. Ray's fraction is pure bookkeeping:
         # it decides how many trials to schedule and then lets every one of them
         # allocate the whole card. So the trials collectively overcommit, and
-        # the process that happens to ask next dies of OOM -- which is usually
+        # the process that happens to ask next dies of OOM, which is usually
         # not the process that took too much. Capping each one at its declared
         # share makes an over-large configuration fail on its own budget instead
         # of starving its neighbours.
@@ -552,7 +552,7 @@ def _make_trainable(cfg, out_dir):
                 pass                      # older torch: fall back to no cap
 
         # tier 1: arithmetic. Never reaches a GPU, and now runs against the
-        # input spec that will actually train. Checking the axon budget at one
+        # input spec that will train. Checking the axon budget at one
         # resolution and training at another passes configurations that do not
         # fit the chip.
         feasible, violations = check_spec_feasibility(spec)
@@ -577,7 +577,7 @@ def _make_trainable(cfg, out_dir):
         def report_fn(**kw):
             """Two callers with different keywords report through here.
 
-            The training loop sends a full epoch record; the QAT loop inside
+            The training loop sends a full epoch record. The QAT loop inside
             deploy_and_measure sends only phase, epoch and hw_val_acc. Naming
             the arguments explicitly would make one of the two a TypeError
             twenty minutes into a trial, so this takes whatever arrives and
@@ -670,7 +670,7 @@ def _make_trainable(cfg, out_dir):
             "end_to_end_gain": res.get("end_to_end_gain"),
             "weight_clip_frac": res.get("weight_clip_frac"),
             "min_threshold": res.get("min_threshold"),
-            # the `tau` column is the sampled START; trainable tau moves
+            # the `tau` column is the sampled START. Trainable tau moves
             "deployed_tau": res.get("deployed_tau"),
             # the same validation clips through simpleSim's arithmetic
             "sim_val_accuracy": res.get("sim_val_accuracy"),
@@ -701,4 +701,4 @@ def _assert_picklable(space):
         raise SystemExit(
             f"The search space is not picklable ({exc}).\n"
             "  Ray checkpoints the searcher, so the space must be a module-level\n"
-            "  object -- not a closure, a lambda, or a nested function.")
+            "  object. A closure, a lambda or a nested function will not work.")

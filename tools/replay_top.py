@@ -1,10 +1,8 @@
 """Retrain the best N configurations of a search, long, and tabulate the result.
 
-WHY THIS EXISTS
-
 One test number cannot tell you whether a method works or whether one
 configuration got a good draw. The search ranks on validation over a short
-horizon; what you want to report is test accuracy over a long one, on several
+horizon. What you want to report is test accuracy over a long one, on several
 survivors, under whatever training change you are arguing for.
 
 Doing that by hand means copying flat configs out of trials.jsonl, writing them
@@ -43,7 +41,7 @@ SUMMARY_COLS = [
 
 
 def load_trials(run_dir):
-    """Every completed trial that actually deployed, newest file wins."""
+    """Every completed trial that deployed, newest file wins."""
     path = os.path.join(os.path.expanduser(run_dir), "trials.jsonl")
     if not os.path.isfile(path):
         sys.exit(f"no trials.jsonl under {run_dir}\n"
@@ -104,9 +102,7 @@ def run_one(args, trial_path, out_dir, rank):
         cmd += ["--epochs", str(args.epochs)]
     if args.train:
         cmd += ["--train"] + list(args.train)
-    print("\n" + "=" * 78)
-    print(f"rank {rank}: " + " ".join(cmd))
-    print("=" * 78, flush=True)
+    print(f"\nrank {rank}: " + " ".join(cmd), flush=True)
     # Inherit stdout so the per-epoch curve is visible live. A four-hour job
     # that prints nothing until it finishes is a job you cannot tell from a
     # hung one.
@@ -183,7 +179,7 @@ def main():
         print("\ndry run: trial files written, nothing trained")
         return 0
 
-    print("\n" + "=" * 78)
+    print()
     print(f"{len(rows)} runs in {(time.time() - t0) / 60:.1f} min")
     print(f"{os.path.join(out_root, 'summary.csv')}\n")
     hdr = ("rank", "trial_id", "search_hw_val", "hw_val_accuracy",

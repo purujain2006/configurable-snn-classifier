@@ -68,7 +68,7 @@ def plan_encoder(input_cfg: InputSpec, encoder_cfg: EncoderSpec,
     plans: list[ConvBlockPlan] = []
 
     for i, L in enumerate(layers):
-        # "still big enough to shrink?" -- guards against the feature map
+        # "still big enough to shrink?" guards against the feature map
         # collapsing below the kernel. Applies per-layer now.
         can_shrink = cur_H > 3 and cur_W > 3
 

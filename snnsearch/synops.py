@@ -1,10 +1,8 @@
 """Synaptic operations: the hardware-independent energy proxy.
 
-WHAT THIS IS
-
 A spiking network does arithmetic only where a spike arrives. So the work it
-performs is not a property of the architecture alone -- it depends on how often
-neurons actually fire on real data. The accepted measure is:
+performs is not a property of the architecture alone. It depends on how often
+neurons fire on real data. The accepted measure is:
 
     SynOps = sum over layers of  (spikes emitted) x (fan-out of that layer)
 
@@ -14,26 +12,24 @@ because it counts events rather than seconds or watts.
 
 The fan-out is the one the chip stores, as hs_export writes it: an average
 pool or GAP has no neurons and is folded into the next layer, so each neuron
-in front of it keeps its own synapses; a signed unit is two neurons, and a
-spike reaches both neurons of every signed unit it feeds; an OR pool is a
-layer of neurons with one synapse from each input; padding and zero weights
+in front of it keeps its own synapses. A signed unit is two neurons, and a
+spike reaches both neurons of every signed unit it feeds. An OR pool is a
+layer of neurons with one synapse from each input. Padding and zero weights
 hold no synapse. So SynOps is the number of synaptic events HiAER-Spike
 delivers for the clip.
 
-WHAT THIS IS NOT
+SynOps count work. Energy in joules also includes memory traffic, data
+movement between cores and static power, and on an FPGA static power may
+dominate everything else. So the field is called `synops`, and nothing here
+calls it energy, because no power was measured.
 
-SynOps is not joules. Real energy also includes memory traffic, data movement
-between cores, and static power -- and on an FPGA static power may dominate
-everything else. Reporting `synops` is honest; calling it "energy" is not,
-unless a wattmeter was involved. The naming here is deliberate.
-
-WHY IT IS WORTH REPORTING ANYWAY
+It is still worth reporting:
 
   * It is free. Counting spikes during evaluation costs one .sum() per layer.
   * It is the number published SNN work quotes, so it makes results comparable
     against Loihi and SpiNNaker results without owning either.
-  * The dense-equivalent ratio below states the case for spiking at all: how
-    many multiply-accumulates an ANN of the same shape would have performed.
+  * The dense-equivalent ratio below compares it with the multiply-accumulates
+    an ANN of the same shape would perform, which is what spiking can save.
     That denominator is the ANN's, one pass with one MAC per weight per
     output (cost.py "macs"): no folded pools, no second neuron per sign. It
     is not the chip's synapse count, which cost.py reports as "connections".
@@ -48,7 +44,7 @@ class SynOpsCounter:
     """Accumulates the synaptic events each chip layer receives.
 
     Attach with `attach(net)`, run evaluation, then read `.summary(plan)`.
-    Hooks are removed by `detach()`; the context-manager form does both.
+    Hooks are removed by `detach()`. The context-manager form does both.
 
     Counting happens under no_grad and adds one multiply and one reduction per
     layer per timestep, so the overhead is negligible next to the forward pass.
@@ -73,20 +69,20 @@ class SynOpsCounter:
         self._fanout = {}       # weight layer name -> (key, synapses of each input value)
         self._handles = []
 
-    # ---- collection -----------------------------------------------------
+    # collection
     def attach(self, net):
         """Hook the WEIGHT-BEARING layers, and the spiking ones for reporting.
 
         The obvious approach counts spikes at each neuron and multiplies by a
         fan-out looked up from the cost table. That pairs two lists by position,
         and the moment the model gains a layer the table does not describe the
-        same way -- a fully-connected head, say -- the pairing slides and the
+        same way, a fully-connected head, say, the pairing slides and the
         result can exceed the number of connections that exist. It did: a run
         reported 73.2M SynOps against a hard ceiling of 44.9M.
 
         So fan-out is no longer looked up. Each Conv2d and Linear knows its own
         synapses, and at hook time its input tensor says which of them a spike
-        actually fired: every input value's activity times that value's own
+        fired: every input value's activity times that value's own
         fan-out, from the layer's nonzero weights (_value_fanout). That is
         exact at a border, where a padded window reaches fewer outputs, and
         after pruning, where a zero weight is no synapse.
@@ -228,13 +224,13 @@ class SynOpsCounter:
             # unit (two chip neurons, out = spike - spike_neg; only one of the
             # two can fire in a step). Every nonzero is one spike, so sum |out|
             # == spike count, and the firing rate is spikes per unit per step.
-            # Reported per layer; the SynOps come from the next layer's input.
+            # Reported per layer. The SynOps come from the next layer's input.
             with torch.no_grad():
                 self.spikes[name] = self.spikes.get(name, 0) + float(
                     out.abs().sum(dtype=torch.float64).item())
                 self.spike_elements[name] = self.spike_elements.get(name, 0) + out.numel()
             # Pooled tensors from before this layer are not what any later
-            # weight layer reads in a feed-forward stack; do not hold them.
+            # weight layer reads in a feed-forward stack. Do not hold them.
             self._mag.clear()
         return hook
 
@@ -377,7 +373,7 @@ class SynOpsCounter:
     def add_samples(self, n):
         self.samples += int(n)
 
-    # ---- reporting ------------------------------------------------------
+    # reporting
     def summary(self, plan=None, cost_rows=None):
         """SynOps per sample, the firing rate, and the dense-equivalent ratio.
 
@@ -486,7 +482,7 @@ class SynOpsCounter:
 
 
 def measure_synops(net, loader, device, spec=None, max_batches=None):
-    """Count SynOps per sample on the network that will actually deploy.
+    """Count SynOps per sample on the network that will deploy.
 
     Measured after conversion rather than during training, because the float
     network and the converted one do not fire identically: folding shifts every
@@ -542,7 +538,7 @@ def score_with_energy(accuracy, synops, mode="accuracy",
                     previously recorded run used.
 
       "constrained" maximize accuracy, but score 0 above `synops_budget`.
-                    Matches how deployment actually works: there is a power
+                    Matches how deployment works: there is a power
                     envelope and you either fit or you do not.
 
       "weighted"    accuracy - weight * (synops / synops_reference). Requires

@@ -1,7 +1,7 @@
 """One place that knows whether torch exists.
 
-Practice2.py guarded its torch import so that `summary` -- architecture
-planning and the feasibility check -- runs on a machine with no deep-learning
+Practice2.py guarded its torch import so that `summary`, architecture
+planning and the feasibility check, runs on a machine with no deep-learning
 stack at all. Splitting into modules would normally lose that, because each
 module would import torch for itself.
 

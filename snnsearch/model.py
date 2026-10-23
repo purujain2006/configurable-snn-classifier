@@ -44,7 +44,7 @@ class SpikingCNN(nn.Module):
 
         # tdBN's statistics span the time axis, so the whole net must run in
         # multi-step mode. For conv / linear / dropout / LIF this is numerically
-        # identical to the manual single-step loop -- the ONLY thing that changes
+        # identical to the manual single-step loop, the ONLY thing that changes
         # is where BatchNorm takes its statistics from. That keeps bn vs tdbn a
         # clean one-variable comparison.
         self.step_mode = "m" if norm_kind == "tdbn" else "s"
@@ -95,7 +95,7 @@ class SpikingCNN(nn.Module):
                     pools_before.append(b.pool_kernel)
 
         # Q4: GAP replaces the flatten. It collapses HxW to 1x1 BEFORE the FC
-        # head, so the classifier's fan-in is just `channels` -- no giant first
+        # head, so the classifier's fan-in is just `channels`, no giant first
         # Linear, far fewer params, less overfitting. Deployable on HiAER-Spike:
         # average-pooling over the spatial grid is a fixed uniform-weight linear
         # map (weight 1/(H*W)), which folds into the following Linear exactly the
@@ -192,7 +192,7 @@ class SpikingCNN(nn.Module):
         self.conv_fc = nn.Sequential(*new_mods)
         if self.step_mode == "m":
             set_step_mode(self.conv_fc, "m")
-        # bias-free Linears are already on the grid; parametrize them too so the
+        # bias-free Linears are already on the grid. Parametrize them too so the
         # FC weights train quantized alongside the folded convs.
         # local import: quantize -> folding -> model, so a module-level
         # import here would close the circle.
@@ -252,5 +252,5 @@ def build_model(cfg: dict) -> "SpikingCNN":
     )
 
 
-# the class's earlier, DVS-specific name; kept so existing scripts still import
+# the class's earlier, DVS-specific name. Kept so existing scripts still import
 DVSGesturePuru = SpikingCNN

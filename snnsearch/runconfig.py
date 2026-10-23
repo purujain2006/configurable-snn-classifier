@@ -1,20 +1,14 @@
 """The run configuration file.
 
-WHY YAML AND NOT JSON
-
-Every narrowed range in this project carries its evidence beside it -- the
-statistics that justified it, in a comment on the same line. JSON has no
-comments, so moving the search space into JSON would strip exactly the property
-that makes the file trustworthy. YAML keeps it:
+It is YAML because every narrowed range in this project carries its evidence
+beside it, the statistics that justified it, in a comment on the same line.
+JSON has no comments, so a JSON search space would lose them. In YAML:
 
     channels: [32, 64]   # 128/256 were 0/14 feasible; V=0.85, p<1e-4
 
-WHY A DATASET IS NOT IN THE FILE
-
-A dataset is code, not values: a Dataset subclass, a transform, sometimes a
-loader. The config therefore carries values and points at a Python callable for
-the rest, which keeps the file declarative without pretending code can be
-declared.
+A dataset is code, such as a Dataset subclass, a transform and sometimes a
+loader, so it is not in the file. The config holds values and points at a
+Python callable for the rest.
 
 Falls back to a small parser when PyYAML is absent, so `summary` still runs on
 a machine with nothing installed.
@@ -28,7 +22,7 @@ DEFAULTS = {
     "run": {"name": "run", "results_dir": None, "seed": 1},
     "dataset": {"name": "dvs128", "root": None},
     # input_bits: bits per input value when the search does not choose it
-    # (`single` runs); a search samples it from 1 to search.max_input_bits
+    # (`single` runs). A search samples it from 1 to search.max_input_bits
     "encoding": {"coding": None, "T": 16, "resize_to": None, "input_bits": None},
     # chip limits for a different build: total_axons, axon_fan_out,
     # axon_fan_in, neuron_fan_out, neuron_fan_in (hardware.set_limits)
@@ -37,7 +31,7 @@ DEFAULTS = {
     # what the search samples around. Field names match the dataclasses in
     # config.py, and an unknown one is an error rather than a silent default.
     # `single --from-best best.json` replaces this wholesale with a trial that
-    # actually ran, which is the reliable way to reproduce a search winner.
+    # ran, which is the reliable way to reproduce a search winner.
     "architecture": {"encoder": {}, "downsample": {}, "head": {}, "neuron": {}},
     "train": {},           # TrainSpec fields: optimizer, lr, scheduler, ...
     "search": {
@@ -52,7 +46,7 @@ DEFAULTS = {
         "startup_trials": 10,
         # a trial that crashes (CUDA out of memory, say) is retried this often
         "max_failures": 3,
-        # where Ray keeps its scratch; must be a short path (unix socket limit)
+        # where Ray keeps its scratch. Must be a short path (unix socket limit)
         "ray_temp_dir": None,
         # regularizers every trial uses: conv_dropout, rate_penalty, augment
         "require": [],
@@ -91,7 +85,7 @@ DEFAULTS = {
         # option is judged on a full run.
         "protect_balanced": True,
         # A search refuses to start until `main.py preflight` has passed for the
-        # same config and code; true starts it anyway (--skip-preflight).
+        # same config and code. True starts it anyway (--skip-preflight).
         "skip_preflight": False,
     },
     "objective": {

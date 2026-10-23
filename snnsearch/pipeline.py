@@ -53,7 +53,7 @@ _SEARCH_OWNED_TRAIN_FIELDS = frozenset({
     "fold_bias_mode", "fold_bias_margin",
     "loss", "augment", "aug_shift", "aug_cutout", "aug_drop", "aug_flip", "seed",
 })
-# a trial's flat config names the bias mode "bias_mode"; it fills fold_bias_mode
+# a trial's flat config names the bias mode "bias_mode". It fills fold_bias_mode
 
 
 def coerce_to_field(obj, key, raw):
@@ -127,7 +127,7 @@ def apply_unsampled_train_fields(spec, cfg, quiet=False):
         if key in _SEARCH_OWNED_TRAIN_FIELDS:
             if not quiet:
                 print(f"train     : ignoring {key}={val!r} from the config "
-                      "file; the trial sampled it")
+                      "file, because the trial sampled it")
             continue
         apply_overrides(spec["train"], {key: val}, "train")
     return spec
@@ -170,8 +170,8 @@ def resolve_specs(cfg, flat_config=None, quiet=False):
     if not quiet:
         print(f"dataset   : {json.dumps(bundle.describe(), default=str)}")
 
-    # Event data passes through; static data needs a coding to gain a time axis.
-    # A trial may sample the coding and the bits per input value; otherwise
+    # Event data passes through. Static data needs a coding to gain a time axis.
+    # A trial may sample the coding and the bits per input value. Otherwise
     # they come from the file. Still images default to "levels", the coding
     # that deploys on chip ("direct" feeds analog values, which no axon carries).
     coding = flat.get("coding") or enc_cfg.get("coding") or \
@@ -402,7 +402,7 @@ def run_single(cfg, ckpt="best.pth", from_best=None, epochs=None,
 
     `input_overrides` holds T and resize_to when they were typed on the command
     line, and they beat the replayed trial. A record can be wrong about what its
-    run actually did, and reproducing the run then means contradicting the
+    run did, and reproducing the run then means contradicting the
     record on purpose, so that has to be expressible.
 
     `train_overrides` is the same idea for the optimization recipe, and it
@@ -425,7 +425,7 @@ def run_single(cfg, ckpt="best.pth", from_best=None, epochs=None,
     bundle, encoder, loaders, spec = prepare(cfg, flat_config=flat)
     split = split_record(cfg, bundle, loaders)
     out = results_dir(cfg)
-    # A replayed trial brings its own epoch count; an explicit flag still wins.
+    # A replayed trial brings its own epoch count. An explicit flag still wins.
     if flat is None:
         runconfig.apply_train_overrides(cfg, spec["train"])
     if epochs:
@@ -504,7 +504,7 @@ def run_single(cfg, ckpt="best.pth", from_best=None, epochs=None,
         except Exception as exc:
             res[f"{label}_error"] = f"{type(exc).__name__}: {exc}"
             print(f"  [warn] {label} measurement failed: {type(exc).__name__}: {exc}")
-            print("         training is unaffected; the checkpoint is written.")
+            print("         Training is unaffected and the checkpoint is written.")
 
     payload = {k: v for k, v in res.items() if k != "hw_net"}
     # `trained` describes the network that trained, from the resolved spec.
@@ -517,7 +517,7 @@ def run_single(cfg, ckpt="best.pth", from_best=None, epochs=None,
     # person reads. The file is named, not summarized.
     config = {name: asdict(s) for name, s in spec.items()}
     if config["encoder"].get("layers_json"):
-        # layers_json wins; the uniform encoder fields are ignored for shape
+        # layers_json wins. The uniform encoder fields are ignored for shape
         # (EncoderSpec), so leaving their defaults here reads as a second,
         # contradicting architecture
         for key in ("depth", "channels", "kernel_size", "stride", "padding", "dilation"):
@@ -542,7 +542,7 @@ def run_single(cfg, ckpt="best.pth", from_best=None, epochs=None,
     if payload.get("hw_test_accuracy") is not None:
         print(f"\n  hw_test_accuracy         {payload['hw_test_accuracy']}")
         print("    ^ the held-out test set. This is the number comparable to")
-        print("      published results; the validation figures above are not.")
+        print("      published results. The validation figures above are not.")
 
     try:
         _maybe_report(cfg, out)

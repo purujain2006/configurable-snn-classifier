@@ -265,7 +265,7 @@ class MeasuredPeak(unittest.TestCase):
         self.assertTrue(exact)
         self.assertLess(abs(est - direct) / direct, 0.02)
         # the heaviest trial of the space may not fit the GPU at its batch
-        # size; then it is extrapolated from batches 8 and 4
+        # size. Then it is extrapolated from batches 8 and 4
         line = extrapolated_peak(flat, dev, 8)
         self.assertLess(abs(line - direct) / direct, 0.10, (line / GiB, direct / GiB))
 

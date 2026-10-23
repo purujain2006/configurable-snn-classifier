@@ -53,7 +53,7 @@ import time
 import numpy as np
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-# tools/ holds source clones of hs_api, fxpmath and connectome_utils; keep
+# tools/ holds source clones of hs_api, fxpmath and connectome_utils. Keep
 # them from shadowing the installed packages (as match_simplesim.py does)
 _HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path = [p for p in sys.path if os.path.abspath(p or ".") != _HERE]
@@ -72,7 +72,7 @@ def signed_bits(v, bits):
 
 def signed_mp(v):
     """A membrane as a 32-bit signed value. On L6m the membrane is bits 31:0
-    of the 36-bit URAM word and bits 34:32 a refractory counter; hs_bridge's
+    of the 36-bit URAM word and bits 34:32 a refractory counter. Hs_bridge's
     read_membranes already decodes it ("Fix read_membranes for new 32-bit
     URAM layout (L6m bitstream)", b5e4a84), and simpleSim wraps at 32 bits,
     so for both targets this only pins the range."""
@@ -92,13 +92,11 @@ def leak_logical(v, s):
     return signed_mp(v - ((v % 2 ** MP_BITS) >> s))
 
 
-# ---------------------------------------------------------------------------
 # hs_api, on either target
-# ---------------------------------------------------------------------------
 
 def build(axons, conns, out_keys, target, core=0):
     """(CRI_network, clear) for target "simpleSim" or "CRI". clear() resets
-    every membrane; on the FPGA through hs_bridge, as hs_api's tests do."""
+    every membrane. On the FPGA through hs_bridge, as hs_api's tests do."""
     from hs_api.api import CRI_network
     extra = {"coreID": core} if target == "CRI" else {}
     try:
@@ -195,9 +193,7 @@ def run(net, clear, inputs_per_step, keys, out_keys, progress=False):
     return M, O, counters
 
 
-# ---------------------------------------------------------------------------
 # record: one clip of a trained network
-# ---------------------------------------------------------------------------
 
 def neuron_table(layers, in_shape):
     """key -> [layer, sign, channel, position, theta, shift, shape] for every
@@ -296,9 +292,7 @@ def cmd_record(a):
     return 0
 
 
-# ---------------------------------------------------------------------------
 # compare: where two records part
-# ---------------------------------------------------------------------------
 
 def explains_logical(v_prev, ref, hw, shift):
     """Whether hw is what a logical-shift leak leaves where the simulator's
@@ -323,7 +317,7 @@ def explains_logical(v_prev, ref, hw, shift):
 def classify(v_prev, ref, hw, shift, theta=None):
     """A guess at why one neuron's FPGA membrane differs at its first step.
     Every membrane matched the step before, so both targets fired the same
-    neurons; what is left is the leak, the reset, or the input arriving."""
+    neurons. What is left is the leak, the reset, or the input arriving."""
     if explains_logical(v_prev, ref, hw, shift):
         return "negative leak (logical shift)"
     if v_prev < 0 or ref < 0:
@@ -355,7 +349,7 @@ def layer_groups(table, keys):
 
 
 def thresholds(table, keys):
-    """Each neuron's threshold; an OR-pool neuron fires above 0."""
+    """Each neuron's threshold. An OR-pool neuron fires above 0."""
     return np.array([0 if table[k][4] is None else table[k][4] for k in keys], np.int64)
 
 
@@ -374,7 +368,7 @@ def spikes_from_membranes(M, th):
 
 def output_mismatches(keys, out_keys, F, O):
     """Output spikes the membranes imply that the record lacks, or the reverse.
-    0 for simpleSim; on the FPGA, a spike its own membrane called for that
+    0 for simpleSim. On the FPGA, a spike its own membrane called for that
     never reached the host, or one that did with no membrane behind it."""
     col = {k: i for i, k in enumerate(keys)}
     idx = [col[k] for k in out_keys if k in col]
@@ -617,7 +611,7 @@ def report_show(res):
 
     b.append("<h2>Spikes per step</h2><p class=\"sub\">All layer neurons together. The chip "
              "moves a step's spikes through its spike FIFOs at once, so large bursts are where "
-             "dropped spikes would show; the micro report's burst tests find the size where "
+             "dropped spikes would show. The micro report's burst tests find the size where "
              "the FPGA starts dropping them.</p>")
     b.append('<div class="card">' + line_chart([(name, color, res["per_step"])])
              + "<details><summary>By layer</summary>" + table_html(
@@ -692,7 +686,7 @@ def report_show(res):
     if res["class"]:
         cats = [str(i) for i in range(len(res["class"]))]
         b.append("<h2>Output spikes per class</h2><p class=\"sub\">Positive minus negative "
-                 "output spikes over the clip; the largest is the prediction.</p>")
+                 "output spikes over the clip, and the largest is the prediction.</p>")
         b.append('<div class="card">' + grouped_bars(
             cats, [(name, color, res["class"])], x_label="class") + "</div>")
     return page("One clip, every neuron", sub, "".join(b))
@@ -703,7 +697,7 @@ def cmd_show(a):
     pct = 100 * res["n_hit"] / max(1, res["n_neurons"])
     settles = "never settles" if res["lock"] is None else f"settles at step {res['lock']}"
     print(f"prediction {res['pred']} (label {res['label']}), {settles}")
-    print(f"{res['spikes']:,} spikes; largest burst {res['burst']:,} at step {res['burst_at']}")
+    print(f"{res['spikes']:,} spikes, largest burst {res['burst']:,} at step {res['burst_at']}")
     if res["events"] is not None:
         print(f"{res['events']['total']:,} synaptic events")
     print(f"{res['n_hit']:,} of {res['n_neurons']:,} neurons ({pct:.0f}%) have a negative "
@@ -743,9 +737,7 @@ def text_summary(res, ref, hw):
     return "\n".join(lines)
 
 
-# ---------------------------------------------------------------------------
 # micro: one question per network
-# ---------------------------------------------------------------------------
 
 NEG_LEAK_DRIVE = 20000
 NEG_LEAK_THETA = 2 ** 30
@@ -775,7 +767,7 @@ def leak_models(w, s, n, logical, theta=NEG_LEAK_THETA):
 
 def micro_tests():
     """(name, question, axons, connections, outputs, schedule, cases). The
-    schedule is the axon keys driven at each step; cases is a list of
+    schedule is the axon keys driven at each step. Cases is a list of
     (label, function(rec) -> comparable summary)."""
     from snnsearch.hs_export import hs_lif_neuron, hs_bias_neuron, hs_if_neuron
     # One model object per (threshold, shift), shared by every neuron that
@@ -878,7 +870,7 @@ def micro_tests():
     try:
         hold, fire = hs_if_neuron(BIG), hs_if_neuron(30000)
     except ImportError:                    # an hs_api without IF_neuron
-        print("hs_api has no IF_neuron; skipping the if_neuron test", flush=True)
+        print("hs_api has no IF_neuron, so the if_neuron test is skipped", flush=True)
         return tests
     axons = {"I0": [("if_neg", -NEG_LEAK_DRIVE), ("if_pos", NEG_LEAK_DRIVE)],
              "I1": [("if_fire", NEG_LEAK_DRIVE)]}
@@ -952,9 +944,7 @@ def cmd_micro(a):
     return 0
 
 
-# ---------------------------------------------------------------------------
 # the HTML reports: inline SVG, light and dark, no outside files
-# ---------------------------------------------------------------------------
 
 CSS = """
 .viz-root { color-scheme: light;
@@ -1135,7 +1125,7 @@ def bar_path(x, y, w, h, r=4):
 
 
 def grouped_bars(categories, series, width=600, height=220, x_label=""):
-    """series: [(name, css var, values)]; values may be negative."""
+    """series: [(name, css var, values)]. Values may be negative."""
     ml, mr, mt, mb = 56, 16, 8, 30 + (14 if x_label else 0)
     pw, ph = width - ml - mr, height - mt - mb
     allv = [v for _, _, vs in series for v in vs] + [0]
@@ -1252,7 +1242,7 @@ def report_compare(res, ref, hw):
     only_sim, only_fpga = f"only in {sim_name} (missed)", f"only on {fpga_name} (extra)"
     b.append("<h2>Spikes the FPGA missed and added</h2><p class=\"sub\">Every neuron's spikes, "
              "read off the membranes on both targets. Missed spikes are neurons the FPGA kept "
-             "below threshold, as the leak bug does to negative membranes; extra spikes are "
+             "below threshold, as the leak bug does to negative membranes. Extra spikes are "
              "membranes that ran above it. A spike dropped on its way to other neurons shows "
              "up one layer later, as missed spikes there.</p>")
     b.append('<div class="card">' + legend([(only_sim, "--sim"), (only_fpga, "--fpga")])
@@ -1276,7 +1266,7 @@ def report_compare(res, ref, hw):
     if res["class_ref"]:
         cats = [str(i) for i in range(len(res["class_ref"]))]
         b.append("<h2>Output spikes per class</h2><p class=\"sub\">Positive minus negative "
-                 "output spikes over the clip; the largest is the prediction.</p>")
+                 "output spikes over the clip, and the largest is the prediction.</p>")
         b.append('<div class="card">' + legend([(sim_name, "--sim"), (fpga_name, "--fpga")])
                  + grouped_bars(cats, [(sim_name, "--sim", res["class_ref"]),
                                        (fpga_name, "--fpga", res["class_hw"])],
@@ -1371,7 +1361,6 @@ def write(path, text):
     print(f"wrote {path}")
 
 
-# ---------------------------------------------------------------------------
 
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__,

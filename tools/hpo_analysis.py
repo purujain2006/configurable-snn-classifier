@@ -2,7 +2,7 @@
 
 Hyperparameter searches produce a leaderboard, and a leaderboard invites you to
 read the top row as a finding. It usually is not one. This computes what the
-data can actually carry:
+data can carry:
 
   NOISE FLOOR      How much a score moves when nothing about the model changes.
                    Measured from the final epochs of a settled run, where the
@@ -53,8 +53,8 @@ KNOBS = ["downsample_mode", "norm", "optimizer", "scheduler", "final_reduction",
 
 # Whether a knob is categorical is a property of the DATA, not a list written
 # once. tau was sampled as a float in the early searches and snapped to the
-# hardware's eight legal values later; hard-coding it either way makes one of
-# those two datasets nonsense -- 59 "levels" with one trial each, or a rank
+# hardware's eight legal values later. Hard-coding it either way makes one of
+# those two datasets nonsense, 59 "levels" with one trial each, or a rank
 # correlation over eight ties.
 MAX_LEVELS_FOR_CATEGORICAL = 8
 
@@ -219,10 +219,10 @@ def noise_floor(root):
     """Score spread with the model effectively frozen.
 
     The point is to measure the score moving while the MODEL does not, so the
-    epochs used must be ones where the learning rate has actually decayed. An
+    epochs used must be ones where the learning rate has decayed. An
     earlier version took the last 12 epochs of the longest trial regardless,
     picked a run that was still climbing, and reported its training progress as
-    noise -- inflating the floor and making every real effect look marginal.
+    noise, inflating the floor and making every real effect look marginal.
 
     So: only epochs whose learning rate is below a small fraction of that
     trial's starting rate, and only trials that have several such epochs.
@@ -266,13 +266,13 @@ def signal_share(scores, noise_sd):
 
 
 def trained_only(rows, target):
-    """Trials that actually trained.
+    """Trials that trained.
 
     A configuration rejected by the connection limits is recorded with a score
     of 0. Those zeros are a fact about the ARITHMETIC, not about training, and
     leaving them in makes every knob that correlates with infeasibility look
     like it ruins accuracy. depth=5 scoring 0.03 is "usually rejected", not
-    "trains badly". Feasibility gets its own section; this one is about the
+    "trains badly". Feasibility gets its own section. This one is about the
     trials that reached a GPU.
     """
     out = []
@@ -373,7 +373,7 @@ GEOMETRY_KNOBS = ["depth", "resize_to", "channels", "kernel_size", "stride",
 
 # Higher than MAX_LEVELS_FOR_CATEGORICAL because this is counting, not testing.
 # resize_to has nine legal values and is the single most important knob for
-# feasibility; treating it as continuous and skipping it left the table without
+# feasibility. Treating it as continuous and skipping it left the table without
 # the one row worth reading.
 MAX_LEVELS_FOR_FEASIBILITY = 12
 
@@ -402,7 +402,7 @@ def feasibility(rows):
 
 
 # Knobs whose value is a magnitude but whose QUESTION is on-or-off. Dropout at
-# 0.2 versus 0.25 is not the comparison anyone is making; dropout versus none
+# 0.2 versus 0.25 is not the comparison anyone is making. Dropout versus none
 # is. Bucketing them keeps the groups large enough to compare at a single rung.
 ON_OFF_KNOBS = {"conv_dropout", "rate_penalty"}
 
@@ -526,7 +526,7 @@ def slow_starters(rows, progress,
                 "n_cut": n_total, "n_at_rung1": len(group),
                 # The share dying at the very first cut is a signal on its own,
                 # independent of any slope: a setting that never survives one
-                # rung was never actually evaluated.
+                # rung was never evaluated.
                 "died_first_rung": len(group) / n_total,
                 "mean_acc_at_cut": mean([c["acc_at_cut"] for c in group]),
                 "mean_slope": mean([c["slope"] for c in group]),
@@ -572,11 +572,11 @@ def power(noise_sd, per_group):
 def knob_collinearity(rows, target, effects, top=6):
     """How much the leading knobs move together.
 
-    Optuna samples adaptively: once it favours a region it draws many similar
+    Optuna samples adaptively: once it favors a region it draws many similar
     configurations, so knobs co-vary. A univariate test then credits the SAME
     variance to every knob in the correlated block, which is why a table like
     the one above can show a dozen knobs all clearing correction. Reporting the
-    pairwise agreement is the cheap honest version of the multivariate analysis
+    pairwise agreement is a cheap, sound stand-in for the multivariate analysis
     that this sample is too small to support.
     """
     trained = trained_only(rows, target)

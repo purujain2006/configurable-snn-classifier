@@ -1,6 +1,6 @@
 """The search space: what the search samples, in what order.
 
-Optuna samples define-by-run, so a trial only has the knobs it actually used.
+Optuna samples define-by-run, so a trial only has the knobs it used.
 The order matters: geometry first, then the feasibility check, then everything
 else. A shape that does not fit the chip stops there, so no training knob is
 blamed for it.
@@ -22,7 +22,7 @@ from .hardware import AXON_LIMITS, HW_TAU_CHOICES, check_spec_feasibility
 
 
 # NARROWED after the 65-trial analysis (see DVS_Search_Statistical_Analysis).
-# 512 was the only hidden-FC width that showed up in a strong trial; the head is
+# 512 was the only hidden-FC width that showed up in a strong trial. The head is
 # rarely used at all now (fc_layers capped at 1), so keep a small set.
 FC_WIDTH_CHOICES = [128, 256, 512]
 
@@ -53,7 +53,7 @@ def resize_range(data: dict) -> tuple:
     """(low, high, step) for the square input size resize_to.
 
     The top is the native size or the largest square whose single-bit input
-    fits the chip's axon limit, whichever is smaller; the bottom is about a
+    fits the chip's axon limit, whichever is smaller. The bottom is about a
     quarter of the top, but not below 16. Multi-bit input needs B times the
     axons, and the chip check rejects a size that no longer fits.
 
@@ -108,7 +108,7 @@ def config_to_specs(config: dict) -> dict:
                               norm=norm, tdbn_alpha=config.get("tdbn_alpha", 1.0),
                               dropout_rate=config.get("conv_dropout", 0.0))
 
-    # tau_mode replaced the trainable_tau switch; older records carry the switch
+    # tau_mode replaced the trainable_tau switch. Older records carry the switch
     tau_mode = config.get("tau_mode") or \
         ("layer" if config.get("trainable_tau", False) else "fixed")
 
@@ -190,21 +190,21 @@ class DefineByRunSpace:
     another function is a local object that pickle cannot serialise
     ("Can't get local object 'make_define_by_run.<locals>.define_by_run'"), which
     aborts the whole study at the first checkpoint. An instance of a top-level
-    class pickles fine -- its state is just the plain ints/strs/lists below.
+    class pickles fine. Its state is just the plain ints/strs/lists below.
 
-    Define-by-run (vs a flat dict) is what lets the space be honestly
-    conditional: a per-layer kernel size k_3 is only suggested on trials whose
-    depth >= 4, and fc_width_1 only when there is a 2nd FC layer -- so Optuna's
+    Define-by-run (vs a flat dict) lets the space be conditional. A per-layer
+    kernel size k_3 is only suggested on trials whose
+    depth >= 4, and fc_width_1 only when there is a 2nd FC layer, so Optuna's
     surrogate never sees a dimension that had no effect on that trial's score.
 
     per_layer=True  -> kernel/stride/channels/pool are sampled INDEPENDENTLY per
                        conv layer (answers "is kernel size independently
-                       optimised?" -- yes).
+                       optimized?", yes).
     per_layer=False -> one kernel/channels/stride shared by all layers (the
                        older uniform space), useful as a cheaper baseline.
 
     `data` holds the dataset facts (data_facts). `max_input_bits` is 1 when
-    the input coding sends one bit per value; otherwise the number of bits per
+    the input coding sends one bit per value. Otherwise the number of bits per
     input value is searched from 1 to it. `seed` is recorded in every trial so
     a replay starts from the same weights.
     """
@@ -233,8 +233,8 @@ class DefineByRunSpace:
         t_choices = self.t_choices
         per_layer = self.per_layer
         require = self.require
-        # ---- encoder depth ----
-        # winners are depth 2-3 (Kruskal-Wallis favoured shallow, q=0.08); depth
+        # encoder depth
+        # winners are depth 2-3 (Kruskal-Wallis favored shallow, q=0.08). Depth
         # 5 only ever reached 0.77. Keep 2-4 so depth-3 branches stay in play.
         # GEOMETRY FIRST, AND NOTHING ELSE UNTIL IT PASSES.
         #
@@ -249,7 +249,7 @@ class DefineByRunSpace:
         # does not exist for that trial, so TPE's model of it never sees the
         # zero. Sample the shape, check it, and return early if it fails. The
         # trial still scores 0, but only against the shape knobs, which is the
-        # only thing that was actually wrong with it.
+        # only thing that was wrong with it.
         geom = {}
         depth = geom["depth"] = trial.suggest_int("depth", 2, 4)
 
@@ -260,7 +260,7 @@ class DefineByRunSpace:
                 geom[f"ch_{i}"] = trial.suggest_int(f"ch_{i}", 8, 128, log=True)
                 # each layer independently: downsample by stride-2, by pooling,
                 # or not at all. The chosen branch sets the flat key
-                # config_to_specs reads; the others stay absent and default off.
+                # config_to_specs reads. The others stay absent and default off.
                 ds = geom[f"ds_{i}"] = trial.suggest_categorical(
                     f"ds_{i}", ["stride", "pool", "none"])
                 if ds == "stride":
@@ -295,7 +295,7 @@ class DefineByRunSpace:
         geom["resize_to"] = trial.suggest_int("resize_to", lo, hi, step=step)
         geom["T"] = trial.suggest_categorical("T", t_choices)
 
-        # ---- head: GAP vs flatten, then variable-depth FC ----
+        # head: GAP vs flatten, then variable-depth FC
         # GAP collapses HxW before the head (Q4): far fewer params, less
         # overfitting, and deployable. When GAP is chosen the huge first-FC
         # fan-in disappears, so many more configs pass feasibility.
@@ -341,10 +341,10 @@ class DefineByRunSpace:
             # to build far enough to report itself infeasible.
             return {**consts, "tau": 2, "infeasible_geometry": True}
 
-        # ---- neuron: INTEGER leak ---------------------------------------------
+        # neuron: INTEGER leak
         # Only powers of two: the chip's leak is a shift (V -= V // 2**leak).
         # Searches 01 and 02 also sampled 3, 6 and 63, which do not exist on
-        # chip. With a learned tau this is the starting value; the deployed
+        # chip. With a learned tau this is the starting value. The deployed
         # tau is recorded separately as deployed_tau.
         trial.suggest_categorical("tau", HW_TAU_CHOICES)
         # fixed, learned per layer, or learned per channel. The chip stores a
@@ -352,8 +352,8 @@ class DefineByRunSpace:
         trial.suggest_categorical("tau_mode", TAU_MODES)
         trial.suggest_categorical("trainable_threshold", [False, True])
 
-        # ---- regularization ----
-        # dropout: not significant, but winners live in 0.1-0.45; trim the tails.
+        # regularization
+        # dropout: not significant, but winners live in 0.1-0.45. Trim the tails.
         # This one sits in the HEAD, before each linear layer.
         trial.suggest_float("dropout_rate", 0.1, 0.45)
         # Spatiotemporal dropout inside the conv stack, on the spikes leaving
@@ -365,8 +365,8 @@ class DefineByRunSpace:
                 trial.suggest_categorical("use_conv_dropout", [False, True]):
             trial.suggest_float("conv_dropout", 0.05, 0.3)
         # norm=none is GONE: it produced every dead (below-chance) network
-        # (pooled Mann-Whitney p=0.0015; learned-vs-dead odds ratio 21.8). Only
-        # the two foldable, hardware-legal options remain -- and this lets tdBN
+        # (pooled Mann-Whitney p=0.0015, learned-vs-dead odds ratio 21.8). Only
+        # the two foldable, hardware-legal options remain, and this lets tdBN
         # get a fair test against plain BN on the good backbone.
         norm = trial.suggest_categorical("norm", ["bn", "tdbn"])
         if norm == "tdbn":
@@ -390,14 +390,14 @@ class DefineByRunSpace:
             if self.data.get("hflip_ok"):
                 trial.suggest_categorical("aug_flip", [False, True])
 
-        # ---- loss ----
+        # loss
         # "rate" scores the clip's spike count, which is the chip's answer;
         # "tet" scores every timestep (Deng et al., ICLR 2022).
         trial.suggest_categorical("loss", ["rate", "tet"])
 
-        # ---- optimizer / LR schedule ----
+        # optimizer / LR schedule
         optimizer = trial.suggest_categorical("optimizer", ["adam", "adamw"])
-        # lr: positive correlation (Spearman q=0.04); winners are 1.6e-3..3.5e-3,
+        # lr: positive correlation (Spearman q=0.04). Winners are 1.6e-3..3.5e-3,
         # so drop the under-converging low end (was 1e-4).
         trial.suggest_float("lr", 5e-4, 5e-3, log=True)
         # weight_decay is the main lever on whether FOLDED weights fit inside the
@@ -405,7 +405,7 @@ class DefineByRunSpace:
         # against a float objective that could not see clipping, so their floors
         # (1e-8) are almost certainly too low now that clipping is scored --
         # negligible decay lets the folded distribution sprawl past the grid.
-        # Floors raised; the search re-decides the rest against hw_val_accuracy.
+        # Floors raised. The search re-decides the rest against hw_val_accuracy.
         if optimizer == "adamw":
             trial.suggest_float("weight_decay", 1e-5, 1e-2, log=True)    # decoupled
         else:
@@ -419,7 +419,7 @@ class DefineByRunSpace:
 
 # The on/off and either/or choices the balanced block covers. Each maps a
 # level to the sampled parameters that produce it. pooling and input_bits are
-# set while drawing the shape (_random_geometry); the rest are copied as is.
+# set while drawing the shape (_random_geometry). The rest are copied as is.
 BALANCED_FACTORS = {
     # geometry: drawn with the shape and checked against the chip with it
     "pooling": {
@@ -433,7 +433,7 @@ BALANCED_FACTORS = {
     "final_reduction": {"flatten": {"final_reduction": "flatten"},
                         "gap": {"final_reduction": "gap"}},
     "signed_spikes": {"off": {"signed_spikes": False}, "on": {"signed_spikes": True}},
-    # "multi" draws 2..max_input_bits; left out when the coding sends one bit
+    # "multi" draws 2..max_input_bits. Left out when the coding sends one bit
     "input_bits": {"1": {"input_bits": 1}, "multi": {}},
     # training
     "tau_mode": {m: {"tau_mode": m} for m in TAU_MODES},
@@ -640,6 +640,6 @@ def sample_config(space, rng, fixed=None) -> dict:
 def make_define_by_run(batch_size: int, epochs: int, data_dir_abs: str, t_choices: list,
                        per_layer: bool = True, require=(), *, data: dict,
                        max_input_bits: int = 1, seed: int = None) -> "DefineByRunSpace":
-    """Factory kept for API compatibility -- returns a picklable space object."""
+    """Factory kept for API compatibility, returns a picklable space object."""
     return DefineByRunSpace(batch_size, epochs, data_dir_abs, t_choices, per_layer,
                             require, data=data, max_input_bits=max_input_bits, seed=seed)

@@ -91,10 +91,8 @@ def build_scheduler(optimizer, train_cfg: TrainSpec, steps_per_epoch: int):
     return main, False
 
 
-# =============================================================================
-# 8. Train / evaluate -- loop over T manually; filters never see T, only the
+# 8. Train / evaluate, loop over T manually. Filters never see T, only the
 #    neuron's internal state does.
-# =============================================================================
 
 def hardware_flush_steps(net) -> int:
     """
@@ -107,7 +105,7 @@ def hardware_flush_steps(net) -> int:
     `num_layers` steps with an empty input list, accumulating output spikes
     throughout and dividing by T. Without the flush, the last frames' evidence
     never reaches the classifier and the deployed accuracy is lower than
-    anything measured in training -- for no reason visible in the config.
+    anything measured in training, for no reason visible in the config.
     """
     # an OR-pool layer is a layer of chip neurons too, so it adds a step
     from .neuron import OrPool
@@ -151,7 +149,7 @@ def forward_over_time(net, x, flush_steps: int = None, per_step: bool = False):
     T input steps PLUS `flush_steps` zero-input steps, then divide by T (not by
     T + flush) so the rate stays comparable across depths.
 
-    Single-step nets are driven by an explicit loop; multi-step nets (tdbn) get
+    Single-step nets are driven by an explicit loop. Multi-step nets (tdbn) get
     the whole (T, N, ...) tensor at once because tdBN's statistics span T.
     """
     dtype = next(net.parameters()).dtype         # float64 for hs_export.exact_copy
@@ -187,7 +185,7 @@ class _RateProbe:
     membrane and from there to everything upstream.
 
     In single-step mode the hook fires once per timestep per layer, so the
-    collected means already span time; in multi-step mode the spike tensor
+    collected means already span time. In multi-step mode the spike tensor
     carries the time axis itself. Either way the mean over everything collected
     is the mean spatiotemporal firing rate, which is what a global L1 penalty
     is defined on.
@@ -273,7 +271,7 @@ def train_one_epoch(net, loader, optimizer, device, criterion=None,
     probe = _RateProbe(net) if rate_penalty and rate_penalty > 0 else None
     for x, y, _lengths in loader:  # pad_sequence_collate returns (data, labels, lengths);
                                     # lengths is always == T here since split_by="number"
-                                    # gives every sample a fixed frame count -- safe to ignore.
+                                    # gives every sample a fixed frame count. It is safe to ignore.
         x, y = x.to(device), y.to(device)
         if augment is not None:
             x = augment(x)
@@ -356,7 +354,7 @@ def run_training(cfg: dict, data_dir: str = None, device=None, report_fn=None,
 
     mode = getattr(train_cfg, "qat_mode", "inline")
 
-    # ---- how the epoch budget is split -----------------------------------
+    # how the epoch budget is split
     if mode == "inline":
         warmup = max(1, round(train_cfg.epochs * train_cfg.qat_warmup_frac))
         warmup = min(warmup, train_cfg.epochs - 1) if train_cfg.epochs > 1 else 1
@@ -376,7 +374,7 @@ def run_training(cfg: dict, data_dir: str = None, device=None, report_fn=None,
 
     def run_phase(net, optimizer, scheduler, step_per_batch, n_epochs, epoch0,
                   best, best_state, tag):
-        """One training phase; reports each epoch into the shared trajectory so
+        """One training phase. Reports each epoch into the shared trajectory so
         ASHA still sees a continuous per-epoch curve across warmup + grid.
 
         `best` now tracks the best SMOOTHED validation accuracy, and the saved
@@ -416,7 +414,7 @@ def run_training(cfg: dict, data_dir: str = None, device=None, report_fn=None,
                           firing_rate=rate)
         return best, best_state
 
-    # ---- phase 1: float warmup (BN active, precise weights) --------------
+    # phase 1: float warmup (BN active, precise weights)
     optimizer = build_optimizer(net, train_cfg)
     scheduler, step_per_batch = build_scheduler(optimizer, train_cfg, len(train_loader))
     best, best_state = 0.0, None
@@ -425,7 +423,7 @@ def run_training(cfg: dict, data_dir: str = None, device=None, report_fn=None,
     float_best = best
 
     if mode == "inline":
-        # ---- phase 2: fold inline, train the rest ON the grid ------------
+        # phase 2: fold inline, train the rest ON the grid
         if best_state is not None:
             net.load_state_dict(best_state)          # grid-train from best warmup
         net.eval()                                   # fold from running stats
@@ -460,7 +458,7 @@ def run_training(cfg: dict, data_dir: str = None, device=None, report_fn=None,
         # window mean against one epoch near its peak, not the cost of export.
         pre_export_acc = evaluate(net, val_loader, device)
 
-        # ---- freeze into the deployable BN-free model & measure IT -------
+        # freeze into the deployable BN-free model & measure IT
         net.eval()
         hw_net = deepcopy(net).export_deployed().to(device)
         from .hs_export import exact_copy
@@ -471,7 +469,7 @@ def run_training(cfg: dict, data_dir: str = None, device=None, report_fn=None,
         hw = {
             "hw_val_accuracy": hw_acc,
             # the best smoothed score of the integer phase, which chose the
-            # checkpoint; pre_export_val_accuracy is that checkpoint's own
+            # checkpoint. Pre_export_val_accuracy is that checkpoint's own
             "grid_val_accuracy": grid_best,
             "pre_export_val_accuracy": pre_export_acc,
             "weight_clip_frac": rep["weight_clip_frac"],
@@ -486,14 +484,14 @@ def run_training(cfg: dict, data_dir: str = None, device=None, report_fn=None,
             "flush_steps": hardware_flush_steps(hw_net),
         }
     else:
-        # ---- tail / ptq: old behaviour -----------------------------------
+        # tail / ptq: old behavior
         if best_state is not None:
             net.load_state_dict(best_state)
         with exact_arithmetic():
             hw_net, hw = deploy_and_measure(net, cfg, train_loader, val_loader, device)
 
     hw["float_val_accuracy"] = float_best
-    # what each spiking layer deploys with, per layer, e.g. "8,8,4"; a layer
+    # what each spiking layer deploys with, per layer, e.g. "8,8,4". A layer
     # with a tau per channel shows its range, e.g. "2-16"
     def _tau_text(leak):
         if isinstance(leak, (list, tuple)):
@@ -516,9 +514,9 @@ def run_training(cfg: dict, data_dir: str = None, device=None, report_fn=None,
             r for r in (hw.get("deploy_reasons"), "simulator: " + hw["sim_reason"]) if r)[:300]
 
     # What conversion cost: the same checkpoint, scored before and after
-    # export. Export is exact, so this sits at zero up to float rounding; a
+    # export. Export is exact, so this sits at zero up to float rounding. A
     # number far from it means the deployed network is not the trained one.
-    # Inline mode scored the checkpoint itself above; tail/ptq reports
+    # Inline mode scored the checkpoint itself above. Tail/ptq reports
     # qat_val_accuracy, the trained net just before export.
     pre_export = hw.get("pre_export_val_accuracy")
     if pre_export is None:

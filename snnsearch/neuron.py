@@ -33,7 +33,7 @@ if _HAS_TORCH:
             single normalization is shared by the whole sequence instead of each
             timestep being normalized by its own batch stats at train time and
             by pooled running stats at eval time;
-          * gamma is initialised to alpha * v_threshold, so pre-activations are
+          * gamma is initialized to alpha * v_threshold, so pre-activations are
             scaled relative to the firing threshold rather than to unit variance.
 
         The (T, N, H, W) reduction comes for free from spikingjelly's multi-step
@@ -41,7 +41,7 @@ if _HAS_TORCH:
         before calling into BatchNorm2d. That is exactly tdBN's reduction, which
         is why this class only has to fix the initialisation.
 
-        Foldable at inference like ordinary BN -- one gamma, one sigma, no
+        Foldable at inference like ordinary BN, one gamma, one sigma, no
         per-timestep weights.
         """
         def __init__(self, num_features, alpha: float = 1.0, v_threshold: float = 1.0, **kwargs):
@@ -57,15 +57,15 @@ else:
 if _HAS_TORCH:
     class HardwareLIFNode(neuron.BaseNode):
         """
-        The neuron HiAER-Spike actually runs, trained directly.
+        The neuron HiAER-Spike runs, trained directly.
 
         This replaces LIFNode / ParametricLIFNode / LearnableThresholdLIF on
-        every path. Those are all fine SNN neurons; none of them is the neuron
+        every path. Those are all fine SNN neurons. None of them is the neuron
         the converter emits, and three of the differences change the answer:
 
         1. OPERATION ORDER / LATENCY. SpikingJelly charges then fires within a
-           timestep. hs_api's Custom_IFNode -- whose docstring says its order
-           was "changed to match the converter's order" -- fires on the membrane
+           timestep. hs_api's Custom_IFNode, whose docstring says its order
+           was "changed to match the converter's order", fires on the membrane
            carried in from the PREVIOUS step, then resets, leaks, and only then
            integrates the new input:
 
@@ -88,7 +88,7 @@ if _HAS_TORCH:
            v_reset))/tau. The hardware adds the raw integer weight, undecayed.
            That is decay_input=False, and it is baked into the order above.
 
-        The threshold is likewise held on the chip's grid. It is parametrised
+        The threshold is likewise held on the chip's grid. It is parametrized
         through a sigmoid so it lives in (0, 1]: theta = 1.0 quantizes to
         exactly INT16_MAX, and anything larger overflows the threshold field
         while anything <= 0 fires unconditionally. Per-channel thresholds (what
@@ -111,7 +111,7 @@ if _HAS_TORCH:
             self.learn_threshold = bool(learn_threshold)
             self.integer_leak = bool(integer_leak)
             # signed spikes: a second membrane integrates the negated input, as
-            # the second chip neuron does; the unit outputs spike - spike_neg
+            # the second chip neuron does. The unit outputs spike - spike_neg
             self.signed = bool(signed)
             if self.signed:
                 self.register_memory("v_neg", 0.0)
@@ -124,7 +124,7 @@ if _HAS_TORCH:
                 # that rounded to any integer; _load_from_state_dict keeps
                 # those loading as they trained.
                 if tau_per_channel and num_channels:
-                    # one learned tau per output channel; the chip stores a
+                    # one learned tau per output channel. The chip stores a
                     # neuron model per neuron, so this costs nothing on chip
                     self.raw_log2_tau = nn.Parameter(
                         torch.full((int(num_channels),), math.log2(tau0)))
@@ -137,7 +137,7 @@ if _HAS_TORCH:
                 th0 = float(min(max(float(v_threshold), 1e-3), 1.0 - 1e-4))
                 self.raw_threshold = nn.Parameter(torch.tensor(math.log(th0 / (1.0 - th0))))
 
-        # ---- hardware parameters, always reported on the chip's grid --------
+        # hardware parameters, always reported on the chip's grid
         @property
         def hw_tau(self):
             if self.learn_tau:
@@ -152,7 +152,7 @@ if _HAS_TORCH:
         def _load_from_state_dict(self, state_dict, prefix, *args, **kwargs):
             # A checkpoint written before log2 tau holds `raw_tau`. Swap the
             # parameter so it loads unchanged and deploys the tau it trained
-            # with; converting it to log2 would silently move it (3 -> 2 or 4).
+            # with. Converting it to log2 would silently move it (3 -> 2 or 4).
             if (self.learn_tau and prefix + "raw_tau" in state_dict
                     and prefix + "raw_log2_tau" not in state_dict
                     and hasattr(self, "raw_log2_tau")):
@@ -248,7 +248,7 @@ if _HAS_TORCH:
             setattr(self, name, v - leak)
             return spike
 
-        # ---- dynamics -------------------------------------------------------
+        # dynamics
         def single_step_forward(self, x: "torch.Tensor"):
             self.v_float_to_tensor(x)
             if getattr(self, "signed", False) and not torch.is_tensor(self.v_neg):
@@ -258,7 +258,7 @@ if _HAS_TORCH:
             v_th = self.v_threshold
             v_th_neg = self.v_threshold_neg if signed else None
             # exported per-channel thresholds are plain tensors, which
-            # .to(device) does not move; follow the input instead
+            # .to(device) does not move. Follow the input instead
             if torch.is_tensor(v_th) and v_th.device != x.device:
                 v_th = v_th.to(x.device)
             if torch.is_tensor(v_th_neg) and v_th_neg.device != x.device:
@@ -339,30 +339,30 @@ if _HAS_TORCH:
             b' = beta + (conv_b - running_mean) * scale
             y  = conv(x, fake_quantize(w'))  (+ b' as bias, or into threshold)
 
-        So the neuron downstream always sees the folded, INT16-rounded weight --
+        So the neuron downstream always sees the folded, INT16-rounded weight,
         not the raw float conv weight that only gets folded and quantized later.
         The whole run trains on the grid, so the network never gets to build the
         precise-weight balances that ordinary float training leans on and that
         post-hoc quantization then shatters.
 
         Why fold from RUNNING stats, not batch stats: the chip folds the running
-        (inference) statistics -- that is the number that deploys. Folding batch
+        (inference) statistics. That is the number that deploys. Folding batch
         stats during training would mean the quantized weight the neuron sees
         flickers with each mini-batch and does not match deployment. BN's affine
         params (gamma, beta) and its running stats still update normally from a
         cheap statistics-only pass over the raw conv output, so the fold tracks
-        the data as training proceeds; only the *weight used in the conv* is the
+        the data as training proceeds. Only the *weight used in the conv* is the
         folded/quantized one. (This is the standard freeze-BN-stats QAT fold,
         e.g. Jacob et al. 2018 / PyTorch's fused ConvBn.)
 
         bias_mode mirrors fold_bn:
-          "conv"      -> b' added as a conv bias (exact; runs in SpikingJelly).
+          "conv"      -> b' added as a conv bias (exact, runs in SpikingJelly).
           "threshold" -> b' handed to the following neuron's per-channel
                          threshold, matching the HiAER-Spike conversion. The
                          conv stays bias-free, exactly as deployed.
 
         At the end of training, `export_folded_conv()` emits a plain bias-free
-        (or biased) Conv2d holding the final quantized weight -- so the deploy
+        (or biased) Conv2d holding the final quantized weight, so the deploy
         path and converter see an ordinary folded conv with nothing left to do.
         """
 
@@ -386,7 +386,7 @@ if _HAS_TORCH:
             self.out_channels = conv.out_channels
             self.in_channels = conv.in_channels
             self.kernel_size = conv.kernel_size
-            # neuron whose threshold absorbs b' in threshold mode; wired by the
+            # neuron whose threshold absorbs b' in threshold mode. Wired by the
             # model builder right after construction (needs the sibling module).
             self._bias_sink = None
             self.step_mode = getattr(conv, "step_mode", "s")
@@ -400,7 +400,7 @@ if _HAS_TORCH:
             th = torch.as_tensor(th).detach().float()
             return float(th.min())               # scalar before export
 
-        # --- the fold, from CURRENT bn params/stats --------------------------
+        # the fold, from CURRENT bn params/stats
         def _folded_weight_bias(self):
             bn = self.bn
             scale = bn.weight / torch.sqrt(bn.running_var + bn.eps)     # [O]
@@ -439,11 +439,11 @@ if _HAS_TORCH:
         def _update_bn_stats(self, x):
             """Run BN in train mode purely to update running_mean/var (and let
             gamma/beta receive gradient) WITHOUT letting it also renormalise the
-            path -- the fold already applied the affine transform. We do this by
+            path. The fold already applied the affine transform. We do this by
             pushing the raw conv output through bn and discarding the result."""
             if self.training:
                 raw = self._conv_raw(x)
-                _ = self.bn(raw)                 # updates running stats; output dropped
+                _ = self.bn(raw)                 # updates running stats. Output dropped
 
         def _conv_raw(self, x):
             # step_mode 'm' inputs are (T, N, C, H, W): fold T into N for conv2d
@@ -468,10 +468,10 @@ if _HAS_TORCH:
             else:
                 y = F.conv2d(x, w, use_bias,
                              self.stride, self.padding, self.dilation, self.groups)
-            # in threshold mode b' lives in the neuron; push the CURRENT b' onto
+            # in threshold mode b' lives in the neuron. Push the CURRENT b' onto
             # it every step. Keep it attached to the graph so beta (bn.bias)
             # still receives gradient through the neuron's input during grid
-            # training -- freezing beta would throw away capacity the chip can
+            # training. Freezing beta would throw away capacity the chip can
             # represent (b' becomes the per-channel threshold at export).
             if self.bias_mode == "threshold" and self._bias_sink is not None:
                 self._bias_sink._fold_bias = b
@@ -485,7 +485,7 @@ if _HAS_TORCH:
         @torch.no_grad()
         def export_folded_conv(self):
             """Freeze into a plain Conv2d holding the final folded+quantized
-            weight -- what fold_bn would have produced, but already grid-trained."""
+            weight, what fold_bn would have produced, but already grid-trained."""
             w, b = self._folded_weight_bias()
             has_bias = self.bias_mode in ("neuron", "conv")
             conv = layer.Conv2d(self.in_channels, self.out_channels, self.kernel_size,
@@ -560,24 +560,24 @@ if _HAS_TORCH:
 
           * Non-differentiable fire. The threshold sits inside a Heaviside.
             Gradient reaches it only through the surrogate: d/d(v_th) of
-            surrogate(v - v_th) = -surrogate'(v - v_th). Inherited unchanged --
-            we only swap the constant v_th for a parameter, the surrogate does
+            surrogate(v - v_th) = -surrogate'(v - v_th). Inherited unchanged.
+            We only swap the constant v_th for a parameter, the surrogate does
             the rest.
           * Positivity. A threshold <= 0 makes the neuron fire every step and
-            kills learning. We parametrise v_th = softplus(raw), so it is always
+            kills learning. We parametrize v_th = softplus(raw), so it is always
             > 0 and can never cross zero no matter what the optimiser does.
           * Scale coupling. Scaling a layer's input weights and its threshold
             together leaves the spike train unchanged (for v_reset=0), so weight
             and threshold are jointly under-determined. BatchNorm already fixes
-            the input scale, which pins the threshold -- so trainable_threshold
-            is most stable WITH norm on. With norm='none' it can drift; the raw
+            the input scale, which pins the threshold, so trainable_threshold
+            is most stable WITH norm on. With norm='none' it can drift. The raw
             parameter gets weight decay to damp that.
           * Per-LAYER only. One scalar per neuron group. Per-channel thresholds
             were considered and rejected as too many DOF for this dataset.
 
         Deployment: at conversion the LEARNED tau and threshold are read out as
-        floats and baked into a fixed Custom_LIFNode -- the hardware neuron is
-        never itself "trainable"; training only discovers good constants.
+        floats and baked into a fixed Custom_LIFNode, the hardware neuron is
+        never itself "trainable". Training only discovers good constants.
         """
         def __init__(self, init_threshold: float = 1.0, learn_threshold: bool = True, **kwargs):
             kwargs["v_threshold"] = init_threshold      # base stores the initial value
@@ -609,8 +609,8 @@ def build_neuron(neuron_cfg: NeuronSpec, tau, v_threshold: float, num_channels: 
     One neuron group, always the deployable neuron.
 
     There is deliberately no "train with a nice neuron, convert to the hardware
-    one later" path any more. Every substitution of that kind -- SpikingJelly's
-    charge-then-fire order, decay_input=True, a continuous tau -- is a silent
+    one later" path any more. Every substitution of that kind, SpikingJelly's
+    charge-then-fire order, decay_input=True, a continuous tau, is a silent
     change to the network that only shows up after conversion, which is exactly
     the gap this search exists to close. Trainability is a flag ON the hardware
     neuron, not a different neuron.

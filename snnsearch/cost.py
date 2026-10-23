@@ -44,7 +44,7 @@ def count_neurons_and_synapses(cfg: dict) -> dict:
     encoder_cfg, input_cfg = cfg["encoder"], cfg["input"]
     sign = 2 if getattr(cfg.get("neuron"), "signed_spikes", False) else 1
     bits = max(1, int(getattr(input_cfg, "input_bits", 1) or 1))
-    folds = cfg["downsample"].pool_type != "max"   # avg pools fold; max pools are OR neurons
+    folds = cfg["downsample"].pool_type != "max"   # avg pools fold. Max pools are OR neurons
 
     rows = []
     prev_pool = 1           # avg pool kernel between the previous neurons and this layer
@@ -68,7 +68,7 @@ def count_neurons_and_synapses(cfg: dict) -> dict:
             "params": weights_per_neuron * b.out_channels + (b.out_channels if encoder_cfg.bias else 0),
         })
         if encoder_cfg.norm != "none":
-            # tdBN has the SAME parameter count as ordinary BN -- one gamma and
+            # tdBN has the SAME parameter count as ordinary BN, one gamma and
             # one beta per channel. (It is BNTT that would scale as C*T.)
             label = "tdbn" if encoder_cfg.norm == "tdbn" else "bn"
             rows.append({
@@ -82,7 +82,7 @@ def count_neurons_and_synapses(cfg: dict) -> dict:
             or_pool = not folds
             rows.append({
                 "layer": f"pool{b.index}",
-                # a max pool is a layer of OR neurons on chip; an avg pool has
+                # a max pool is a layer of OR neurons on chip. An avg pool has
                 # none, and its synapses are counted in the next layer's row
                 "detail": (f"{'max (OR neurons)' if or_pool else 'avg'} k={b.pool_kernel} "
                            f"s={b.pool_stride} -> {b.out_channels}x{ph}x{pw}"

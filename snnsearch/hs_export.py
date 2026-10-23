@@ -1,6 +1,6 @@
 """Turn a deployed checkpoint into the integer network HiAER-Spike runs.
 
-WHY THIS EXISTS INSTEAD OF hs_api's CRI_Converter
+Why not hs_api's CRI_Converter
 
 The converter on the pinned L6m-testing-suite commit (a8f0f7b5) cannot take
 this project's networks:
@@ -17,7 +17,7 @@ per-channel thresholds that absorbed the BN bias, the leak), so this module
 builds the integer network from the checkpoint directly and checks it against
 the real simpleSim instead.
 
-THE ARITHMETIC SIMPLESIM PERFORMS, PER TIMESTEP (hs_api/_simple_sim.py)
+The arithmetic simpleSim performs each timestep (hs_api/_simple_sim.py)
 
     spiked = V > threshold
     V[spiked] = 0
@@ -26,7 +26,7 @@ THE ARITHMETIC SIMPLESIM PERFORMS, PER TIMESTEP (hs_api/_simple_sim.py)
 
 So tau must be a power of two. A tau of 3 has no representation.
 
-AVERAGE POOLING
+Average pooling
 
 A spike is 0 or 1, and AvgPool2d(2) of spikes is a multiple of 1/4. That is
 linear, so it folds into the next layer: each of the four spikes in a pooling
@@ -54,9 +54,7 @@ MEMBRANE_LIMIT = 2 ** 31
 from ._torch import _require_torch, torch, nn, F, layer
 
 
-# ---------------------------------------------------------------------------
 # loading the deployed network
-# ---------------------------------------------------------------------------
 
 def load_deployed(ckpt_path, device="cpu"):
     """Rebuild the exact network `hw_test_accuracy` was measured on.
@@ -131,9 +129,7 @@ def _check_against_export(net, export):
                 f"network being converted is not the one that was scored.")
 
 
-# ---------------------------------------------------------------------------
 # the integer description
-# ---------------------------------------------------------------------------
 
 def leak_shift_for(tau):
     """tau -> the shift simpleSim uses, or None when tau is not a power of 2."""
@@ -202,7 +198,7 @@ def integer_layers(net, tau_override=None):
             continue
         if isinstance(m, (layer.MaxPool2d, nn.MaxPool2d)):
             raise NotImplementedError(
-                "a plain MaxPool2d has no chip timing; build max pooling as OrPool")
+                "a plain MaxPool2d has no chip timing. Build max pooling as OrPool")
         if isinstance(m, (layer.Conv2d, nn.Conv2d, layer.Linear, nn.Linear)):
             node = next(x for x in mods[i + 1:] if isinstance(x, HardwareLIFNode))
             w = m.weight.detach().double().cpu().numpy()
@@ -342,9 +338,7 @@ def as_if_neurons(layers):
     return out
 
 
-# ---------------------------------------------------------------------------
 # the fast simulator
-# ---------------------------------------------------------------------------
 
 class IntegerSim:
     """simpleSim's arithmetic, layer by layer, on whole tensors.
@@ -492,7 +486,7 @@ class IntegerSim:
                     groups[k][0] = Vn[i]
                     k += 1
             # simpleSim's membrane is a 32-bit integer that wraps (35-bit and
-            # saturating on older commits); float64 does neither, so the two
+            # saturating on older commits). Float64 does neither, so the two
             # agree only while nothing gets near the rail
             peak = max(float(v.abs().max()) for v, _s in groups)
             self.max_abs_membrane = max(getattr(self, "max_abs_membrane", 0.0), peak)
@@ -520,9 +514,7 @@ class IntegerSim:
         return counts.cpu(), extra
 
 
-# ---------------------------------------------------------------------------
 # unrolling into hs_api's dictionaries
-# ---------------------------------------------------------------------------
 
 def hs_lif_neuron(threshold, leak):
     """hs_api's LIF_neuron with noise off, on any L6m-testing-suite commit.
@@ -532,7 +524,7 @@ def hs_lif_neuron(threshold, leak):
 
     nu = -17 is what makes the noise zero. Later commits ADD a perturbation
     every step: an odd magnitude below 2**17, shifted right by -nu. At -17
-    that is always 0; at anything larger it is not, and simpleSim stops being
+    that is always 0. At anything larger it is not, and simpleSim stops being
     deterministic.
     """
     from hs_api.neuron_models import LIF_neuron
@@ -541,7 +533,7 @@ def hs_lif_neuron(threshold, leak):
 
 def hs_if_neuron(threshold):
     """hs_api's IF_neuron (model 3): no leak at all, noise off. Only on
-    commits that have it; crisdsc0's L6m-testing-suite (e1de47e) does."""
+    commits that have it. Crisdsc0's L6m-testing-suite (e1de47e) does."""
     from hs_api.neuron_models import IF_neuron
     return IF_neuron(int(threshold), -17)
 
@@ -776,9 +768,7 @@ def input_axons(frame, bits=1):
     return keys
 
 
-# ---------------------------------------------------------------------------
 # checking a trained network on the simulator
-# ---------------------------------------------------------------------------
 
 def exact_copy(hw_net):
     """The deployed network in float64, every number exactly on its grid.
@@ -812,7 +802,7 @@ def exact_copy(hw_net):
                 if m.bias is not None:
                     m.bias.copy_(torch.round(m.bias * INT16_MAX) / INT16_MAX)
             if isinstance(m, HardwareLIFNode):
-                # plain attributes, which .double() does not reach; the
+                # plain attributes, which .double() does not reach. The
                 # v_threshold properties round them onto the grid in float64
                 for attr in ("_v_threshold_const", "_v_threshold_neg_const"):
                     v = getattr(m, attr, None)
@@ -852,7 +842,7 @@ def verify_deployment(hw_net, loader, device, flush_steps, max_clips=None):
                 x = x.to(device)
                 top = 2 ** int(getattr(hw_net, "input_bits", 1) or 1) - 1
                 if not torch.all((x == torch.round(x)) & (x >= 0) & (x <= top)):
-                    # an axon carries one bit; analog input (the "direct"
+                    # an axon carries one bit. Analog input (the "direct"
                     # coding) or levels past the input bits have no
                     # representation on chip
                     return {"sim_val_accuracy": None, "sim_disagreements": None,

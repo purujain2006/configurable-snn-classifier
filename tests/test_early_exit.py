@@ -6,7 +6,7 @@ Trains a tiny network on synthetic event clips whose class shows only in the
 second half of the frames, then requires the tool's k = T row to equal the
 scores `single` wrote, and the rows with fewer frames to differ from it.
 Anything else means it rebuilt a different split, scored a different network,
-or did not actually cut the input. Runs on a CPU in under a minute.
+or did not cut the input. Runs on a CPU in under a minute.
 """
 import csv
 import json

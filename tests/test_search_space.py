@@ -105,7 +105,7 @@ class SearchSpaceTests(unittest.TestCase):
     def test_gap_and_flatten_have_the_same_fan_in_on_chip(self):
         """GAP shrinks the head's parameters, not its fan-in.
 
-        A global average pool has no neurons on chip; it folds into the head's
+        A global average pool has no neurons on chip. It folds into the head's
         synapses, so each head neuron still connects to every neuron of the
         last conv layer, exactly as a flatten head does. The plan's
         fc_in_features (32 for GAP) is the parameter count, and the
@@ -334,7 +334,7 @@ class BalancedBlockTests(unittest.TestCase):
         heads = Counter((p["T"], p["final_reduction"]) for p in points)
         self.assertEqual(len(heads), 8)
         self.assertLessEqual(max(abs(c - 12) for c in heads.values()), 4, heads)
-        # one T leaves the block as it was; five values round 96 up to 120
+        # one T leaves the block as it was. Five values round 96 up to 120
         self.assertEqual({p["T"] for p in balanced_points(24, seed=1, t_choices=[16],
                                                           data=DVS, max_input_bits=4)}, {16})
         self.assertEqual(len(balanced_points(96, seed=1, t_choices=[16, 24, 32, 48, 64],
@@ -362,7 +362,7 @@ class BalancedBlockTests(unittest.TestCase):
 
 class FinalistTests(unittest.TestCase):
     def test_finalists_from_a_stopped_search_s_records(self):
-        """A search stopped before its end still has trials.jsonl; the best
+        """A search stopped before its end still has trials.jsonl. The best
         finished, deployable trials come from there."""
         import json as _json
         import tempfile
@@ -397,7 +397,7 @@ class FinalistTests(unittest.TestCase):
         self.assertEqual([j["config"]["seed"] for j in jobs], [1001, 2001, 1001, 2001])
         self.assertTrue(all(j["config"]["epochs"] == 120 for j in jobs))
         self.assertNotIn("_private", jobs[0]["config"])
-        # the search's top trial got lucky; the second is better on average
+        # the search's top trial got lucky. The second is better on average
         rows = [{"rank": 0, "val_accuracy": 0.80}, {"rank": 0, "val_accuracy": 0.84},
                 {"rank": 1, "val_accuracy": 0.86}, {"rank": 1, "val_accuracy": 0.85}]
         summary, best = summarize_finalists(top, rows)

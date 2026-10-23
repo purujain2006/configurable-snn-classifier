@@ -2,8 +2,8 @@
 
     python tests/test_training_options.py
 
-Augmented inputs must still be inputs the chip can receive; a seeded run must
-repeat exactly; and a network trained with every option the search can pick
+Augmented inputs must still be inputs the chip can receive. A seeded run must
+repeat exactly. And a network trained with every option the search can pick
 must still agree with the simulator clip for clip.
 """
 import io

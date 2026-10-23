@@ -6,7 +6,7 @@ Each rule below was violated by a real run before it was enforced:
   * tau is a power of two (rank1 trained to tau 3)
   * weight decay does not move tau (it drove tau 8 -> 3 -> 0 as decay rose)
   * fan-in counts the neurons in front of an average pool (rank1's classifier
-    needs 32,256 inputs per neuron; the limit is 8,159)
+    needs 32,256 inputs per neuron. The limit is 8,159)
   * a bias delivered by bias neurons splits exactly across INT16 synapses and
     the 4095 fan-out limit
 

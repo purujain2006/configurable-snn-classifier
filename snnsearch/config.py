@@ -51,8 +51,8 @@ class ConvLayerSpec:
     dilation: int = 1
     pool: bool = False          # per-layer downsample-by-pooling flag
     # per-layer neuron overrides; None -> fall back to the global NeuronSpec.
-    # per-LAYER is supported (and often helps); per-CHANNEL is deliberately not
-    # offered -- it is usually too many degrees of freedom for this dataset.
+    # per-LAYER is supported (and often helps). Per-CHANNEL is deliberately not
+    # offered. It is usually too many degrees of freedom for this dataset.
     tau: "float | None" = None
     v_threshold: "float | None" = None
 
@@ -79,7 +79,7 @@ class EncoderSpec:
     stride: int = 2
     padding: int = 0
     dilation: int = 1
-    # per-layer override (JSON list of dicts); empty string -> use uniform
+    # per-layer override (JSON list of dicts). Empty string -> use uniform
     layers_json: str = ""
     # encoder-wide (not per-layer)
     bias: bool = False
@@ -92,7 +92,7 @@ class EncoderSpec:
     # out to a mild noise injection instead of removing a pathway. 0 = off.
     dropout_rate: float = 0.0
     norm: str = "bn"          # "none" | "bn" | "tdbn"
-    tdbn_alpha: float = 1.0   # tdbn only: gamma is initialised to alpha * v_threshold
+    tdbn_alpha: float = 1.0   # tdbn only: gamma is initialized to alpha * v_threshold
 
 
 def resolve_conv_layers(encoder_cfg: EncoderSpec) -> list[ConvLayerSpec]:
@@ -172,7 +172,7 @@ class NeuronSpec:
 
 @dataclass
 class TrainSpec:
-    """Optimization recipe -- everything that affects training but not shape."""
+    """Optimization recipe, everything that affects training but not shape."""
     epochs: int = 20
     optimizer: str = "adam"        # "adam" | "adamw" | "sgd"
     lr: float = 1e-3
@@ -193,7 +193,7 @@ class TrainSpec:
     # error near 2.4 points, so the peak of a 60-epoch run sits roughly 2.5
     # standard errors above the trajectory's real level whether or not the model
     # improved. Averaging a window estimates the level instead of the peak.
-    # Set to 1 to recover the old best-single-epoch behaviour.
+    # Set to 1 to recover the old best-single-epoch behavior.
     val_smoothing_epochs: int = 5
     # "rate": cross-entropy on the spike rate over the whole clip. "tet": the
     # average of a cross-entropy at every timestep (Deng et al., ICLR 2022,
@@ -210,7 +210,7 @@ class TrainSpec:
     # Seed for weight initialization and data order. None leaves them random;
     # re-scoring finalists sets it so each seed is a separate, repeatable run.
     seed: Optional[int] = None
-    # --- deployment / quantization-aware training (section 5c) -------------
+    # deployment / quantization-aware training (section 5c)
     # qat_mode selects how the model reaches the deployable INT16 grid:
     #   "inline"  (Option A, default): after a short float warmup, every
     #             (conv, BN) pair folds INLINE and the REST of the run trains on
@@ -219,16 +219,16 @@ class TrainSpec:
     #             weight balances that post-hoc quantization would shatter.
     #   "tail"    (Option B / older): full float run, then a fixed qat_epochs of
     #             fold+quantize fine-tuning bolted on the end.
-    #   "ptq"     : no QAT at all -- fold + quantize once and measure (baseline).
+    #   "ptq"     : no QAT at all, fold + quantize once and measure (baseline).
     qat_mode: str = "inline"
     # inline mode: fraction of the TOTAL epoch budget spent in float warmup
     # before folding. BN needs a few real epochs before running_var is worth
-    # folding from; the rest of the budget is on-grid training.
+    # folding from. The rest of the budget is on-grid training.
     qat_warmup_frac: float = 0.25
     qat_epochs: int = 4            # tail mode only
     qat_lr_scale: float = 0.5      # grid-phase lr = qat_lr_scale * lr
     # Length of the quantized phase's LR schedule, independent of the
-    # epoch budget. None reproduces the old behaviour.
+    # epoch budget. None reproduces the old behavior.
     qat_schedule_epochs: Optional[int] = None
     qat_scheduler: Optional[str] = None   # None = same as the float phase
     # Where each layer's bias goes on chip. The chip has no bias term, so:
@@ -249,13 +249,13 @@ class TrainSpec:
     # constrain_fold_bias keeps b' inside the band DURING inline QAT, with a
     # straight-through gradient, so the network trains against the constraint
     # instead of meeting it at export. Set to 0 to disable and recover the old
-    # behaviour. The margin is expressed as a fraction of theta: the constraint
+    # behavior. The margin is expressed as a fraction of theta: the constraint
     # is theta' >= fold_bias_margin * theta.
     fold_bias_margin: float = 0.05
     # threshold mode only. HOW the folded bias is applied during inline QAT.
-    #   "threshold" -- compare against theta - b', which is what export_deployed
+    #   "threshold": compare against theta - b', which is what export_deployed
     #                  writes and therefore what the chip runs.
-    #   "input"     -- add b' to the neuron's input. The older behaviour.
+    #   "input": add b' to the neuron's input. The older behavior.
     #
     # These are not the same operation once tau > 1. A bias arrives every
     # timestep and accumulates against the leak, reaching b'*tau, while a
@@ -286,7 +286,7 @@ def parse_fc_widths(spec: str) -> list[int]:
 
 
 def _norm_alias(raw: str):
-    """--encoder batchnorm=true|false still works; maps onto the new norm field."""
+    """--encoder batchnorm=true|false still works. Maps onto the new norm field."""
     return "norm", ("bn" if raw.lower() in ("1", "true", "yes", "y") else "none")
 
 

@@ -54,7 +54,7 @@ def _drop(x, p):
     if p <= 0:
         return x
     if bool((x >= 0).all()) and bool((x == x.round()).all()):
-        # binomial thinning keeps counts integer; for 0/1 spikes it is plain dropout
+        # binomial thinning keeps counts integer. For 0/1 spikes it is plain dropout
         return torch.binomial(x, torch.full_like(x, 1.0 - p))
     # analog inputs ("direct" coding): drop whole values
     return x * (torch.rand_like(x) >= p).to(x.dtype)

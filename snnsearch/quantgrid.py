@@ -74,7 +74,7 @@ if _HAS_TORCH:
         """Clamp the folded bias into the band above, straight-through.
 
         Forward uses the clamped value, so the neuron sees the b' that will
-        actually deploy and the loss responds to the constraint. Backward passes
+        deploy and the loss responds to the constraint. Backward passes
         the gradient to bn.bias unchanged, so the optimizer can still move beta
         toward a legal value on its own rather than being pinned at the bound.
         """
@@ -96,7 +96,7 @@ if _HAS_TORCH:
     def weight_clip_fraction(net) -> float:
         """Fraction of conv/linear weights outside the representable [-1, 1].
 
-        Call on the FOLDED net; pre-fold numbers are meaningless.
+        Call on the FOLDED net. Pre-fold numbers are meaningless.
 
         READ THE PRE-CLAMP TENSOR. `m.weight` on a fake-quantized module is the
         parametrization's OUTPUT, already clamped into [-1, 1], so asking it

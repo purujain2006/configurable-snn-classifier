@@ -20,7 +20,7 @@ AXON_LIMITS = {
     # MEASURED, not the register width. 16,383 is what the field can hold and
     # was what this used. Christopher's testing of bitstream L6m errored at
     # 16,383 and passed at 16,000, so the usable ceiling is lower than the
-    # representable one and 16,000 is the number that has actually been run.
+    # representable one and 16,000 is the number that has been run.
     #
     # For two-channel DVS input that caps a square frame at 89 x 89:
     # 89*89*2 = 15,842 fits, 90*90*2 = 16,200 does not.
@@ -46,7 +46,7 @@ THRESHOLD_LIMITS = {
     "bits": 36,
 }
 
-# A config's `limits:` block names these; set_limits applies it.
+# A config's `limits:` block names these. Set_limits applies it.
 _LIMIT_KEYS = {
     "total_axons": (AXON_LIMITS, "total_axons"),
     "axon_fan_out": (AXON_LIMITS, "fan_out"),
@@ -123,7 +123,7 @@ def check_feasibility(input_cfg: InputSpec, encoder_cfg: EncoderSpec,
             violations.append(f"{label} {value} > {limit}")
 
     first_fc_width = plan.linears[0].out_features if plan.linears else 0
-    folds = downsample_cfg.pool_type != "max"      # avg pools fold; max pools are OR neurons
+    folds = downsample_cfg.pool_type != "max"      # avg pools fold. Max pools are OR neurons
     bits = max(1, int(getattr(input_cfg, "input_bits", 1) or 1))
     sign = 2 if signed else 1          # chip neurons per unit
     prev_pool = 1                      # pool kernel between the previous neurons and this layer
@@ -158,7 +158,7 @@ def check_feasibility(input_cfg: InputSpec, encoder_cfg: EncoderSpec,
             last = plan.blocks[-1]
             # flatten and GAP both connect to every neuron of the last conv
             if last.pool and not folds:
-                # OR neurons already pooled the map; the head reads the pooled size
+                # OR neurons already pooled the map. The head reads the pooled size
                 fan_in = last.out_channels * last.out_hw[0] * last.out_hw[1]
                 pool = 1
             else:
@@ -171,7 +171,7 @@ def check_feasibility(input_cfg: InputSpec, encoder_cfg: EncoderSpec,
             fan_in, scale = lin.in_features, 1
         check(fan_in * sign + (scale if bias_neurons else 0), NEURON_LIMITS["fan_in"],
               f"{tag}: neuron_fan_in")
-        # the LAST linear's neurons are the outputs; they feed nothing on chip
+        # the LAST linear's neurons are the outputs. They feed nothing on chip
         if not lin.is_classifier:
             check(lin.out_features * sign, NEURON_LIMITS["fan_out"], f"{tag}: neuron_fan_out")
 

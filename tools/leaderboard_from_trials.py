@@ -1,8 +1,6 @@
 """Rebuild a complete leaderboard from trials.jsonl, one column per key.
 
-WHY THE STREAMED LEADERBOARD IS LOSSY
-
-`append_csv` writes its header when the first row arrives and then appends. A
+The leaderboard written during a search can lose columns. `append_csv` writes its header when the first row arrives and then appends. A
 key that only shows up on trial 200 has no column to go in, so `DictWriter` is
 configured to drop it rather than crash mid-search. That is the right trade for
 a file whose job is to survive a crash at trial 380 of 400.

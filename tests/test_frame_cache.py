@@ -2,7 +2,7 @@
 
     python tests/test_frame_cache.py
 
-Only temporary directories are changed; the dataset constructor is mocked.
+Only temporary directories are changed. The dataset constructor is mocked.
 """
 from contextlib import ExitStack
 import os

@@ -1,4 +1,4 @@
-"""snnsearch -- hyperparameter search for spiking networks under hardware limits.
+"""snnsearch, hyperparameter search for spiking networks under hardware limits.
 
 The package is layered so that the cheap parts stay cheap:
 

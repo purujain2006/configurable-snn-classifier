@@ -1,7 +1,5 @@
 """Run the whole pipeline on synthetic data, in under a minute, on a CPU.
 
-WHY THIS EXISTS
-
 `summary` and `check` import no deep-learning library, so they pass on a
 machine where every torch-dependent path is broken. That happened: splitting
 Practice2.py into modules left 28 names undefined and four calls with the wrong
@@ -70,7 +68,7 @@ def main():
         "dataset": {"name": None,
                     "module": os.path.join(ROOT, "examples", "synthetic_data.py"),
                     "factory": "make_datasets"},
-        # T=2 keeps the time loop honest (a single step would hide the pipeline
+        # T=2 exercises the time loop (a single step would hide the pipeline
         # flush) while staying fast.
         # levels, so the input is whole numbers an axon can carry and the
         # simulator check runs on a deployable network

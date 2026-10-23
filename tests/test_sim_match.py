@@ -2,7 +2,7 @@
 
     python tests/test_sim_match.py
 
-Training uses the PyTorch model; deployment is judged on IntegerSim, which
+Training uses the PyTorch model. Deployment is judged on IntegerSim, which
 `tools/match_simplesim.py --selftest` proves equal to hs_api's simpleSim. This
 closes the loop: small networks combining every feature the search can pick
 (average or OR pooling, flatten or GAP, threshold or bias-neuron biases,
@@ -10,7 +10,7 @@ signed spikes, per-channel tau, multi-bit input) must produce identical spikes
 in every layer at every timestep, in float32 as training runs, and in the
 float64 copy (hs_export.exact_copy) that deployed accuracy is measured on.
 
-Thresholds are set low after export so every layer fires; a match on silent
+Thresholds are set low after export so every layer fires. A match on silent
 layers would prove nothing.
 """
 import itertools

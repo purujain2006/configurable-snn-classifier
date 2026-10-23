@@ -122,7 +122,7 @@ def export_trial_records(results, out_dir: str) -> str:
     (variance across seeds, which knobs move accuracy, feasibility rate, the
     accuracy/neuron-count Pareto front). Ray keeps its own per-trial logs, but a
     single flat file with {full config} x {final metrics} x {arch counts} is what
-    you actually load into pandas.
+    you load into pandas.
 
     Writes both trial_records.jsonl (loss-less) and trial_records.csv (convenient).
     Returns the CSV path.

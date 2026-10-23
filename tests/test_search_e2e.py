@@ -1,6 +1,6 @@
 """A real search and a real option study, end to end, on synthetic data.
 
-    python tests/test_search_e2e.py        # about 5 minutes; needs ray and optuna
+    python tests/test_search_e2e.py        # about 5 minutes. Needs ray and optuna
 
 Everything a search does after its trials finish (finalists, the report) and
 everything the study does had only ever run at the end of a multi-hour
@@ -9,7 +9,7 @@ minutes: a balanced block that early stopping must leave alone, trials after
 it that it may cut, finalists, the report, and an option study.
 
 `main.py preflight` runs the same kind of mini search on the real dataset and
-GPU before every search; this test is for changes to the code itself.
+GPU before every search. This test is for changes to the code itself.
 """
 import csv
 import importlib.util
