@@ -369,7 +369,7 @@ def counter_costs(cycles, hbm):
 
 
 def _real_simplesim(layers, in_shape, items, flush, target="simpleSim", core=0, cores=1,
-                    membership=None, parts_fn=None):
+                    membership=None, parts_fn=None, save_membership=None):
     """Run clips through hs_api on the full network: its own simple_sim, or
     with target "CRI" the FPGA itself (on a host with hs_bridge and a flashed
     bitstream), on one core or, with cores > 1, across that many cores of the
@@ -413,6 +413,11 @@ def _real_simplesim(layers, in_shape, items, flush, target="simpleSim", core=0, 
         t1 = time.time()
         if membership is None:
             membership, stats = place_on_cores(axons, conns, cores, parts_fn)
+            if save_membership:         # now, so a run that dies later still leaves it
+                with open(save_membership, "w") as fh:
+                    json.dump(membership, fh)
+                print(f"  wrote the placement to {save_membership} "
+                      f"(reuse it with --membership)", flush=True)
         else:
             names, src, dst = network_edges(axons, conns)
             stats = placement_stats(names, src, dst, [membership[k] for k in names],
@@ -633,14 +638,10 @@ def compare(args):
             if args.membership:
                 with open(args.membership) as fh:
                     membership = json.load(fh)
-            real, info = _real_simplesim(layers, in_shape, clips[split][:k], flush,
-                                         target=args.hs_target, core=args.core,
-                                         cores=args.cores, membership=membership)
-            if info.get("membership") is not None and not args.membership:
-                mpath = os.path.splitext(args.out)[0] + "_membership.json"
-                with open(mpath, "w") as fh:
-                    json.dump(info["membership"], fh)
-                print(f"  wrote the placement to {mpath} (reuse it with --membership)")
+            real, info = _real_simplesim(
+                layers, in_shape, clips[split][:k], flush, target=args.hs_target,
+                core=args.core, cores=args.cores, membership=membership,
+                save_membership=os.path.splitext(args.out)[0] + "_membership.json")
             # every output spike at every timestep, not only the argmax
             r_pred = [p for p, _, _, _ in real]
             dis_r = [i for i in range(k) if r_pred[i] != p_sim[i]]
