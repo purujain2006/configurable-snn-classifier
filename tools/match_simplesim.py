@@ -759,6 +759,17 @@ def main():
     args = ap.parse_args()
     if args.cores > 1 and args.hs_target != "CRI":
         ap.error("--cores places the network on the FPGA's cores; add --hs-target CRI")
+    # fail before the simulator pass, not after it
+    if args.membership and not os.path.exists(args.membership):
+        ap.error(f"--membership {args.membership} does not exist; a --cores run writes "
+                 f"one next to its -o report when it finishes, or leave the flag out "
+                 f"to place the network with METIS")
+    if args.cores > 1 and not args.membership:
+        try:
+            import pymetis  # noqa: F401
+        except ImportError:
+            ap.error("--cores needs pymetis for the METIS placement: "
+                     "poetry run pip install pymetis")
     for p in args.hs_path:
         sys.path.insert(0, p)
     if args.selftest:
