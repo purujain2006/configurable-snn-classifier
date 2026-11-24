@@ -270,64 +270,208 @@ def _torch_preds(net, items, device, flush, batch=16):
     return preds
 
 
-def _real_simplesim(layers, in_shape, items, flush, target="simpleSim", core=0):
+COUNTER_WRAP = 2 ** 32           # the step counters are 32-bit words
+
+
+def network_edges(axons, conns):
+    """(names, source, target): every synapse as a pair of indices into names,
+    axons first, then neurons."""
+    import numpy as np
+    names = list(axons) + list(conns)
+    idx = {k: i for i, k in enumerate(names)}
+    lists = ([(idx[k], syns) for k, syns in axons.items()]
+             + [(idx[k], v[0]) for k, v in conns.items()])
+    n_edges = sum(len(syns) for _, syns in lists)
+    src = np.empty(n_edges, np.int64)
+    dst = np.empty(n_edges, np.int64)
+    pos = 0
+    for i, syns in lists:
+        m = len(syns)
+        if m:
+            src[pos:pos + m] = i
+            dst[pos:pos + m] = [idx[syn[0]] for syn in syns]
+            pos += m
+    return names, src, dst
+
+
+def undirected_csr(n, src, dst):
+    """The graph METIS takes: (xadj, adjncy), every edge both ways, once, no
+    self loops. Built with numpy: hs_bridge's convert_to_undirected checks and
+    appends one edge at a time (`i not in adj[j]`, np.append), which would take
+    days on rank 2's 28.85 million synapses."""
+    import numpy as np
+    a = np.concatenate([src, dst])
+    b = np.concatenate([dst, src])
+    keep = a != b
+    key = np.unique(a[keep] * n + b[keep])
+    a, b = key // n, key % n
+    xadj = np.zeros(n + 1, np.int64)
+    np.cumsum(np.bincount(a, minlength=n), out=xadj[1:])
+    return xadj, b
+
+
+def metis_parts(n_cores, xadj, adjncy):
+    """pymetis on the CSR graph, as hs_bridge's hierarchical_partition calls
+    it (default objective: fewest edges cut)."""
+    import numpy as np
+    import pymetis
+    _cuts, parts = pymetis.part_graph(n_cores, xadj=np.asarray(xadj, np.int32),
+                                      adjncy=np.asarray(adjncy, np.int32))
+    return parts
+
+
+def placement_stats(names, src, dst, parts, n_axons, n_cores):
+    """What a placement asks of each core: its neurons, the host axons it has
+    to receive (an input feeds every core its targets are on), and the relays
+    it receives (one per neuron on another core that has a target here). The
+    last two share a core's 17-bit relay address range in v14's NoC compiler,
+    which refuses a network that needs more; these counts are a lower bound on
+    what it allocates, since it can split relays further (by weight)."""
+    import numpy as np
+    core = np.asarray(parts, np.int64)
+    neurons = np.bincount(core[n_axons:], minlength=n_cores)
+    from_axon = src < n_axons
+    host = np.unique(src[from_axon] * n_cores + core[dst[from_axon]])
+    host_in = np.bincount(host % n_cores, minlength=n_cores)
+    s, d = src[~from_axon], dst[~from_axon]
+    cross = core[s] != core[d]
+    relay = np.unique(s[cross] * n_cores + core[d[cross]])
+    relay_in = np.bincount(relay % n_cores, minlength=n_cores)
+    return {"neurons": neurons.tolist(), "host_axons_in": host_in.tolist(),
+            "relays_in": relay_in.tolist(), "synapses_cut": int(cross.sum()),
+            "synapses_between_neurons": int(len(s))}
+
+
+def place_on_cores(axons, conns, n_cores, parts_fn=None):
+    """{axon or neuron name: core} for CRI_network's membership, from METIS,
+    and the placement's statistics."""
+    names, src, dst = network_edges(axons, conns)
+    xadj, adjncy = undirected_csr(len(names), src, dst)
+    parts = (parts_fn or metis_parts)(n_cores, xadj, adjncy)
+    stats = placement_stats(names, src, dst, parts, len(axons), n_cores)
+    return {k: int(p) for k, p in zip(names, parts)}, stats
+
+
+def counter_costs(cycles, hbm):
+    """Per-step clock cycles and HBM accesses from the counters step() returns
+    after every step, and how they were read. On L6m they ran on across steps
+    and clips, so a step costs its increase (mod 2**32); the clock counter
+    decides, since it grows every step if it is cumulative, while HBM accesses
+    can stand still on a step with no spikes. A clock counter that ever
+    stands still or falls is read as each step's own count."""
+    c = [int(x) for x in cycles]
+    h = [int(x) for x in hbm]
+    dc = [(b - a) % COUNTER_WRAP for a, b in zip(c, c[1:])]
+    if dc and all(0 < x < COUNTER_WRAP // 2 for x in dc):
+        dh = [(b - a) % COUNTER_WRAP for a, b in zip(h, h[1:])]
+        return dc, dh, "cumulative"
+    return c, h, "per step"
+
+
+def _real_simplesim(layers, in_shape, items, flush, target="simpleSim", core=0, cores=1,
+                    membership=None, parts_fn=None):
     """Run clips through hs_api on the full network: its own simple_sim, or
     with target "CRI" the FPGA itself (on a host with hs_bridge and a flashed
-    bitstream).
+    bitstream), on one core or, with cores > 1, across that many cores of the
+    v14 bitstream, placed by METIS unless a membership is given.
 
     Slow and memory-hungry by construction: hs_api stores every synapse as a
     Python object. Measured on a smaller net it costs ~600 bytes and ~50 us
     per synapse to build, so rank1 (239M synapses) needs on the order of
     150 GB of RAM and a few hours before the first clip runs.
 
-    Returns [(pred, per-step output rows, counter units per step or None)].
-    On the FPGA, step() returns (spikes, counter, hbm_access). The counter
-    runs on across steps and clips (a first run averaged it raw and reported
-    a number that grew with every clip), so the cost of a step is its
-    increase, taken within a clip so the clear between clips is not counted.
-    Membranes are cleared between clips with fpga_controller.clear, as
-    hs_api's own hardware tests do.
+    Returns (results, info). results is [(pred, per-step output rows, clock
+    cycles per step or None, HBM accesses per step or None)]. On the FPGA,
+    step() returns (spikes, clock cycles, HBM accesses); with several cores
+    the cycles are the slowest core's and the accesses the sum over cores.
+    Every core in use is cleared between clips with fpga_controller.clear, as
+    hs_api's own hardware tests do. info holds wall-clock times (Leif's list:
+    before loading, loading, every step, the stepping of every clip), the
+    placement and its statistics, and how the counters were read.
     """
     import torch
+    from collections import Counter
     from snnsearch.hs_export import unroll_to_hs_api, input_axons
     from hs_api.api import CRI_network
 
+    info = {"cores": cores}
     t0 = time.time()
     print(f"hs_api {target}: unrolling the network into hs_api dictionaries", flush=True)
     axons, conns, groups = unroll_to_hs_api(layers, in_shape)
     n_syn = sum(len(v) for v in axons.values()) + sum(len(v[0]) for v in conns.values())
+    info["unroll_s"] = time.time() - t0
     print(f"  {len(axons)} axons, {len(conns)} neurons, {n_syn:,} synapses "
-          f"({(time.time() - t0) / 60:.1f} min)", flush=True)
+          f"({info['unroll_s'] / 60:.1f} min)", flush=True)
     # output units: positive neurons, and negative ones for signed output
     out_groups = groups[-1]
     out_keys = [k for keys, _sign in out_groups for k in keys]
     n_cls = len(out_groups[0][0])
     n_neurons = len(conns)
-    extra = {"coreID": core} if target == "CRI" else {}
+
+    extra = {}
+    if target == "CRI" and cores > 1:
+        t1 = time.time()
+        if membership is None:
+            membership, stats = place_on_cores(axons, conns, cores, parts_fn)
+        else:
+            names, src, dst = network_edges(axons, conns)
+            stats = placement_stats(names, src, dst, [membership[k] for k in names],
+                                    len(axons), cores)
+        info["partition_s"] = time.time() - t1
+        info["membership"] = membership
+        info["placement"] = stats
+        budget = 2 ** 17
+        print(f"  placed on {cores} cores ({info['partition_s']:.0f}s); "
+              f"{stats['synapses_cut']:,} of {stats['synapses_between_neurons']:,} "
+              f"neuron-to-neuron synapses cross cores", flush=True)
+        print("  core  neurons  host axons in  relays in  (relay address budget "
+              f"{budget:,} a core)", flush=True)
+        for c in range(cores):
+            print(f"  {c:4d}  {stats['neurons'][c]:7,}  {stats['host_axons_in'][c]:13,}  "
+                  f"{stats['relays_in'][c]:9,}", flush=True)
+        extra = {"membership": membership, "n_cores": cores}
+    elif target == "CRI":
+        extra = {"coreID": core}
+
+    t1 = time.time()
     try:
         net = CRI_network(axons=axons, connections=conns, outputs=out_keys, target=target,
                           **extra)
     except TypeError as exc:
         # an hs_api without the coreID argument runs on core 0
-        if not extra or core != 0 or "coreID" not in str(exc):
+        if extra != {"coreID": 0} or "coreID" not in str(exc):
             raise
         net = CRI_network(axons=axons, connections=conns, outputs=out_keys, target=target)
     del axons, conns
-    print(f"  CRI_network built ({(time.time() - t0) / 60:.1f} min)", flush=True)
+    info["load_s"] = time.time() - t1
+    print(f"  CRI_network built ({info['load_s'] / 60:.1f} min to load, "
+          f"{(time.time() - t0) / 60:.1f} min in all)", flush=True)
     clear = None
     if target == "CRI":
         from hs_bridge.FPGA_Execution import fpga_controller
-        # padding to whole groups of 32 per neuron model adds neurons. Clear them too
+        # padding to whole groups of 32 per neuron model adds neurons; clear
+        # them too, on every core in use, under the core's physical number
         try:
-            n_neurons = sum(1 for n in net.connectome.connectomeDict.values()
-                            if n.get_neuron_type() == "neuron")
+            entries = [n for n in net.connectome.connectomeDict.values()
+                       if n.get_neuron_type() == "neuron"]
+            if cores > 1:
+                per_core = Counter(n.get_core() for n in entries)
+            else:
+                per_core = {core: len(entries)}
         except AttributeError:
-            pass
-        clear = lambda: fpga_controller.clear(n_neurons, False, core)     # noqa: E731
+            per_core = {c: n_neurons for c in (range(cores) if cores > 1 else [core])}
+        physical = getattr(getattr(net, "CRI", None), "core_target", None) or {}
+        to_clear = [(int(n), physical.get(c, c)) for c, n in sorted(per_core.items())]
+        info["cleared"] = to_clear
+
+        def clear():
+            for n, c in to_clear:
+                fpga_controller.clear(n, False, c)
 
     pos = {k: (i, sign) for keys, sign in out_groups for i, k in enumerate(keys)}
     bits = layers[0].get("input_bits", 1)
     results = []
+    info.update(clear_s=[], step_s=[], clip_s=[], counter_mode=None)
     for ci, (frames, _label) in enumerate(items):
         t1 = time.time()
         # fresh membranes per clip, as Christopher's DVS example clears the FPGA
@@ -335,28 +479,38 @@ def _real_simplesim(layers, in_shape, items, flush, target="simpleSim", core=0):
             clear()
         else:
             net.simpleSim.initialize_sim_vars(net.simpleSim.numNeurons)
+        info["clear_s"].append(time.time() - t1)
         counts = [0] * n_cls
-        per_step, latency = [], []
+        per_step, cycles, hbm = [], [], []
+        t2 = time.time()
         for t in range(frames.shape[0] + flush):
             inputs = input_axons(frames[t], bits) if t < frames.shape[0] else []
             row = [0] * n_cls
+            ts = time.time()
             out = net.step(inputs)
-            if isinstance(out, tuple):          # the FPGA: (spikes, latency, hbm_access)
-                out, lat = out[0], out[1]
-                latency.append(lat)
+            info["step_s"].append(time.time() - ts)
+            if isinstance(out, tuple):          # the FPGA: (spikes, clock cycles, HBM accesses)
+                out, cyc, acc = out[0], out[1], out[2]
+                cycles.append(cyc)
+                hbm.append(acc)
             for k in out:
                 i, sign = pos[k]
                 row[i] += sign
                 counts[i] += sign
             per_step.append(row)
+        info["clip_s"].append(time.time() - t2)
         pred = int(torch.tensor(counts).argmax().item())
-        steps_cost = [float(b) - float(a) for a, b in zip(latency, latency[1:])]
-        per_step_cost = (sum(steps_cost) / len(steps_cost)) if steps_cost else None
-        results.append((pred, per_step, per_step_cost))
+        cyc_step = hbm_step = None
+        if cycles:
+            dc, dh, mode = counter_costs(cycles, hbm)
+            info["counter_mode"] = mode
+            cyc_step = sum(dc) / len(dc)
+            hbm_step = sum(dh) / len(dh)
+        results.append((pred, per_step, cyc_step, hbm_step))
         print(f"  clip {ci}: predicted {pred} ({time.time() - t1:.0f}s"
-              + (f", {per_step_cost:.0f} counter units per step"
-                 if per_step_cost is not None else "") + ")", flush=True)
-    return results
+              + (f", {cyc_step:.0f} clock cycles and {hbm_step:.0f} HBM accesses a step"
+                 if cyc_step is not None else "") + ")", flush=True)
+    return results, info
 
 
 def _per_layer_torch(net, frames, device, flush):
@@ -475,16 +629,29 @@ def compare(args):
         if args.real_simplesim:
             k = min(args.real_simplesim, len(frames))
             in_shape = (spec["input"].C, spec["input"].resize_to, spec["input"].resize_to)
-            real = _real_simplesim(layers, in_shape, clips[split][:k], flush,
-                                   target=args.hs_target, core=args.core)
+            membership = None
+            if args.membership:
+                with open(args.membership) as fh:
+                    membership = json.load(fh)
+            real, info = _real_simplesim(layers, in_shape, clips[split][:k], flush,
+                                         target=args.hs_target, core=args.core,
+                                         cores=args.cores, membership=membership)
+            if info.get("membership") is not None and not args.membership:
+                mpath = os.path.splitext(args.out)[0] + "_membership.json"
+                with open(mpath, "w") as fh:
+                    json.dump(info["membership"], fh)
+                print(f"  wrote the placement to {mpath} (reuse it with --membership)")
             # every output spike at every timestep, not only the argmax
-            r_pred = [p for p, _, _ in real]
+            r_pred = [p for p, _, _, _ in real]
             dis_r = [i for i in range(k) if r_pred[i] != p_sim[i]]
-            exact = [i for i, (_, steps, _) in enumerate(real) if steps != sim_steps[i]]
+            exact = [i for i, (_, steps, _, _) in enumerate(real) if steps != sim_steps[i]]
             acc_r = sum(a == b for a, b in zip(r_pred, labels[:k])) / k
             acc_sk = sum(a == b for a, b in zip(p_sim[:k], labels[:k])) / k
-            lats = [lat for _, _, lat in real if lat is not None]
-            where = "the FPGA (CRI)" if args.hs_target == "CRI" else "real hs_api simpleSim"
+            lats = [c for _, _, c, _ in real if c is not None]
+            accs = [h for _, _, _, h in real if h is not None]
+            where = ("the FPGA (CRI)" if args.hs_target == "CRI" else "real hs_api simpleSim")
+            if args.hs_target == "CRI":
+                where += f", {args.cores} core" + ("s" if args.cores > 1 else "")
             print(f"\n[{split}] {where} on {k} clips")
             print(f"  accuracy                                {acc_r:.4f} "
                   f"(IntegerSim on the same clips {acc_sk:.4f})")
@@ -492,14 +659,48 @@ def compare(args):
                   + (f"  clips {dis_r}" if dis_r else ""))
             print(f"  clips whose output spike trains differ  {len(exact)}"
                   + (f"  clips {exact}" if exact else "  (identical at every step)"))
+            steps = frames[0].shape[0] + flush
+            cost = {}
             if lats:
-                print(f"  counter units per step (mean of clips)  {sum(lats) / len(lats):.0f}")
+                cyc = sum(lats) / len(lats)
+                acc = sum(accs) / len(accs)
+                cost = {"clock_cycles_per_step": cyc, "hbm_accesses_per_step": acc,
+                        "steps_per_inference": steps,
+                        "clock_cycles_per_inference": cyc * steps,
+                        "hbm_accesses_per_inference": acc * steps,
+                        "counter_mode": info.get("counter_mode")}
+                print(f"  clock cycles per inference              {cyc * steps:,.0f} "
+                      f"({cyc:,.0f} a step x {steps} steps; counters read "
+                      f"{info.get('counter_mode')})")
+                print(f"  HBM accesses per inference              {acc * steps:,.0f}")
+                if args.clock_mhz:
+                    ms = cyc * steps / (args.clock_mhz * 1e3)
+                    cost["time_per_inference_ms"] = ms
+                    print(f"  time per inference                      {ms:.3f} ms "
+                          f"at {args.clock_mhz:g} MHz")
+                if args.hbm_nj_per_access:
+                    uj = acc * steps * args.hbm_nj_per_access / 1e3
+                    cost["hbm_energy_per_inference_uj"] = uj
+                    print(f"  HBM energy per inference                {uj:.3f} uJ "
+                          f"at {args.hbm_nj_per_access:g} nJ an access")
+            st = info["step_s"]
+            wall = {"before_loading_s": info["unroll_s"] + info.get("partition_s", 0.0),
+                    "partition_s": info.get("partition_s"), "loading_s": info["load_s"],
+                    "step_mean_s": sum(st) / len(st), "step_max_s": max(st),
+                    "stepping_per_clip_mean_s": sum(info["clip_s"]) / len(info["clip_s"]),
+                    "clear_per_clip_mean_s": sum(info["clear_s"]) / len(info["clear_s"])}
+            print(f"  wall clock: {wall['before_loading_s']:.0f}s before loading, "
+                  f"{wall['loading_s'] / 60:.1f} min loading, "
+                  f"{1e3 * wall['step_mean_s']:.0f} ms a step (max "
+                  f"{1e3 * wall['step_max_s']:.0f}), "
+                  f"{wall['stepping_per_clip_mean_s']:.1f}s stepping and "
+                  f"{wall['clear_per_clip_mean_s']:.1f}s clearing a clip")
             report["splits"][split]["real_simplesim"] = {
-                "target": args.hs_target, "n": k, "pred": r_pred, "accuracy": acc_r,
-                "integersim_accuracy_same_clips": acc_sk,
+                "target": args.hs_target, "cores": args.cores, "n": k, "pred": r_pred,
+                "accuracy": acc_r, "integersim_accuracy_same_clips": acc_sk,
                 "pred_disagreements_vs_integersim": dis_r,
-                "output_train_mismatch_clips": exact,
-                "counter_units_per_step": (sum(lats) / len(lats)) if lats else None}
+                "output_train_mismatch_clips": exact, "cost": cost, "wall_clock": wall,
+                "placement": info.get("placement"), "cleared": info.get("cleared")}
 
     with open(args.out, "w") as fh:
         json.dump(report, fh, indent=1)
@@ -526,6 +727,18 @@ def main():
                     help="where --real-simplesim runs its clips: hs_api's simple_sim, or "
                          "CRI, the FPGA (crisdsc0: book it, flash the bitstream first)")
     ap.add_argument("--core", type=int, default=0, help="FPGA core for --hs-target CRI")
+    ap.add_argument("--cores", type=int, default=1,
+                    help="with --hs-target CRI, place the network across this many cores of "
+                         "the v14 bitstream (METIS, needs pymetis), clear every one between "
+                         "clips; writes the placement next to -o")
+    ap.add_argument("--membership", help="a placement written by an earlier --cores run, "
+                                         "instead of running METIS again")
+    ap.add_argument("--clock-mhz", type=float, default=None,
+                    help="clock the cycle counter counts, to turn cycles into time "
+                         "(ask Christopher; nothing is assumed)")
+    ap.add_argument("--hbm-nj-per-access", type=float, default=None,
+                    help="energy of one HBM access in nJ, for HBM energy per inference "
+                         "(from the npjUC paper's code; nothing is assumed)")
     ap.add_argument("--if-neurons", action="store_true",
                     help="deploy every leaking layer as hs_api IF neurons: same weights and "
                          "thresholds, no leak (avoids the L6m negative-leak bug)")
@@ -544,6 +757,8 @@ def main():
     ap.add_argument("--cpu", action="store_true")
     ap.add_argument("-o", "--out", default="match_report.json")
     args = ap.parse_args()
+    if args.cores > 1 and args.hs_target != "CRI":
+        ap.error("--cores places the network on the FPGA's cores; add --hs-target CRI")
     for p in args.hs_path:
         sys.path.insert(0, p)
     if args.selftest:

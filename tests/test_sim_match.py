@@ -126,7 +126,7 @@ class FpgaTarget(unittest.TestCase):
     clip, step()'s (spikes, latency, hbm_access) is read, and output spikes
     become predictions."""
 
-    def run_stub(self, target):
+    def run_stub(self, target, cores=1, parts_fn=None):
         import importlib.util
         import types
         from unittest import mock
@@ -148,7 +148,8 @@ class FpgaTarget(unittest.TestCase):
             def step(self, inputs):
                 spikes = [self.outputs[2]]       # class 2 fires every step
                 calls["counter"] = calls.get("counter", 0) + 7     # runs on, like the FPGA's
-                return (spikes, calls["counter"], 0) if target == "CRI" else spikes
+                calls["hbm"] = calls.get("hbm", 0) + 3
+                return (spikes, calls["counter"], calls["hbm"]) if target == "CRI" else spikes
 
         api = types.ModuleType("hs_api.api")
         api.CRI_network = FakeNet
@@ -167,25 +168,81 @@ class FpgaTarget(unittest.TestCase):
         layers = integer_layers(net)
         clips = [(torch.zeros(4, 2, 16, 16, dtype=torch.uint8), 0) for _ in range(3)]
         with mock.patch.dict(sys.modules, mods):
-            out = ms._real_simplesim(layers, (2, 16, 16), clips, flush=2,
-                                     target=target, core=5)
-        return out, calls
+            out, info = ms._real_simplesim(layers, (2, 16, 16), clips, flush=2,
+                                           target=target, core=5, cores=cores,
+                                           parts_fn=parts_fn)
+        calls["mods"] = mods
+        return out, calls, info
 
     def test_fpga_path(self):
-        out, calls = self.run_stub("CRI")
+        out, calls, info = self.run_stub("CRI")
         self.assertEqual(calls["kwargs"], {"target": "CRI", "coreID": 5})
         self.assertEqual(len(calls["clear"]), 3)
         self.assertTrue(all(core == 5 and not dump for _n, dump, core in calls["clear"]))
-        self.assertEqual([p for p, _, _ in out], [2, 2, 2])
-        # the counter's increase within a clip, not its running value
-        self.assertEqual([lat for _, _, lat in out], [7.0, 7.0, 7.0])
+        self.assertEqual([p for p, _, _, _ in out], [2, 2, 2])
+        # the counters' increase within a clip, not their running values
+        self.assertEqual([(c, h) for _, _, c, h in out], [(7.0, 3.0)] * 3)
+        self.assertEqual(info["counter_mode"], "cumulative")
         self.assertEqual(len(out[0][1]), 4 + 2)          # T steps plus the flush
+        self.assertEqual(len(info["step_s"]), 3 * (4 + 2))
+        self.assertEqual(len(info["clip_s"]), 3)
 
     def test_simplesim_path_is_unchanged(self):
-        out, calls = self.run_stub("simpleSim")
+        out, calls, info = self.run_stub("simpleSim")
         self.assertEqual(calls["kwargs"], {"target": "simpleSim"})
         self.assertEqual((calls["clear"], calls["inits"]), ([], 3))
-        self.assertEqual([(p, lat) for p, _, lat in out], [(2, None)] * 3)
+        self.assertEqual([(p, c, h) for p, _, c, h in out], [(2, None, None)] * 3)
+
+    def test_cores_place_every_axon_and_neuron_and_clear_every_core(self):
+        """--cores 4: a membership naming every axon and neuron goes to
+        CRI_network with n_cores, and all four cores are cleared before
+        every clip."""
+        def parts_fn(n_cores, xadj, adjncy):
+            return [i % n_cores for i in range(len(xadj) - 1)]
+        out, calls, info = self.run_stub("CRI", cores=4, parts_fn=parts_fn)
+        kw = calls["kwargs"]
+        self.assertEqual((kw["target"], kw["n_cores"]), ("CRI", 4))
+        self.assertNotIn("coreID", kw)
+        from unittest import mock
+        from snnsearch.hs_export import unroll_to_hs_api
+        net = build("avg", "flatten", "threshold", False, False, 1, seed=0)
+        with mock.patch.dict(sys.modules, calls["mods"]):
+            axons, conns, _groups = unroll_to_hs_api(integer_layers(net), (2, 16, 16))
+        self.assertEqual(set(kw["membership"]), set(axons) | set(conns))
+        self.assertEqual(set(kw["membership"].values()), {0, 1, 2, 3})
+        self.assertEqual(sum(info["placement"]["neurons"]), len(conns))
+        self.assertEqual(len(calls["clear"]), 3 * 4)
+        self.assertEqual({core for _n, _d, core in calls["clear"]}, {0, 1, 2, 3})
+        self.assertEqual([p for p, _, _, _ in out], [2, 2, 2])
+
+    def test_graph_and_placement_counts(self):
+        """The METIS graph is undirected with no repeats or self loops, and a
+        core's relays count each outside neuron once, its host axons each
+        axon once."""
+        import importlib.util
+        spec = importlib.util.spec_from_file_location(
+            "match_simplesim", os.path.join(ROOT, "tools", "match_simplesim.py"))
+        ms = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(ms)
+        axons = {"A0": [("n0", 1), ("n1", 2)], "A1": [("n2", 1)]}
+        conns = {"n0": ([("n2", 1), ("n3", 1)], None), "n1": ([("n3", 1), ("n1", 5)], None),
+                 "n2": ([("n0", 1)], None), "n3": ([], None)}
+        names, src, dst = ms.network_edges(axons, conns)
+        self.assertEqual(names, ["A0", "A1", "n0", "n1", "n2", "n3"])
+        xadj, adjncy = ms.undirected_csr(len(names), src, dst)
+        nbrs = {names[i]: sorted(names[j] for j in adjncy[xadj[i]:xadj[i + 1]])
+                for i in range(len(names))}
+        self.assertEqual(nbrs["n0"], ["A0", "n2", "n3"])   # n0-n2 both ways, kept once
+        self.assertEqual(nbrs["n1"], ["A0", "n3"])         # its self loop dropped
+        for a, bs in nbrs.items():
+            for b in bs:
+                self.assertIn(a, nbrs[b])
+        # cores: A0, A1, n0, n1 on 0; n2, n3 on 1
+        st = ms.placement_stats(names, src, dst, [0, 0, 0, 0, 1, 1], 2, 2)
+        self.assertEqual(st["neurons"], [2, 2])
+        self.assertEqual(st["host_axons_in"], [1, 1])        # A0 feeds core 0, A1 core 1
+        self.assertEqual(st["relays_in"], [1, 2])            # n2 into 0; n0 and n1 into 1
+        self.assertEqual(st["synapses_cut"], 4)              # n0-n2, n0-n3, n1-n3, n2-n0
 
 
 def planted_bug_hs_api(spike_cap=1000):
