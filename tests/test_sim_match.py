@@ -244,6 +244,74 @@ class FpgaTarget(unittest.TestCase):
         self.assertEqual(st["relays_in"], [1, 2])            # n2 into 0; n0 and n1 into 1
         self.assertEqual(st["synapses_cut"], 4)              # n0-n2, n0-n3, n1-n3, n2-n0
 
+    def test_fast_input_packets_send_hs_bridge_bytes(self):
+        """input_packet builds the bytes hs_bridge v14's input_user sends
+        (its loop is copied below, minus the DMA call), for any axon count,
+        core, repeats, negatives and axons past the last packet. The swap
+        checks that against the installed input_user itself, sorts the list
+        in place as input_user does, and keeps the original when they differ."""
+        import importlib.util
+        import math
+        import types
+        spec = importlib.util.spec_from_file_location(
+            "match_simplesim", os.path.join(ROOT, "tools", "match_simplesim.py"))
+        ms = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(ms)
+        sent = []
+
+        def hs_bridge_input_user(inputs, numAxons, simDump=False, coreID=0, reserve=True,
+                                 cont_flag=False):
+            currInput = inputs
+            currInput.sort()
+            coreBits = np.binary_repr(coreID, 5) + 3 * '0'
+            coreByte = int(coreBits, 2)
+            commandList = [] if cont_flag else [0] * 62 + [coreByte] + [1]
+            for count in range(math.ceil(numAxons / 256)):
+                one_hot_bin = ["0"] * 256
+                inputSegment = [i for i in currInput if (256 * count) <= i and i < (256 * count + 256)]
+                for axon in inputSegment:
+                    one_hot_bin[axon % 256] = "1"
+                while one_hot_bin:
+                    curr_byte = "".join(one_hot_bin[:8][::-1])
+                    commandList = commandList + [int(curr_byte, 2)]
+                    one_hot_bin = one_hot_bin[8:]
+                commandList = commandList + 30 * [0] + [coreByte, 0]
+            command = np.array(commandList, dtype=np.uint64)
+            if simDump:
+                return ["".join('{:0{width}x}'.format(i, width=2) for i in p[::-1])
+                        for p in np.split(command, len(command) // 64)]
+            sent.append(command)
+
+        rng = np.random.default_rng(1)
+        for n_axons in (0, 1, 255, 256, 257, 1000, 4100):
+            for core in (0, 1, 15):
+                ins = rng.integers(-3, n_axons + 300, size=int(rng.integers(0, 400))).tolist()
+                hs_bridge_input_user(list(ins), n_axons, coreID=core)
+                np.testing.assert_array_equal(ms.input_packet(ins, n_axons, core), sent.pop())
+
+        dma = types.SimpleNamespace(
+            DmaMethodNormal="normal",
+            dma_dump_write=lambda cmd, n, *rest: sent.append((np.array(cmd), n, rest)))
+        ctrl = types.SimpleNamespace(input_user=hs_bridge_input_user, dmadump=dma)
+        network = types.SimpleNamespace(input_user=hs_bridge_input_user)
+        self.assertTrue(ms.use_fast_input_packets(ctrl, network))
+        self.assertIs(network.input_user, ctrl.input_user)
+        self.assertIsNot(ctrl.input_user, hs_bridge_input_user)
+        self.assertTrue(ms.use_fast_input_packets(ctrl, network))     # twice is fine
+        ins = [700, 3, 255, 3]
+        network.input_user(ins, 1000, coreID=9)
+        self.assertEqual(ins, [3, 3, 255, 700])
+        cmd, n, rest = sent.pop()
+        self.assertEqual((n, rest), (len(cmd), (1, 0, 0, 0, "normal")))
+        hs_bridge_input_user(list(ins), 1000, coreID=9)
+        np.testing.assert_array_equal(cmd, sent.pop())
+
+        def different(inputs, numAxons, simDump=False, **kw):
+            return ["00" * 64] if simDump else None
+        ctrl = types.SimpleNamespace(input_user=different, dmadump=dma)
+        self.assertFalse(ms.use_fast_input_packets(ctrl))
+        self.assertIs(ctrl.input_user, different)
+
 
 def planted_bug_hs_api(spike_cap=1000):
     """Stand-in hs_api and hs_bridge modules: a small LIF simulator whose

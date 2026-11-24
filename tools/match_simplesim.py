@@ -368,6 +368,78 @@ def counter_costs(cycles, hbm):
     return c, h, "per step"
 
 
+def input_packet(inputs, n_axons, core_id):
+    """The bytes hs_bridge's input_user sends for one step (v14, reserve
+    format), built with numpy. One start packet (byte 62 the core byte, byte
+    63 = 1), then one 64-byte packet per 256 axons: bytes 0-31 the axons as
+    one-hot bits, lowest axon in the lowest bit, byte 62 the core byte. The
+    core byte is the core number shifted left by 3. Axons outside the packets
+    are dropped, as input_user drops them.
+
+    input_user builds the same bytes one at a time with list + [byte], which
+    costs time quadratic in the packet length. With 16 cores a core's input
+    range runs up to its highest relay address (up to 2**17), so that is about
+    32k bytes a core a step and seconds a step; this takes milliseconds."""
+    import numpy as np
+    n_seg = max(-(-int(n_axons) // 256), 0)
+    bits = np.zeros(n_seg * 256, dtype=np.uint8)
+    idx = np.asarray(list(inputs), dtype=np.int64)
+    bits[idx[(idx >= 0) & (idx < n_seg * 256)]] = 1
+    pkt = np.zeros((n_seg + 1, 64), dtype=np.uint64)
+    core_byte = int(core_id) << 3
+    pkt[0, 62], pkt[0, 63] = core_byte, 1
+    if n_seg:
+        pkt[1:, :32] = np.packbits(bits.reshape(n_seg, 256), axis=1, bitorder="little")
+        pkt[1:, 62] = core_byte
+    return pkt.reshape(-1)
+
+
+def _as_dump(pkt):
+    """input_packet in the hex form input_user returns with simDump=True."""
+    return ["".join(f"{int(b):02x}" for b in p[::-1]) for p in pkt.reshape(-1, 64)]
+
+
+def use_fast_input_packets(ctrl, network=None):
+    """Swap hs_bridge's input_user for one that sends input_packet's bytes,
+    in fpga_controller and in hs_bridge.network (which imported it by name).
+    First checks, against the installed input_user's own simDump output, that
+    the bytes are identical for a few input sets; if they differ it keeps
+    the original and says so. Returns True when swapped."""
+    import numpy as np
+    orig = getattr(ctrl, "input_user", None)
+    if orig is None or getattr(orig, "_fast", False):
+        return bool(orig)
+    rng = np.random.default_rng(0)
+    try:
+        # (axons, core, how many inputs): one past the last packet is dropped
+        for n_axons, core_id, n_in in ((1, 0, 3), (256, 1, 90), (300, 3, 0),
+                                       (1000, 15, 300), (2049, 7, 700)):
+            ins = sorted(set(rng.integers(0, n_axons + 40, size=n_in).tolist()))
+            want = orig(list(ins), n_axons, simDump=True, coreID=core_id)
+            if list(want) != _as_dump(input_packet(ins, n_axons, core_id)):
+                print("  hs_bridge's input packets differ from the fast copy; keeping "
+                      "hs_bridge's input_user (slow with many cores)", flush=True)
+                return False
+    except Exception as exc:  # an input_user without simDump: keep it
+        print(f"  could not check hs_bridge's input_user ({exc}); keeping it", flush=True)
+        return False
+    dma = ctrl.dmadump
+
+    def input_user(inputs, numAxons, simDump=False, coreID=0, reserve=True, cont_flag=False):
+        if simDump or cont_flag:
+            return orig(inputs, numAxons, simDump=simDump, coreID=coreID,
+                        reserve=reserve, cont_flag=cont_flag)
+        inputs.sort()                       # input_user sorts its list in place too
+        pkt = input_packet(inputs, numAxons, coreID)
+        dma.dma_dump_write(pkt, len(pkt), 1, 0, 0, 0, dma.DmaMethodNormal)
+
+    input_user._fast = True
+    ctrl.input_user = input_user
+    if network is not None and hasattr(network, "input_user"):
+        network.input_user = input_user
+    return True
+
+
 def _real_simplesim(layers, in_shape, items, flush, target="simpleSim", core=0, cores=1,
                     membership=None, parts_fn=None, save_membership=None):
     """Run clips through hs_api on the full network: its own simple_sim, or
@@ -454,6 +526,14 @@ def _real_simplesim(layers, in_shape, items, flush, target="simpleSim", core=0, 
     clear = None
     if target == "CRI":
         from hs_bridge.FPGA_Execution import fpga_controller
+        try:
+            import hs_bridge.network as hsb_network
+        except ImportError:
+            hsb_network = None
+        info["fast_input_packets"] = use_fast_input_packets(fpga_controller, hsb_network)
+        if info["fast_input_packets"]:
+            print("  input packets built with numpy (byte-identical to hs_bridge's "
+                  "input_user, checked just now)", flush=True)
         # padding to whole groups of 32 per neuron model adds neurons; clear
         # them too, on every core in use, under the core's physical number
         try:
@@ -512,8 +592,11 @@ def _real_simplesim(layers, in_shape, items, flush, target="simpleSim", core=0, 
             cyc_step = sum(dc) / len(dc)
             hbm_step = sum(dh) / len(dh)
         results.append((pred, per_step, cyc_step, hbm_step))
-        print(f"  clip {ci}: predicted {pred} ({time.time() - t1:.0f}s"
-              + (f", {cyc_step:.0f} clock cycles and {hbm_step:.0f} HBM accesses a step"
+        steps = info["step_s"][-len(per_step):]
+        print(f"  clip {ci}: predicted {pred} ({time.time() - t1:.1f}s: clear "
+              f"{info['clear_s'][-1]:.1f}s, {len(steps)} steps of "
+              f"{sum(steps) / max(len(steps), 1):.2f}s"
+              + (f"; {cyc_step:.0f} clock cycles and {hbm_step:.0f} HBM accesses a step"
                  if cyc_step is not None else "") + ")", flush=True)
     return results, info
 
