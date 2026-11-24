@@ -440,8 +440,71 @@ def use_fast_input_packets(ctrl, network=None):
     return True
 
 
+PCI_ADDR = r"[0-9a-f]{4}:[0-9a-f]{2}:[0-9a-f]{2}\.[0-7]"
+
+
+def adxdma_cards(dev="/dev", sys_class="/sys/class/adxdma"):
+    """FPGA cards the ADXDMA driver holds on this host, as {card number: PCIe
+    address or None}, from the /dev/adxdmaN files. The number is the one
+    hs_bridge's DMA calls take; the address comes from sysfs, where the
+    card's directory sits under its PCIe device."""
+    import re
+    try:
+        names = os.listdir(dev)
+    except OSError:
+        return {}
+    cards = {}
+    for name in names:
+        m = re.fullmatch(r"adxdma(\d+)", name)
+        if not m:
+            continue
+        path = os.path.realpath(os.path.join(sys_class, name))
+        addrs = [p for p in path.split("/") if re.fullmatch(PCI_ADDR, p)]
+        cards[int(m.group(1))] = addrs[-1] if addrs else None
+    return dict(sorted(cards.items()))
+
+
+def card_files(card, dev="/dev"):
+    """The device files of one card: adxdmaN and its channels (adxdmaNch0,
+    adxdmaNhc0, adxdmaNui, adxdmaNw0), not adxdmaN0 and up."""
+    import re
+    try:
+        names = os.listdir(dev)
+    except OSError:
+        return []
+    return sorted(os.path.join(dev, n) for n in names
+                  if re.fullmatch(rf"adxdma{int(card)}([a-z]\w*)?", n))
+
+
+def use_card(dd, card):
+    """Point every DMA read and write at ADXDMA card `card`. hs_bridge passes
+    card 0 in every call (dma_dump_write's 4th argument, dma_dump_read's 2nd,
+    dma_dump's 5th), which on a host with several cards is whichever one the
+    driver numbered first, not necessarily the one that was flashed. Wraps
+    the dmadump module's functions, so every module that imported it follows
+    (hs_bridge's own write check wraps on top of this and still applies)."""
+    card = int(card)
+    if getattr(dd, "_card", None) is not None:
+        if dd._card != card:
+            raise RuntimeError(f"DMA already pointed at card {dd._card}, not {card}")
+        return
+    for name, pos in (("dma_dump_write", 3), ("dma_dump_read", 1), ("dma_dump", 4)):
+        fn = getattr(dd, name, None)
+        if fn is None:
+            continue
+
+        def on_card(*a, _fn=fn, _pos=pos, **k):
+            if "index" in k:
+                k["index"] = card
+            elif len(a) > _pos:
+                a = a[:_pos] + (card,) + a[_pos + 1:]
+            return _fn(*a, **k)
+        setattr(dd, name, on_card)
+    dd._card = card
+
+
 def _real_simplesim(layers, in_shape, items, flush, target="simpleSim", core=0, cores=1,
-                    membership=None, parts_fn=None, save_membership=None):
+                    membership=None, parts_fn=None, save_membership=None, card=None):
     """Run clips through hs_api on the full network: its own simple_sim, or
     with target "CRI" the FPGA itself (on a host with hs_bridge and a flashed
     bitstream), on one core or, with cores > 1, across that many cores of the
@@ -466,7 +529,13 @@ def _real_simplesim(layers, in_shape, items, flush, target="simpleSim", core=0, 
     from snnsearch.hs_export import unroll_to_hs_api, input_axons
     from hs_api.api import CRI_network
 
-    info = {"cores": cores}
+    info = {"cores": cores, "card": card}
+    if target == "CRI" and card is not None:
+        import hs_bridge.wrapped_dmadump.dmadump as dd
+        use_card(dd, card)
+        pci = adxdma_cards().get(int(card))
+        print(f"  FPGA card {card}" + (f" ({pci})" if pci else "")
+              + ": every DMA read and write goes to it", flush=True)
     t0 = time.time()
     print(f"hs_api {target}: unrolling the network into hs_api dictionaries", flush=True)
     axons, conns, groups = unroll_to_hs_api(layers, in_shape)
@@ -724,7 +793,8 @@ def compare(args):
             real, info = _real_simplesim(
                 layers, in_shape, clips[split][:k], flush, target=args.hs_target,
                 core=args.core, cores=args.cores, membership=membership,
-                save_membership=os.path.splitext(args.out)[0] + "_membership.json")
+                save_membership=os.path.splitext(args.out)[0] + "_membership.json",
+                card=args.card if args.hs_target == "CRI" else None)
             # every output spike at every timestep, not only the argmax
             r_pred = [p for p, _, _, _ in real]
             dis_r = [i for i in range(k) if r_pred[i] != p_sim[i]]
@@ -780,7 +850,8 @@ def compare(args):
                   f"{wall['stepping_per_clip_mean_s']:.1f}s stepping and "
                   f"{wall['clear_per_clip_mean_s']:.1f}s clearing a clip")
             report["splits"][split]["real_simplesim"] = {
-                "target": args.hs_target, "cores": args.cores, "n": k, "pred": r_pred,
+                "target": args.hs_target, "cores": args.cores, "card": info.get("card"),
+                "n": k, "pred": r_pred,
                 "accuracy": acc_r, "integersim_accuracy_same_clips": acc_sk,
                 "pred_disagreements_vs_integersim": dis_r,
                 "output_train_mismatch_clips": exact, "cost": cost, "wall_clock": wall,
@@ -817,6 +888,10 @@ def main():
                          "clips; writes the placement next to -o")
     ap.add_argument("--membership", help="a placement written by an earlier --cores run, "
                                          "instead of running METIS again")
+    ap.add_argument("--card", type=int, default=None,
+                    help="with --hs-target CRI, the FPGA card to use: N in /dev/adxdmaN "
+                         "(hs_bridge itself always uses card 0). Required on a host with "
+                         "several cards, such as crisdsc2")
     ap.add_argument("--clock-mhz", type=float, default=None,
                     help="clock the cycle counter counts, to turn cycles into time "
                          "(ask Christopher; nothing is assumed)")
@@ -854,6 +929,34 @@ def main():
         except ImportError:
             ap.error("--cores needs pymetis for the METIS placement: "
                      "poetry run pip install pymetis")
+    if args.card is not None and args.hs_target != "CRI":
+        ap.error("--card picks an FPGA card; add --hs-target CRI")
+    if args.hs_target == "CRI" and args.real_simplesim:
+        cards = adxdma_cards()
+        listing = ", ".join(f"{n} = {a or 'unknown PCIe address'}" for n, a in cards.items())
+        if args.card is None and len(cards) > 1:
+            ap.error(f"this host has {len(cards)} FPGA cards ({listing}). hs_bridge would "
+                     f"use card 0, which may be someone else's; pass --card N for the "
+                     f"card you flashed")
+        card = 0 if args.card is None else args.card
+        if cards and card not in cards:
+            ap.error(f"--card {card}: there is no /dev/adxdma{card} (cards here: {listing})")
+        locked = [p for p in card_files(card) if not os.access(p, os.R_OK | os.W_OK)]
+        if locked:
+            try:
+                import grp
+                group = grp.getgrgid(os.getgid()).gr_name
+            except (ImportError, KeyError):
+                group = "<your group>"
+            files = " ".join(locked)
+            fix = (f"grant your group access to this card only:\n"
+                   f"  sudo chgrp {group} {files}\n  sudo chmod g+rw {files}")
+            # the card file itself is opened first (ADXDMA_ACCESS_DENIED); a
+            # locked channel file alone may never be opened, so only warn
+            if os.path.join("/dev", f"adxdma{card}") in locked:
+                ap.error(f"no read/write permission on card {card}'s device files; {fix}")
+            print(f"warning: no read/write permission on {files}; if the run fails "
+                  f"to open the card, {fix}", file=sys.stderr)
     for p in args.hs_path:
         sys.path.insert(0, p)
     if args.selftest:

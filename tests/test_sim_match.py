@@ -312,6 +312,57 @@ class FpgaTarget(unittest.TestCase):
         self.assertFalse(ms.use_fast_input_packets(ctrl))
         self.assertIs(ctrl.input_user, different)
 
+    def test_card_option_sends_every_dma_call_to_that_card(self):
+        """--card N: hs_bridge passes card 0 to every dmadump call. After
+        use_card, every write, read and full dump goes to card N, by position
+        or by keyword, also under a wrapper added afterwards (as hs_bridge's
+        write check is). card_files lists one card's device files only."""
+        import importlib.util
+        import tempfile
+        import types
+        spec = importlib.util.spec_from_file_location(
+            "match_simplesim", os.path.join(ROOT, "tools", "match_simplesim.py"))
+        ms = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(ms)
+        seen = []
+
+        def dma_dump_write(data, nWriteData, wordSize, index, engineIndex, address, dmaMethod):
+            seen.append(("write", index))
+            return 0
+
+        def dma_dump_read(wordSize, index, engineIndex, address, dmaMethod, readCount):
+            seen.append(("read", index))
+            return 0, [0] * 64
+
+        def dma_dump(writeNotRead, nWriteData, wordSize, data, index, engineIndex, address,
+                     byteCount, dmaMethod, readCount):
+            seen.append(("dump", index))
+
+        dd = types.SimpleNamespace(dma_dump_write=dma_dump_write, dma_dump_read=dma_dump_read,
+                                   dma_dump=dma_dump, DmaMethodNormal=0)
+        ms.use_card(dd, 2)
+        dd.dma_dump_write([1], 1, 1, 0, 0, 0, 0)
+        dd.dma_dump_read(1, 0, 0, 0, 0, 64)
+        dd.dma_dump(1, 1, 1, [1], 0, 0, 0, 8, 0, 1)
+        dd.dma_dump_write([1], 1, 1, index=0, engineIndex=0, address=0, dmaMethod=0)
+        checked = dd.dma_dump_write
+        dd.dma_dump_write = lambda *a, **k: checked(*a, **k)
+        dd.dma_dump_write([1], 1, 1, 0, 0, 0, 0)
+        self.assertEqual(seen, [("write", 2), ("read", 2), ("dump", 2), ("write", 2),
+                                ("write", 2)])
+        ms.use_card(dd, 2)                           # the same card again is fine
+        with self.assertRaises(RuntimeError):
+            ms.use_card(dd, 3)
+
+        with tempfile.TemporaryDirectory() as dev:
+            for name in ["adxdma0", "adxdma0ch0", "adxdma2", "adxdma2ch0", "adxdma2hc0",
+                         "adxdma2ui", "adxdma2w0", "adxdma21", "adxdma21ch0", "null"]:
+                open(os.path.join(dev, name), "w").close()
+            self.assertEqual([os.path.basename(p) for p in ms.card_files(2, dev)],
+                             ["adxdma2", "adxdma2ch0", "adxdma2hc0", "adxdma2ui", "adxdma2w0"])
+            self.assertEqual(ms.adxdma_cards(dev, os.path.join(dev, "no_sysfs")),
+                             {0: None, 2: None, 21: None})
+
 
 def planted_bug_hs_api(spike_cap=1000):
     """Stand-in hs_api and hs_bridge modules: a small LIF simulator whose
