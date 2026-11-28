@@ -439,6 +439,11 @@ class FpgaTarget(unittest.TestCase):
         line = ms.host_line(h)
         self.assertIn("7 DMA reads", line)
         self.assertIn("2 spikes", line)
+        load = ms.load_split(meter, 120.0)
+        self.assertEqual((load["dma_writes"], load["dma_reads"]), (1, 7))
+        self.assertAlmostEqual(load["python_s"], 120.0 - load["dma_write_s"] - load["dma_read_s"])
+        self.assertIn("1 DMA writes", ms.load_line(load))
+        self.assertIn("building it in Python 2.0 min", ms.load_line(load))
         meter.reset()
         self.assertEqual(meter.per_step(1, 0.0)["dma_reads"], 0)
 

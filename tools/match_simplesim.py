@@ -601,6 +601,22 @@ class HostMeter:
         return out
 
 
+def load_split(meter, load_s):
+    """How CRI_network's load divided: DMA writes and reads to the card, and
+    the rest, which is hs_api and hs_bridge building the network in Python."""
+    w, r = meter.calls["write"], meter.calls["read"]
+    ws, rs = meter.secs["write"], meter.secs["read"]
+    return {"dma_writes": w, "dma_write_s": ws, "dma_reads": r, "dma_read_s": rs,
+            "python_s": load_s - ws - rs}
+
+
+def load_line(h):
+    each = 1000 * h["dma_write_s"] / h["dma_writes"] if h["dma_writes"] else 0.0
+    return (f"    load: {h['dma_writes']:,} DMA writes {h['dma_write_s'] / 60:.1f} min "
+            f"({each:.2f} ms each), {h['dma_reads']:,} reads {h['dma_read_s'] / 60:.1f} min; "
+            f"hs_api and hs_bridge building it in Python {h['python_s'] / 60:.1f} min")
+
+
 def host_line(h):
     """One line: where a step's host time went."""
     reads = h["dma_reads"]
@@ -688,6 +704,15 @@ def _real_simplesim(layers, in_shape, items, flush, target="simpleSim", core=0, 
     elif target == "CRI":
         extra = {"coreID": core}
 
+    meter = None
+    if target == "CRI":
+        # from before the load, so the load's DMA traffic is measured too
+        from hs_bridge.FPGA_Execution import fpga_controller
+        try:
+            import hs_bridge.wrapped_dmadump.dmadump as dd
+            meter = HostMeter(dd, fpga_controller)
+        except ImportError:
+            pass
     t1 = time.time()
     try:
         net = CRI_network(axons=axons, connections=conns, outputs=out_keys, target=target,
@@ -701,9 +726,11 @@ def _real_simplesim(layers, in_shape, items, flush, target="simpleSim", core=0, 
     info["load_s"] = time.time() - t1
     print(f"  CRI_network built ({info['load_s'] / 60:.1f} min to load, "
           f"{(time.time() - t0) / 60:.1f} min in all)", flush=True)
+    if meter is not None:
+        info["load_host"] = load_split(meter, info["load_s"])
+        print(load_line(info["load_host"]), flush=True)
     clear = None
     if target == "CRI":
-        from hs_bridge.FPGA_Execution import fpga_controller
         try:
             import hs_bridge.network as hsb_network
         except ImportError:
@@ -712,11 +739,6 @@ def _real_simplesim(layers, in_shape, items, flush, target="simpleSim", core=0, 
         if info["fast_input_packets"]:
             print("  input packets built with numpy (byte-identical to hs_bridge's "
                   "input_user, checked just now)", flush=True)
-        try:
-            import hs_bridge.wrapped_dmadump.dmadump as dd
-            meter = HostMeter(dd, fpga_controller)
-        except ImportError:
-            meter = None
         # padding to whole groups of 32 per neuron model adds neurons; clear
         # them too, on every core in use, under the core's physical number
         try:
@@ -736,8 +758,6 @@ def _real_simplesim(layers, in_shape, items, flush, target="simpleSim", core=0, 
             for n, c in to_clear:
                 fpga_controller.clear(n, False, c)
 
-    else:
-        meter = None
     pos = {k: (i, sign) for keys, sign in out_groups for i, k in enumerate(keys)}
     bits = layers[0].get("input_bits", 1)
     results = []
