@@ -36,6 +36,9 @@ from .base import DatasetBundle
 
 
 _SUBJECT = re.compile(r"user(\d+)", re.IGNORECASE)
+# Training clips that check a final network (val_split "none") against IntegerSim,
+# as many as DVS128 Gesture's usual validation set
+CHECK_CLIPS = 216
 
 
 def subject_ids(dataset):
@@ -127,6 +130,11 @@ def split_indices(dataset, val_fraction=0.15, seed=1, val_split="subject", folds
     "clip" is the old split, kept so checkpoints scored with it can be
     re-scored on the same clips.
 
+    "none" is for the final network, once every choice is made: every
+    training person trains. The returned val indices are then CHECK_CLIPS
+    training clips, a fixed sample, which only check the deployed network
+    against IntegerSim; no checkpoint is chosen on them.
+
     `folds` = k > 0 is k-fold cross-subject validation (search.val_folds): the
     people are split into k groups by subject_folds and group `fold` is
     validation. One fixed set of people can be easier or harder than average,
@@ -150,6 +158,9 @@ def split_indices(dataset, val_fraction=0.15, seed=1, val_split="subject", folds
         train_idx = [i for i, s in enumerate(ids) if s not in held_set]
         val_idx = [i for i, s in enumerate(ids) if s in held_set]
         return train_idx, val_idx, sorted(held_set)
+    if val_split == "none":
+        check = sorted(random.Random(seed).sample(range(n), min(n, CHECK_CLIPS)))
+        return list(range(n)), check, None
     if val_split == "subject":
         ids = subject_ids(dataset)
         if ids is None:
@@ -161,7 +172,7 @@ def split_indices(dataset, val_fraction=0.15, seed=1, val_split="subject", folds
         n_val = int(val_fraction * n)
         return indices[n_val:], indices[:n_val], None
     if val_split != "subject":
-        raise ValueError(f"val_split must be 'subject' or 'clip', got {val_split!r}")
+        raise ValueError(f"val_split must be 'subject', 'clip' or 'none', got {val_split!r}")
 
     # whole subjects, in a seeded order, until val holds val_fraction of clips
     subjects = sorted(set(ids))

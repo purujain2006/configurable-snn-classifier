@@ -352,6 +352,7 @@ The study also tries options the search never does, on the same network:
 | `mirror` | on | mirror clips left-right and relabel them. On DVS128 Gesture a mirrored right hand wave is a left hand wave and a mirrored right clockwise turn a left counter-clockwise one (measured on the raw events: both clockwise classes turn the same way on screen). Guitar is never mirrored |
 | `optimizer` | adamw, sgd | SGD with momentum 0.9 at learning rate 0.03 |
 | `rate_penalty_timing` | delayed | the firing-rate penalty starts halfway through training (`rate_penalty_start`) |
+| `weight_avg` | on | the deployed weights are the mean of the last 5 epochs' integer-grid weights (`weight_avg_epochs`). Export puts them back on the grid and IntegerSim checks them; nothing is added on chip |
 
 The fixed validation people are the same four for every variant, so picking
 by them alone eventually picks what suits those four. `--folds 5` trains
@@ -360,7 +361,7 @@ pairs each variant with the baseline fold by fold, so every training person
 is held out once. It costs the same as 5 seeds:
 
 ```
-python main.py study -c configs/dvs128_search05.yaml --from-best results/search05_top5/rank2/trial.json --folds 5 --epochs 150 --only T,time_drop,mirror,optimizer,rate_penalty_timing --results-dir results/rank2_study
+python main.py study -c configs/dvs128_search05.yaml --from-best results/search05_top5/rank2/trial.json --folds 5 --epochs 150 --only T,time_drop,mirror,optimizer,rate_penalty_timing,weight_avg --results-dir results/rank2_study
 ```
 
 `study_summary.csv` then also gives each variant's worst fold and a `score`,
@@ -434,6 +435,26 @@ across the folds:
 ```
 python tools/analysis/per_subject.py -c configs/dvs128_search05.yaml results/search05_folds/rank1 results/search05_folds/rank2
 ```
+
+### The final network: every training person
+
+The run above still holds four people out for validation, so the deployed
+network learned from 19 of the 23 training people. Once every choice is made
+by validation and folds, including the epoch count, train the final network
+on all of them:
+
+```
+python main.py single -c configs/dvs128_search05.yaml --from-best results/search05_top5/rank2/trial.json --all-people --epochs 300 --train weight_avg_epochs=5 --results-dir results/rank2_final
+```
+
+`--all-people` sets `search.val_split` to `none`. With no validation, nothing
+can choose a checkpoint, so each phase keeps its last epoch (averaged over
+the last 5 with `weight_avg_epochs`). The epoch count must therefore come
+from the folds, and the run refuses to start without `--epochs`. A fixed
+sample of 216 training clips still checks the deployed network against
+IntegerSim. In `single.json` their scores are named `check_*`, never
+`val_*`, since the network trained on them. Then the test set is scored
+once: `hw_test_accuracy`.
 
 ## 10. Check on the chip's simulator
 
@@ -571,6 +592,8 @@ tries on a chosen network, and `--train key=value` sets for one run:
 |---|---|---|
 | `aug_time_keep` | 0 (off) | random temporal deletion: each training clip keeps this fraction of its frames, in order (0.75 keeps 36 of 48). Validation and the chip see every frame. Needs augmentation on |
 | `rate_penalty_start` | 0 | fraction of the epochs trained before the firing-rate penalty starts |
+| `weight_avg_epochs` | 0 (off) | deploy the mean of the last this-many epochs' weights on the integer grid (at the chosen epoch, or the last) |
+| `select_checkpoint` | true | false keeps each phase's last epoch instead of choosing one on validation. `single --all-people` sets it |
 
 The rest are the fields of `TrainSpec` in `snnsearch/config.py`. Settings the
 search chooses (learning rate, weight decay, dropout and so on) cannot be set

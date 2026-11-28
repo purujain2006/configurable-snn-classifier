@@ -264,6 +264,61 @@ def named_datasets(root=None, **kw):
     return mod.named_datasets(root, **kw)
 
 
+class AllPeopleEndToEnd(unittest.TestCase):
+    """`single --all-people`: the final network trains on every training
+    person, keeps its last epochs (averaged here), checks the deployed
+    network against IntegerSim on training clips, and scores test once."""
+
+    @classmethod
+    def setUpClass(cls):
+        from snnsearch.cli import main
+        cls.out = tempfile.mkdtemp(prefix="snn_all_people_")
+        cls.cfg_path = os.path.join(cls.out, "tiny.json")
+        cfg = {
+            "run": {"name": "final", "seed": 1},
+            "dataset": {"name": None, "module": os.path.abspath(__file__),
+                        "factory": "named_datasets"},
+            "encoding": {"coding": "levels", "T": 2, "resize_to": None},
+            "search": {"epochs": 2, "batch_size": 8, "num_workers": 0},
+            "objective": {"mode": "accuracy"},
+            "report": {"html": False},
+        }
+        with open(cls.cfg_path, "w", encoding="utf-8") as fh:
+            json.dump(cfg, fh)
+        cls.results = os.path.join(cls.out, "results")
+        assert main(["single", "-c", cls.cfg_path, "--results-dir", cls.results,
+                     "--ckpt", "net.pth", "--all-people", "--epochs", "4",
+                     "--train", "weight_avg_epochs=2"]) == 0
+        with open(os.path.join(cls.results, "single.json"), encoding="utf-8") as fh:
+            cls.rec = json.load(fh)
+
+    @classmethod
+    def tearDownClass(cls):
+        shutil.rmtree(cls.out, ignore_errors=True)
+
+    def test_trains_on_everyone_and_names_the_check_clips(self):
+        rec = self.rec
+        self.assertEqual(rec["split"]["val_split"], "none")
+        self.assertIsNone(rec["split"]["val_people"])
+        self.assertEqual(rec["split"]["train_clips"], 64)       # all 8 training people
+        self.assertEqual(rec["split"]["val_clips"], 64)         # min(all, 216) check clips
+        self.assertIn("validation", rec)
+        self.assertNotIn("hw_val_accuracy", rec)
+        self.assertIsNotNone(rec["check_hw_accuracy"])
+        self.assertEqual(rec["sim_disagreements"], 0, rec.get("sim_reason"))
+        self.assertIsNotNone(rec["hw_test_accuracy"])          # the one test score
+        train = rec["config"]["train"]
+        self.assertEqual((train["select_checkpoint"], train["weight_avg_epochs"]), (False, 2))
+
+    def test_refusals(self):
+        from snnsearch.cli import main
+        with self.assertRaises(SystemExit):
+            main(["single", "-c", self.cfg_path, "--results-dir", self.out, "--all-people"])
+        with self.assertRaises(SystemExit):
+            main(["single", "-c", self.cfg_path, "--results-dir", self.out, "--all-people",
+                  "--epochs", "2", "--folds", "2"])
+
+
 class TwoFoldsEndToEnd(unittest.TestCase):
     """`single --folds 2` on tiny synthetic data: two short trainings."""
 

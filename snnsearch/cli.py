@@ -117,6 +117,11 @@ def build_parser():
     o.add_argument("--fold", type=int, metavar="I",
                    help="train only fold I (search.val_fold), e.g. one fold per GPU; "
                         "needs --folds or search.val_folds")
+    o.add_argument("--all-people", dest="all_people", action="store_true",
+                   help="the final network: train on every training person "
+                        "(search.val_split none), keep the last epoch instead of "
+                        "choosing one on validation, then score the test set once. "
+                        "Needs --epochs, the count cross-validation chose")
 
     r = sub.add_parser("search", help="the automated search")
     _add_common(r)
@@ -195,6 +200,14 @@ def main(argv=None):
                       input_overrides={"T": getattr(args, "T", None),
                                        "resize_to": getattr(args, "resize_to", None)},
                       train_overrides=_kv_pairs(getattr(args, "train", None)))
+        if getattr(args, "all_people", False):
+            if cfg["search"].get("val_folds") or getattr(args, "fold", None) is not None:
+                raise SystemExit("--all-people trains on every person, so it takes no folds")
+            if not getattr(args, "epochs", None):
+                raise SystemExit("--all-people keeps the last epoch, so it needs --epochs: "
+                                 "the count cross-validation chose")
+            cfg["search"]["val_split"] = "none"
+            return run_single(cfg, **kwargs)
         folds = single_folds(cfg, args)
         if folds is None:
             return run_single(cfg, **kwargs)

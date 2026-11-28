@@ -305,6 +305,14 @@ def train_one_epoch(net, loader, optimizer, device, criterion=None,
             rate_sum / rate_n if rate_n else None)
 
 
+def average_states(states):
+    """The mean of several state dicts of one network: floating-point tensors
+    averaged, anything else (counters, integer buffers) taken from the last."""
+    last = states[-1]
+    return {k: (sum(s[k] for s in states) / len(states)) if torch.is_floating_point(v)
+            else v.clone() for k, v in last.items()}
+
+
 def rate_penalty_at(train_cfg, epoch):
     """The firing-rate penalty in force at `epoch` (0-based, counted over the
     whole budget, warmup and grid phases alike): off until
@@ -394,6 +402,15 @@ def run_training(cfg: dict, data_dir: str = None, device=None, report_fn=None,
         that happened to land on the luckiest single epoch.
         """
         last["window"] = []
+        select = bool(getattr(train_cfg, "select_checkpoint", True))
+        # weight averaging, on the integer grid only: the float phase's
+        # checkpoint is only folded from
+        avg_k = int(getattr(train_cfg, "weight_avg_epochs", 0) or 0) if tag == "grid" else 0
+        recent = []
+
+        def keep():
+            return average_states(recent) if avg_k else deepcopy(net.state_dict())
+
         for e in range(n_epochs):
             train_loss, train_acc, rate = train_one_epoch(
                 net, train_loader, optimizer, device, criterion,
@@ -405,6 +422,9 @@ def run_training(cfg: dict, data_dir: str = None, device=None, report_fn=None,
                 last["firing_rate"] = rate
             if scheduler is not None and not step_per_batch:
                 scheduler.step()
+            if avg_k:
+                recent.append({k: v.detach().clone() for k, v in net.state_dict().items()})
+                del recent[:-avg_k]
             val_acc = evaluate(net, val_loader, device)
 
             # Mean of the last `smooth_k` epochs, or of however many exist so
@@ -415,15 +435,18 @@ def run_training(cfg: dict, data_dir: str = None, device=None, report_fn=None,
             smoothed = sum(last["window"]) / len(last["window"])
             last["smoothed"] = smoothed
 
-            if smoothed > best:
+            if select and smoothed > best:
                 best = smoothed
-                best_state = deepcopy(net.state_dict())
+                best_state = keep()
             if report_fn is not None:
                 report_fn(epoch=epoch0 + e, train_loss=train_loss, train_acc=train_acc,
                           val_acc=val_acc, best_val_acc=best,
                           smoothed_val_acc=smoothed, smoothing_window=len(last["window"]),
                           lr=optimizer.param_groups[0]["lr"], phase=tag,
                           firing_rate=rate)
+        if not select and n_epochs > 0:
+            # nothing chosen on validation: the end of the phase, averaged
+            best, best_state = last["smoothed"], keep()
         return best, best_state
 
     # phase 1: float warmup (BN active, precise weights)

@@ -117,6 +117,59 @@ class AugmentTests(unittest.TestCase):
         self.assertEqual((m[1], m[3], m[4]), (2, 6, 5))
 
 
+class CheckpointTests(unittest.TestCase):
+    """Weight averaging, and keeping the last epoch when nothing is chosen
+    on validation (the final network on every person)."""
+
+    def test_average_states(self):
+        from snnsearch.train import average_states
+        a = {"w": torch.tensor([1.0, 3.0]), "n": torch.tensor(4)}
+        b = {"w": torch.tensor([3.0, 5.0]), "n": torch.tensor(7)}
+        out = average_states([a, b])
+        self.assertTrue(torch.equal(out["w"], torch.tensor([2.0, 4.0])))
+        self.assertTrue(torch.equal(out["n"], torch.tensor(7)))        # integers: the last
+
+    def run_with_scores(self, flat, scores):
+        """Train with evaluate() returning `scores` epoch by epoch, so which
+        checkpoint selection picks is known in advance."""
+        from unittest import mock
+        import snnsearch.train as tr
+        seq = iter(scores)
+        real = tr.evaluate
+        with redirect_stdout(io.StringIO()):
+            _b, _e, loaders, spec = prepare(config(), flat)
+            for k, v in flat.get("_train", {}).items():
+                setattr(spec["train"], k, v)
+            with mock.patch.object(tr, "evaluate",
+                                   side_effect=lambda *a: next(seq, None) or real(*a)):
+                res = run_training(spec, loaders=loaders, device=torch.device("cpu"))
+        return res["hw_net"].state_dict(), res
+
+    def test_no_selection_keeps_the_last_epoch(self):
+        """With rising scores selection picks the last epoch of each phase,
+        exactly what select_checkpoint False keeps; with falling scores it
+        picks an earlier one and the two differ."""
+        flat = {**EVERYTHING, "epochs": 4, "loss": "rate"}
+        rising = [0.1, 0.2, 0.3, 0.4, 0.5]
+        falling = [0.9, 0.8, 0.7, 0.6, 0.5]
+        last, res = self.run_with_scores({**flat, "_train": {"select_checkpoint": False}},
+                                         rising)
+        self.assertEqual(res["sim_disagreements"], 0, res.get("sim_reason"))
+        picked_last, _ = self.run_with_scores(flat, rising)
+        picked_early, _ = self.run_with_scores(flat, falling)
+        self.assertTrue(all(torch.equal(last[k], picked_last[k]) for k in last))
+        self.assertFalse(all(torch.equal(last[k], picked_early[k]) for k in last))
+
+    def test_weight_averaging_changes_the_weights_and_still_matches_the_simulator(self):
+        flat = {**EVERYTHING, "epochs": 4, "loss": "rate"}
+        plain, _ = self.run_with_scores({**flat, "_train": {"select_checkpoint": False}}, [])
+        avg, res = self.run_with_scores(
+            {**flat, "_train": {"select_checkpoint": False, "weight_avg_epochs": 2}}, [])
+        self.assertEqual(res["sim_disagreements"], 0, res.get("sim_reason"))
+        self.assertFalse(res["sim_reason"])
+        self.assertFalse(all(torch.equal(plain[k], avg[k]) for k in plain))
+
+
 class RatePenaltyStartTests(unittest.TestCase):
     def test_penalty_starts_after_its_fraction_of_the_epochs(self):
         from snnsearch.config import TrainSpec

@@ -203,6 +203,16 @@ class TrainSpec:
     # improved. Averaging a window estimates the level instead of the peak.
     # Set to 1 to recover the old best-single-epoch behavior.
     val_smoothing_epochs: int = 5
+    # False keeps the last epoch of each phase instead of choosing one on
+    # validation: for the final network, trained on every person with an
+    # epoch count chosen by cross-validation (`single --all-people`).
+    select_checkpoint: bool = True
+    # Weight averaging on the integer grid: the deployed weights are the mean
+    # of the last weight_avg_epochs epochs' weights (at the chosen epoch, or
+    # the last), put back on the grid by export and checked by IntegerSim.
+    # No layers or spikes are added on chip. Inline QAT's grid phase only.
+    # 0 = off.
+    weight_avg_epochs: int = 0
     # "rate": cross-entropy on the spike rate over the whole clip. "tet": the
     # average of a cross-entropy at every timestep (Deng et al., ICLR 2022,
     # Temporal Efficient Training), which trains every step to classify.

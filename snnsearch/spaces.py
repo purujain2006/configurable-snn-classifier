@@ -157,6 +157,7 @@ def config_to_specs(config: dict) -> dict:
                            aug_drop=config.get("aug_drop", 0.0),
                            aug_flip=bool(config.get("aug_flip", False)),
                            aug_time_keep=config.get("aug_time_keep", 0.0),
+                           weight_avg_epochs=int(config.get("weight_avg_epochs", 0) or 0),
                            seed=config.get("seed"),
                            qat_mode=config.get("qat_mode", "inline"),
                            qat_warmup_frac=config.get("qat_warmup_frac", 0.25),

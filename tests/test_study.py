@@ -99,7 +99,10 @@ class Variants(unittest.TestCase):
         vs = {v["name"]: v for v in option_variants(net, 4, only=list(EXTRA_FACTORS))}
         self.assertEqual(sorted(vs), sorted(["baseline", "T=48", "T=64", "T=80", "T=96",
                                              "time_drop=on", "mirror=on", "optimizer=adamw",
-                                             "optimizer=sgd", "rate_penalty_timing=delayed"]))
+                                             "optimizer=sgd", "rate_penalty_timing=delayed",
+                                             "weight_avg=on"]))
+        self.assertEqual(config_to_specs(vs["weight_avg=on"]["flat"])["train"].weight_avg_epochs, 5)
+        self.assertEqual(config_to_specs(net)["train"].weight_avg_epochs, 0)
         spec = config_to_specs(vs["T=96"]["flat"])
         self.assertEqual(spec["input"].T, 96)
         tr = config_to_specs(vs["time_drop=on"]["flat"])["train"]

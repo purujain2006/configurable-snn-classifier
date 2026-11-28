@@ -450,6 +450,20 @@ def run_single(cfg, ckpt="best.pth", from_best=None, epochs=None,
         setattr(spec["train"], key, val)
         print(f"train     : {key} {was!r} -> {val!r}  (command line)")
 
+    # The final network: every training person trains and nothing is chosen
+    # on validation, so each phase keeps its last epoch (averaged when
+    # weight_avg_epochs is set). The "val" clips are training clips that only
+    # check the deployed network against IntegerSim.
+    all_people = split["val_split"] == "none"
+    if all_people:
+        spec["train"].select_checkpoint = False
+        avg = spec["train"].weight_avg_epochs
+        print(f"split     : every training person trains ({split.get('train_clips', '?')} "
+              f"clips). The val figures below are {split.get('val_clips', '?')} of those "
+              f"training clips, "
+              f"which only check the deployed network against IntegerSim. Each phase "
+              f"keeps its last epoch" + (f", averaged over the last {avg}" if avg else ""))
+
     # Record the trajectory. The search streams this per trial; `single` did
     # not, so a run that ended lower than expected offered two endpoints and no
     # way to tell a plateau from an oscillation from a collapse. `phase` marks
@@ -508,6 +522,13 @@ def run_single(cfg, ckpt="best.pth", from_best=None, epochs=None,
             print(f"  [warn] {label} measurement failed: {type(exc).__name__}: {exc}")
             print("         Training is unaffected and the checkpoint is written.")
 
+    if all_people:
+        # not validation: name them for what they are
+        for k in [k for k in res if "val_accuracy" in k]:
+            res["check_" + k.replace("val_", "")] = res.pop(k)
+        res["validation"] = (f"none: trained on every training person. check_* are "
+                             f"{split.get('val_clips', '?')} training clips it trained on, "
+                             f"used only to check the deployed network against IntegerSim")
     payload = {k: v for k, v in res.items() if k != "hw_net"}
     # `trained` describes the network that trained, from the resolved spec.
     # This used to be `describe(cfg)`, a summary of the CONFIG FILE, which on a

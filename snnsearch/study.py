@@ -18,7 +18,8 @@ limit, say) is listed with the reason and not trained.
 Besides every option the search covers, it studies options outside the
 search, which improve a chosen network without searching again: more
 timesteps (T), random temporal deletion, label-aware mirroring, the
-optimizer, and starting the firing-rate penalty halfway.
+optimizer, starting the firing-rate penalty halfway, and averaging the last
+epochs' weights.
 
 With folds (`study --folds 5`) the replicates are subject folds instead of
 seeds: each variant and the baseline train once per fold, each time with one
@@ -55,12 +56,14 @@ STUDY_T = (48, 64, 80, 96)
 TIME_KEEP_ON = 0.75            # SEW ResNet's 12 of 16 frames
 SGD_LR = 0.03                  # SGD wants a far larger step than Adam's 1e-3
 DELAYED_PENALTY_START = 0.5    # the rate penalty starts halfway through
+WEIGHT_AVG_ON = 5             # epochs whose weights are averaged
 EXTRA_FACTORS = {
     "T": [str(t) for t in STUDY_T],
     "time_drop": ["off", "on"],
     "mirror": ["off", "on"],
     "optimizer": ["adam", "adamw", "sgd"],
     "rate_penalty_timing": ["from_start", "delayed"],
+    "weight_avg": ["off", "on"],
 }
 ALL_OPTIONS = list(BALANCED_FACTORS) + list(EXTRA_FACTORS)
 
@@ -93,6 +96,7 @@ def current_levels(flat):
         "optimizer": flat.get("optimizer") or "adam",
         "rate_penalty_timing": "delayed" if float(flat.get("rate_penalty_start") or 0) > 0
                                else "from_start",
+        "weight_avg": "on" if int(flat.get("weight_avg_epochs") or 0) > 0 else "off",
     }
 
 
@@ -186,6 +190,9 @@ def apply_option(flat, option, level, max_input_bits=4):
         if not f.get("use_rate_penalty"):
             return None                         # no penalty to time
         f["rate_penalty_start"] = DELAYED_PENALTY_START if level == "delayed" else 0.0
+        return f
+    if option == "weight_avg":
+        f["weight_avg_epochs"] = WEIGHT_AVG_ON if level == "on" else 0
         return f
     raise ValueError(f"unknown option {option!r}")
 
