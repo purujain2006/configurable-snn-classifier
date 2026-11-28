@@ -122,7 +122,7 @@ class EndToEnd(unittest.TestCase):
         names = [r["variant"] for r in summary]
         self.assertEqual(names[0], "baseline")
         self.assertEqual(len(names), 2)
-        self.assertTrue(all(r["seeds"] == 2 for r in summary))
+        self.assertTrue(all(r["runs"] == 2 for r in summary))
         self.assertTrue(os.path.isfile(os.path.join(self.out, "study", "study_summary.csv")))
 
 

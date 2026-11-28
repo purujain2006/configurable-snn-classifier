@@ -262,8 +262,8 @@ def train_one_epoch(net, loader, optimizer, device, criterion=None,
     instead (Deng et al., ICLR 2022), so every step is trained to classify
     rather than only their sum. Accuracy is the rate's either way.
 
-    `augment`, if given, maps a training batch to an augmented one
-    (augment.augment_batch).
+    `augment`, if given, maps (batch, labels) to an augmented (batch, labels)
+    (augment.augment_batch): a mirror can change a label.
     """
     net.train()
     criterion = criterion or (lambda o, y: F.cross_entropy(o, y))
@@ -274,7 +274,7 @@ def train_one_epoch(net, loader, optimizer, device, criterion=None,
                                     # gives every sample a fixed frame count. It is safe to ignore.
         x, y = x.to(device), y.to(device)
         if augment is not None:
-            x = augment(x)
+            x, y = augment(x, y)
         optimizer.zero_grad()
         if probe is not None:
             probe.clear()
@@ -303,6 +303,16 @@ def train_one_epoch(net, loader, optimizer, device, criterion=None,
         probe.detach()
     return (loss_sum / max(1, total), correct / max(1, total),
             rate_sum / rate_n if rate_n else None)
+
+
+def rate_penalty_at(train_cfg, epoch):
+    """The firing-rate penalty in force at `epoch` (0-based, counted over the
+    whole budget, warmup and grid phases alike): off until
+    rate_penalty_start of the epochs have passed, then rate_penalty."""
+    lam = float(getattr(train_cfg, "rate_penalty", 0.0) or 0.0)
+    start = round(float(getattr(train_cfg, "rate_penalty_start", 0.0) or 0.0)
+                  * int(train_cfg.epochs))
+    return lam if epoch >= start else 0.0
 
 
 def evaluate(net, loader, device):
@@ -348,9 +358,11 @@ def run_training(cfg: dict, data_dir: str = None, device=None, report_fn=None,
     criterion = nn.CrossEntropyLoss(label_smoothing=train_cfg.label_smoothing)
     augment = None
     if train_cfg.augment:
-        from .augment import augment_batch
+        from .augment import augment_batch, mirror_labels
         hflip_ok = bool(getattr(cfg.get("input"), "hflip_ok", False))
-        augment = lambda x: augment_batch(x, train_cfg, hflip_ok)     # noqa: E731
+        hflip_labels = mirror_labels(getattr(cfg.get("input"), "hflip_labels", ""))
+        augment = lambda x, y: augment_batch(x, train_cfg, hflip_ok, y=y,     # noqa: E731
+                                             hflip_labels=hflip_labels)
 
     mode = getattr(train_cfg, "qat_mode", "inline")
 
@@ -387,7 +399,7 @@ def run_training(cfg: dict, data_dir: str = None, device=None, report_fn=None,
                 net, train_loader, optimizer, device, criterion,
                 grad_clip=train_cfg.grad_clip,
                 batch_scheduler=scheduler if step_per_batch else None,
-                rate_penalty=getattr(train_cfg, "rate_penalty", 0.0) or 0.0,
+                rate_penalty=rate_penalty_at(train_cfg, epoch0 + e),
                 loss_kind=train_cfg.loss, augment=augment)
             if rate is not None:
                 last["firing_rate"] = rate

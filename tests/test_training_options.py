@@ -67,6 +67,66 @@ class AugmentTests(unittest.TestCase):
         self.assertTrue(bool(((y == 0) | (y == 1)).all()))
         self.assertTrue(bool((y <= spikes).all()))
 
+    def test_time_keep_drops_frames_and_keeps_their_order(self):
+        """Temporal deletion: each clip keeps 3 of its 5 frames, its own set,
+        in their original order; the rest of the frame is untouched."""
+        torch.manual_seed(0)
+        frames = torch.arange(5.0).view(1, 5, 1, 1, 1).expand(64, 5, 2, 4, 4)
+        y = augment_batch(frames, aug(aug_time_keep=0.6))
+        self.assertEqual(tuple(y.shape), (64, 3, 2, 4, 4))
+        kept = y[:, :, 0, 0, 0]                                   # which frame each step is
+        self.assertTrue(bool((kept[:, 1:] > kept[:, :-1]).all()))
+        self.assertTrue(torch.equal(y, kept[:, :, None, None, None].expand_as(y)))
+        self.assertGreater(len({tuple(r.tolist()) for r in kept}), 1)
+        for keep in (0.0, 1.0):
+            self.assertTrue(torch.equal(augment_batch(frames, aug(aug_time_keep=keep)), frames))
+
+    def test_mirror_relabels_and_skips_classes_with_no_mirror(self):
+        from snnsearch.augment import mirror_labels
+        from snnsearch.data.builtin import DVS128_MIRROR
+        labels = mirror_labels("0,2,1,6,5,4,3,7,8,-1,10")
+        self.assertEqual(labels, DVS128_MIRROR)
+        torch.manual_seed(3)
+        x = torch.rand(220, 2, 2, 6, 6)
+        cls = torch.arange(11).repeat(20)
+        out, new = augment_batch(x, aug(aug_flip=True), y=cls, hflip_labels=labels)
+        flipped = 0
+        for i in range(len(cls)):
+            if torch.equal(out[i], x[i]):
+                self.assertEqual(int(new[i]), int(cls[i]))
+            else:
+                flipped += 1
+                self.assertTrue(torch.equal(out[i], x[i].flip(-1)))
+                self.assertEqual(int(new[i]), labels[int(cls[i])])
+                self.assertNotEqual(int(cls[i]), 9)                # guitar never mirrors
+        self.assertTrue(40 < flipped < 180)
+        # without labels a mirror cannot relabel, so it does not run
+        self.assertTrue(torch.equal(augment_batch(x, aug(aug_flip=True), hflip_labels=labels), x))
+        # with no augmentation the labels come back unchanged
+        same_x, same_y = augment_batch(x, aug(augment=False, aug_flip=True), y=cls,
+                                       hflip_labels=labels)
+        self.assertTrue(torch.equal(same_x, x) and torch.equal(same_y, cls))
+
+    def test_dvs_mirror_map_pairs_each_class_with_its_mirror(self):
+        from snnsearch.data.builtin import DVS128_MIRROR as m
+        self.assertEqual(len(m), 11)
+        for c, to in enumerate(m):
+            if to >= 0:
+                self.assertEqual(m[to], c)              # mirroring twice is the clip itself
+        # waves swap hands; a mirrored clockwise turn is counter-clockwise
+        self.assertEqual((m[1], m[3], m[4]), (2, 6, 5))
+
+
+class RatePenaltyStartTests(unittest.TestCase):
+    def test_penalty_starts_after_its_fraction_of_the_epochs(self):
+        from snnsearch.config import TrainSpec
+        from snnsearch.train import rate_penalty_at
+        late = TrainSpec(epochs=10, rate_penalty=0.01, rate_penalty_start=0.5)
+        self.assertEqual([rate_penalty_at(late, e) for e in range(10)], [0.0] * 5 + [0.01] * 5)
+        now = TrainSpec(epochs=10, rate_penalty=0.01)
+        self.assertEqual({rate_penalty_at(now, e) for e in range(10)}, {0.01})
+        self.assertEqual(rate_penalty_at(TrainSpec(epochs=10), 7), 0.0)
+
 
 def config():
     return runconfig.load(overrides={
@@ -84,8 +144,9 @@ EVERYTHING = {
     "input_bits": 2, "signed_spikes": True, "tau_mode": "channel", "tau": 4,
     "trainable_threshold": True, "bias_mode": "neuron", "pool_type": "max",
     "loss": "tet", "use_augment": True, "aug_shift": 0.1, "aug_cutout": 0.2,
-    "aug_drop": 0.1, "dropout_rate": 0.1, "optimizer": "adam", "lr": 3e-3,
-    "scheduler": "cosine", "seed": 5,
+    "aug_drop": 0.1, "aug_time_keep": 0.75, "dropout_rate": 0.1, "optimizer": "adam",
+    "lr": 3e-3, "scheduler": "cosine", "seed": 5,
+    "use_rate_penalty": True, "rate_penalty": 0.01, "rate_penalty_start": 0.5,
 }
 
 

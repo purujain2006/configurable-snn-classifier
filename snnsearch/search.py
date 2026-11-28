@@ -512,6 +512,20 @@ def _assert_records_what_ran(trial_cfg, spec, encoder):
             + "\n  ".join(problems))
 
 
+def fold_override(run_cfg, trial_cfg):
+    """A study job can train on its own subject fold: its flat config then
+    carries _val_folds and _val_fold, which move into the run config's search
+    section (as `single --folds` sets them). Returns (the flat config without
+    them, the run config the job trains with)."""
+    trial_cfg = dict(trial_cfg)
+    folds, fold = trial_cfg.pop("_val_folds", None), trial_cfg.pop("_val_fold", None)
+    if not folds:
+        return trial_cfg, run_cfg
+    job_cfg = dict(run_cfg)
+    job_cfg["search"] = {**run_cfg["search"], "val_folds": int(folds), "val_fold": int(fold)}
+    return trial_cfg, job_cfg
+
+
 def _make_trainable(cfg, out_dir):
     """Build the per-trial function. Closes over plain data only, so it pickles."""
     obj = dict(cfg["objective"])
@@ -526,6 +540,7 @@ def _make_trainable(cfg, out_dir):
         from .train import run_training
 
         set_limits(run_cfg.get("limits"))     # a fresh process has the defaults
+        trial_cfg, job_cfg = fold_override(run_cfg, trial_cfg)
 
         # The trial config decides the input size and the time depth, not just
         # the architecture, so it has to reach the data pipeline. An earlier
@@ -535,7 +550,7 @@ def _make_trainable(cfg, out_dir):
         # recorded config described a run that never happened, and replaying a
         # winner produced a different and weaker network. Resolve once, from
         # one source.
-        _bundle, _enc, spec = resolve_specs(run_cfg, trial_cfg, quiet=True)
+        _bundle, _enc, spec = resolve_specs(job_cfg, trial_cfg, quiet=True)
         _assert_records_what_ran(trial_cfg, spec, _enc)
 
         # Make gpu_fraction mean something. Ray's fraction is pure bookkeeping:
@@ -564,7 +579,7 @@ def _make_trainable(cfg, out_dir):
                          "violations": "; ".join(violations)[:400]})
             return
 
-        loaders = make_loaders(run_cfg, _bundle, _enc, spec, quiet=True)
+        loaders = make_loaders(job_cfg, _bundle, _enc, spec, quiet=True)
 
         # The deploy report below carries no epoch of its own, and it is the
         # LAST result Ray keeps, so anything derived from `epoch` at trial

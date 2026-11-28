@@ -70,7 +70,7 @@ class InputPipelineTests(unittest.TestCase):
         self.assertEqual((encoder.T, encoder.size), (8, (32, 32)))
         self.assertEqual(asdict(spec["input"]),
                          dict(N=4, C=3, H=48, W=40, T=8, resize_to=32,
-                              input_bits=1, hflip_ok=False))
+                              input_bits=1, hflip_ok=False, hflip_labels=""))
         self.assertEqual(spec["output"].num_classes, 7)
         self.assertEqual(spec["train"].epochs, 3)
         build.assert_called_once_with(bundle, batch_size=4, encoder=encoder,

@@ -381,8 +381,9 @@ def measure_training_peak(spec, device) -> int:
     criterion = nn.CrossEntropyLoss(label_smoothing=tr.label_smoothing)
     augment = None
     if tr.augment:
-        from .augment import augment_batch
-        augment = lambda b: augment_batch(b, tr, bool(inp.hflip_ok))     # noqa: E731
+        from .augment import augment_batch, mirror_labels
+        augment = lambda b, labels: augment_batch(                         # noqa: E731
+            b, tr, bool(inp.hflip_ok), y=labels, hflip_labels=mirror_labels(inp.hflip_labels))
 
     def step(net, optimizer):
         train_one_epoch(net, batch, optimizer, device, criterion, grad_clip=tr.grad_clip,

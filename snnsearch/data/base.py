@@ -51,6 +51,11 @@ class DatasetBundle:
     #: False by default: some datasets, like DVS128 Gesture, have left- and
     #: right-hand classes, and flipping would swap them.
     hflip_ok: bool = False
+    #: Where a left-right mirror sends each class, for datasets whose mirror
+    #: changes some labels: entry c is the class a mirrored example of class c
+    #: belongs to, or -1 when a mirror makes no valid example. None: no map,
+    #: and hflip_ok decides.
+    hflip_labels: Optional[tuple] = None
 
     def describe(self):
         return {"name": self.name, "C": self.C, "H": self.H, "W": self.W,

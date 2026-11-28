@@ -31,6 +31,10 @@ class InputSpec:
     # default: in DVS128 Gesture, left- and right-hand gestures are separate
     # classes. Set by the dataset (DatasetBundle.hflip_ok), never by a search.
     hflip_ok: bool = False
+    # Where a mirror sends each class, as "0,2,1,..." (-1: never mirror that
+    # class), for datasets where a mirror changes some labels. Set by the
+    # dataset (DatasetBundle.hflip_labels). Empty: no map.
+    hflip_labels: str = ""
 
 
 def effective_hw(input_cfg: "InputSpec") -> tuple[int, int]:
@@ -187,6 +191,10 @@ class TrainSpec:
     # Unlike every other regularizer here it also buys energy, since a spike
     # that does not happen is an accumulate the chip does not perform. 0 = off.
     rate_penalty: float = 0.0
+    # The fraction of the epoch budget trained before the rate penalty starts,
+    # so the network first learns features and then thins its spikes. 0 = on
+    # from the first epoch.
+    rate_penalty_start: float = 0.0
     # Checkpoint selection averages validation accuracy over this many recent
     # epochs instead of trusting a single one. Picking the single best epoch is
     # selection on noise: with 176 validation clips one epoch carries a standard
@@ -206,7 +214,15 @@ class TrainSpec:
     aug_shift: float = 0.0
     aug_cutout: float = 0.0
     aug_drop: float = 0.0
-    aug_flip: bool = False          # used only when the dataset allows flips
+    # Mirror half the clips left-right. Used only when the dataset allows it:
+    # with hflip_ok every label stays, with hflip_labels each mirrored clip
+    # takes its class's mirror label (and classes mapped to -1 never mirror).
+    aug_flip: bool = False
+    # Random temporal deletion: each training clip keeps this fraction of its
+    # frames, a random set in their original order (SEW ResNet, Fang et al.
+    # 2021, trains on 12 of 16). Validation and the chip see every frame.
+    # 0 = off.
+    aug_time_keep: float = 0.0
     # Seed for weight initialization and data order. None leaves them random;
     # re-scoring finalists sets it so each seed is a separate, repeatable run.
     seed: Optional[int] = None

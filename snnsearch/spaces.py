@@ -35,18 +35,22 @@ MAX_INPUT_BITS = 4
 TAU_MODES = ["fixed", "layer", "channel"]
 
 # The dataset facts every trial carries
-DATA_KEYS = ("data_C", "data_H", "data_W", "num_classes", "hflip_ok")
+DATA_KEYS = ("data_C", "data_H", "data_W", "num_classes", "hflip_ok", "hflip_labels")
 # Trial records written before the dataset facts were recorded. Every one of
-# them came from DVS128 Gesture, the only dataset searched until then.
+# them came from DVS128 Gesture, the only dataset searched until then. A run
+# that replays one takes the dataset's own facts (data_facts) anyway.
 _LEGACY_DATA = {"data_C": 2, "data_H": 128, "data_W": 128, "num_classes": 11,
-                "hflip_ok": False}
+                "hflip_ok": False, "hflip_labels": ""}
 
 
 def data_facts(bundle) -> dict:
-    """The dataset facts a trial records, from a DatasetBundle."""
+    """The dataset facts a trial records, from a DatasetBundle. The mirror
+    map is kept as text ("0,2,1,...") so a trial config stays flat."""
+    labels = getattr(bundle, "hflip_labels", None)
     return {"data_C": int(bundle.C), "data_H": int(bundle.H), "data_W": int(bundle.W),
             "num_classes": int(bundle.num_classes),
-            "hflip_ok": bool(getattr(bundle, "hflip_ok", False))}
+            "hflip_ok": bool(getattr(bundle, "hflip_ok", False)),
+            "hflip_labels": ",".join(str(int(c)) for c in labels) if labels else ""}
 
 
 def resize_range(data: dict) -> tuple:
@@ -117,7 +121,8 @@ def config_to_specs(config: dict) -> dict:
                            W=int(data["data_W"]), T=config["T"],
                            resize_to=config["resize_to"],
                            input_bits=int(config.get("input_bits", 1) or 1),
-                           hflip_ok=bool(data.get("hflip_ok", False))),
+                           hflip_ok=bool(data.get("hflip_ok", False)),
+                           hflip_labels=str(data.get("hflip_labels") or "")),
         "encoder": encoder,
         "output": OutputSpec(num_classes=int(data["num_classes"])),
         "downsample": DownsampleSpec(mode=config.get("downsample_mode", "stride"),
@@ -144,12 +149,14 @@ def config_to_specs(config: dict) -> dict:
                            label_smoothing=config.get("label_smoothing", 0.0),
                            grad_clip=config.get("grad_clip", 0.0),
                            rate_penalty=config.get("rate_penalty", 0.0),
+                           rate_penalty_start=config.get("rate_penalty_start", 0.0),
                            loss=config.get("loss", "rate"),
                            augment=bool(config.get("use_augment", False)),
                            aug_shift=config.get("aug_shift", 0.0),
                            aug_cutout=config.get("aug_cutout", 0.0),
                            aug_drop=config.get("aug_drop", 0.0),
                            aug_flip=bool(config.get("aug_flip", False)),
+                           aug_time_keep=config.get("aug_time_keep", 0.0),
                            seed=config.get("seed"),
                            qat_mode=config.get("qat_mode", "inline"),
                            qat_warmup_frac=config.get("qat_warmup_frac", 0.25),
@@ -222,7 +229,7 @@ class DefineByRunSpace:
         # it True, because a dimension with one value teaches TPE nothing and
         # still costs a column.
         self.require = tuple(require or ())
-        self.data = {k: data[k] for k in DATA_KEYS}
+        self.data = {k: data.get(k, _LEGACY_DATA[k]) for k in DATA_KEYS}
         self.max_input_bits = max(1, int(max_input_bits))
         self.seed = seed
 

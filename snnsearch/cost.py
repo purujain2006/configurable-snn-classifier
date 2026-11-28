@@ -186,8 +186,14 @@ def format_summary(cfg: dict) -> str:
         t = cfg["train"]
         lines.append(f"training     : {t.optimizer} lr={t.lr:g} wd={t.weight_decay:g} sched={t.scheduler} "
                      f"epochs={t.epochs} label_smoothing={t.label_smoothing:g} grad_clip={t.grad_clip:g}")
-        aug = (f"shift {t.aug_shift:.2f} cutout {t.aug_cutout:.2f} drop {t.aug_drop:.2f}"
-               f"{' flip' if t.aug_flip and inp.hflip_ok else ''}") if t.augment else "off"
+        keep = float(getattr(t, "aug_time_keep", 0.0) or 0.0)
+        flip = ""
+        if t.aug_flip and getattr(inp, "hflip_labels", ""):
+            flip = " mirror (relabelled)"
+        elif t.aug_flip and inp.hflip_ok:
+            flip = " flip"
+        aug = (f"shift {t.aug_shift:.2f} cutout {t.aug_cutout:.2f} drop {t.aug_drop:.2f}{flip}"
+               + (f" keep {keep:.2f} of frames" if 0 < keep < 1 else "")) if t.augment else "off"
         lines.append(f"               loss={t.loss} augment={aug} bias={t.fold_bias_mode} "
                      f"seed={t.seed}")
     lines.append("")

@@ -341,6 +341,33 @@ It writes `RESULTS/study/study_summary.csv`, with one line per variant:
 About 13 variants times 3 seeds, so roughly 40 full trainings. `--only
 augment,loss` studies just those; `--seeds 5` tightens the verdicts.
 
+### Improve a chosen network without searching again
+
+The study also tries options the search never does, on the same network:
+
+| option | variants | what it changes |
+|---|---|---|
+| `T` | 48, 64, 80, 96 | timesteps per clip. Search 05's winners all sat at its largest T. Frame caches for each T are built first |
+| `time_drop` | on | random temporal deletion: train on 75% of each clip's frames, in order (`aug_time_keep`) |
+| `mirror` | on | mirror clips left-right and relabel them. On DVS128 Gesture a mirrored right hand wave is a left hand wave and a mirrored right clockwise turn a left counter-clockwise one (measured on the raw events: both clockwise classes turn the same way on screen). Guitar is never mirrored |
+| `optimizer` | adamw, sgd | SGD with momentum 0.9 at learning rate 0.03 |
+| `rate_penalty_timing` | delayed | the firing-rate penalty starts halfway through training (`rate_penalty_start`) |
+
+The fixed validation people are the same four for every variant, so picking
+by them alone eventually picks what suits those four. `--folds 5` trains
+every variant once on each of 5 subject folds (as `single --folds` does) and
+pairs each variant with the baseline fold by fold, so every training person
+is held out once. It costs the same as 5 seeds:
+
+```
+python main.py study -c configs/dvs128_search05.yaml --from-best results/search05_top5/rank2/trial.json --folds 5 --epochs 150 --only T,time_drop,mirror,optimizer,rate_penalty_timing --results-dir results/rank2_study
+```
+
+`study_summary.csv` then also gives each variant's worst fold and a `score`,
+the mean minus half the spread across folds, which favors a variant that
+holds up on every group of people. Combine the options that help, check the
+combination the same way, and train the final network as in section 9.
+
 ## 9. Train the winner and test it
 
 ```
@@ -536,6 +563,14 @@ every trial. The one worth knowing:
 | key | default | meaning |
 |---|---|---|
 | `qat_schedule_epochs` | none | length of the learning-rate schedule on integer weights, independent of the epoch budget. Set it (40) for long runs |
+
+Two settings the search never turns on, which the option study (section 8)
+tries on a chosen network, and `--train key=value` sets for one run:
+
+| key | default | meaning |
+|---|---|---|
+| `aug_time_keep` | 0 (off) | random temporal deletion: each training clip keeps this fraction of its frames, in order (0.75 keeps 36 of 48). Validation and the chip see every frame. Needs augmentation on |
+| `rate_penalty_start` | 0 | fraction of the epochs trained before the firing-rate penalty starts |
 
 The rest are the fields of `TrainSpec` in `snnsearch/config.py`. Settings the
 search chooses (learning rate, weight decay, dropout and so on) cannot be set

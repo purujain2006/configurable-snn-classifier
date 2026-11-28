@@ -11,6 +11,20 @@ from .base import DatasetBundle, register
 from .._torch import _require_torch, pad_sequence_collate
 
 
+# Where a left-right mirror sends each DVS128 Gesture class (0 clap, 1 right
+# hand wave, 2 left hand wave, 3 right clockwise, 4 right counter-clockwise,
+# 5 left clockwise, 6 left counter-clockwise, 7 forearm roll, 8 drums,
+# 9 guitar, 10 other). Measured on the raw training events (2026-11-28, 40
+# clips a class): both "clockwise" classes turn counter-clockwise on screen
+# and both "counter-clockwise" classes clockwise, in 40 of 40 clips each, and
+# the right hand appears on the image's left. A mirror reverses the turn and
+# swaps the side, so right clockwise becomes left counter-clockwise. Clapping,
+# the forearm roll (forward and backward share its label), drums and other
+# gestures are nearly symmetric and keep their label. Guitar is not mirrored:
+# a mirrored guitar is left-handed playing, which no subject performs.
+DVS128_MIRROR = (0, 2, 1, 6, 5, 4, 3, 7, 8, -1, 10)
+
+
 @register("dvs128")
 def dvs128_gesture(root, T=16, **_ignored):
     """DVS128 Gesture: 11 hand gestures from a 128x128 event camera.
@@ -32,6 +46,7 @@ def dvs128_gesture(root, T=16, **_ignored):
         train=train, test=test, C=2, H=128, W=128, num_classes=11,
         name="dvs128_gesture", is_event=True, collate_fn=pad_sequence_collate,
         meta={"split_by": "number", "T": T, "root": root},
+        hflip_labels=DVS128_MIRROR,
     )
 
 

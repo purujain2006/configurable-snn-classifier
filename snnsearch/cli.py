@@ -152,8 +152,12 @@ def build_parser():
     t.add_argument("--from-best", dest="from_best", metavar="BEST_JSON", required=True,
                    help="the network to study: best_finalist.json or best.json")
     t.add_argument("--seeds", type=int, default=3)
+    t.add_argument("--folds", type=int, default=0,
+                   help="train every variant once per subject fold instead of once per "
+                        "seed, so each training person is held out once (e.g. 5)")
     t.add_argument("--epochs", type=int, help="default: the trial's own epoch count")
-    t.add_argument("--only", help="comma-separated options to study, e.g. augment,loss")
+    t.add_argument("--only", help="comma-separated options to study, e.g. augment,loss "
+                                  "or T,time_drop,mirror,optimizer,rate_penalty_timing")
     t.add_argument("--gpu-fraction", type=float, dest="gpu_fraction")
 
     p = sub.add_parser("report", help="rebuild report.html from a run directory")
@@ -214,7 +218,7 @@ def main(argv=None):
         from .study import run_option_study
         only = [o.strip() for o in args.only.split(",")] if args.only else None
         run_option_study(cfg, load_flat_config(args.from_best), seeds=args.seeds,
-                         epochs=args.epochs, only=only)
+                         epochs=args.epochs, only=only, folds=args.folds)
         return 0
 
     return 1
