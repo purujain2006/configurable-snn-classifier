@@ -312,6 +312,45 @@ class FpgaTarget(unittest.TestCase):
         self.assertFalse(ms.use_fast_input_packets(ctrl))
         self.assertIs(ctrl.input_user, different)
 
+    def test_host_meter_counts_dma_calls_and_what_they_read(self):
+        """HostMeter wraps the dmadump module's read and write and hs_bridge's
+        spike decoder: per step it reports the calls, their time, and the
+        packets read by kind, and it follows a reset."""
+        import importlib.util
+        import types
+        spec = importlib.util.spec_from_file_location(
+            "match_simplesim", os.path.join(ROOT, "tools", "match_simplesim.py"))
+        ms = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(ms)
+
+        def packet(b62, b63):
+            return [0] * 62 + [b62, b63]
+
+        stream = [packet(255, 255), packet(238, 238), packet(238, 238), packet(205, 171),
+                  packet(0xBA, 0xBA), packet(0xBA, 0xCA), packet(7, 7)]
+        dd = types.SimpleNamespace(
+            dma_dump_read=lambda *a: (0, stream.pop(0)),
+            dma_dump_write=lambda *a: 0)
+        ctrl = types.SimpleNamespace(read_spikes=lambda p: (0, [(0, 1, 0)]))
+        meter = ms.HostMeter(dd, ctrl)
+        dd.dma_dump_write([0] * 64, 64, 1, 0, 0, 0, 0)
+        for _ in range(7):
+            _code, p = dd.dma_dump_read(1, 0, 0, 0, 0, 64)
+            if p[62] == 238:
+                self.assertEqual(ctrl.read_spikes(p), (0, [(0, 1, 0)]))
+        h = meter.per_step(steps=1, step_s=1.0)
+        self.assertEqual((h["dma_reads"], h["dma_writes"]), (7, 1))
+        self.assertEqual(h["packets"], {"count": 2, "done": 1, "empty": 1, "other": 1,
+                                        "spikes": 2})
+        self.assertGreaterEqual(h["decode_s"], 0.0)
+        self.assertAlmostEqual(h["other_s"], 1.0 - h["dma_read_s"] - h["dma_write_s"]
+                               - h["decode_s"])
+        line = ms.host_line(h)
+        self.assertIn("7 DMA reads", line)
+        self.assertIn("2 spikes", line)
+        meter.reset()
+        self.assertEqual(meter.per_step(1, 0.0)["dma_reads"], 0)
+
     def test_card_option_sends_every_dma_call_to_that_card(self):
         """--card N: hs_bridge passes card 0 to every dmadump call. After
         use_card, every write, read and full dump goes to card N, by position

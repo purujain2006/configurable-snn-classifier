@@ -535,6 +535,83 @@ def use_card(dd, card):
     dd._card = card
 
 
+# What hs_bridge reads back from the card, by the packet's header (bytes 62-63)
+PACKET_KINDS = {(255, 255): "empty", (204, 204): "empty", (238, 238): "spikes",
+                (205, 171): "done", (0xBA, 0xBA): "count", (0xBA, 0xCA): "count"}
+
+
+class HostMeter:
+    """Where the host's time goes during FPGA steps. Wraps the dmadump
+    module's read and write (as use_card does, so every module that imported
+    it follows) and fpga_controller.read_spikes, and counts: DMA reads and
+    writes with their time, the packets the reads returned by kind (spike
+    packets, empty polls while the card works, step-done and count packets),
+    and the time spent decoding spike packets. Every hs_bridge DMA call opens
+    the card and a DMA engine and closes them again, so the number of calls
+    can matter more than the bytes."""
+
+    def __init__(self, dd, ctrl=None):
+        self.reset()
+        for name, kind in (("dma_dump_read", "read"), ("dma_dump_write", "write")):
+            fn = getattr(dd, name, None)
+            if fn is not None:
+                setattr(dd, name, self._timed(fn, kind))
+        decode = getattr(ctrl, "read_spikes", None) if ctrl is not None else None
+        if decode is not None:
+            def read_spikes(*a, **k):
+                t = time.perf_counter()
+                try:
+                    return decode(*a, **k)
+                finally:
+                    self.decode_s += time.perf_counter() - t
+            ctrl.read_spikes = read_spikes
+
+    def reset(self):
+        from collections import Counter
+        self.calls = {"read": 0, "write": 0}
+        self.secs = {"read": 0.0, "write": 0.0}
+        self.kinds = Counter()
+        self.decode_s = 0.0
+
+    def _timed(self, fn, kind):
+        def call(*a, **k):
+            t = time.perf_counter()
+            out = fn(*a, **k)
+            self.secs[kind] += time.perf_counter() - t
+            self.calls[kind] += 1
+            if kind == "read":
+                try:
+                    data = out[1]
+                    for i in range(len(data) // 64):
+                        p = data[64 * i:64 * i + 64]
+                        self.kinds[PACKET_KINDS.get((int(p[62]), int(p[63])), "other")] += 1
+                except (TypeError, IndexError, ValueError):
+                    pass
+            return out
+        return call
+
+    def per_step(self, steps, step_s):
+        """This clip's figures per step, and the time nothing here accounts for."""
+        n = max(int(steps), 1)
+        out = {"dma_reads": self.calls["read"] / n, "dma_read_s": self.secs["read"] / n,
+               "dma_writes": self.calls["write"] / n, "dma_write_s": self.secs["write"] / n,
+               "decode_s": self.decode_s / n,
+               "packets": {k: v / n for k, v in sorted(self.kinds.items())}}
+        out["other_s"] = step_s - out["dma_read_s"] - out["dma_write_s"] - out["decode_s"]
+        return out
+
+
+def host_line(h):
+    """One line: where a step's host time went."""
+    reads = h["dma_reads"]
+    each = 1000 * h["dma_read_s"] / reads if reads else 0.0
+    kinds = ", ".join(f"{v:,.0f} {k}" for k, v in h["packets"].items())
+    return (f"    host per step: {reads:,.0f} DMA reads {h['dma_read_s']:.2f}s "
+            f"({each:.2f} ms each; {kinds}), {h['dma_writes']:,.0f} writes "
+            f"{h['dma_write_s']:.2f}s, spike decoding {h['decode_s']:.2f}s, "
+            f"rest {h['other_s']:.2f}s")
+
+
 def _real_simplesim(layers, in_shape, items, flush, target="simpleSim", core=0, cores=1,
                     membership=None, parts_fn=None, save_membership=None, card=None):
     """Run clips through hs_api on the full network: its own simple_sim, or
@@ -635,6 +712,11 @@ def _real_simplesim(layers, in_shape, items, flush, target="simpleSim", core=0, 
         if info["fast_input_packets"]:
             print("  input packets built with numpy (byte-identical to hs_bridge's "
                   "input_user, checked just now)", flush=True)
+        try:
+            import hs_bridge.wrapped_dmadump.dmadump as dd
+            meter = HostMeter(dd, fpga_controller)
+        except ImportError:
+            meter = None
         # padding to whole groups of 32 per neuron model adds neurons; clear
         # them too, on every core in use, under the core's physical number
         try:
@@ -654,10 +736,12 @@ def _real_simplesim(layers, in_shape, items, flush, target="simpleSim", core=0, 
             for n, c in to_clear:
                 fpga_controller.clear(n, False, c)
 
+    else:
+        meter = None
     pos = {k: (i, sign) for keys, sign in out_groups for i, k in enumerate(keys)}
     bits = layers[0].get("input_bits", 1)
     results = []
-    info.update(clear_s=[], step_s=[], clip_s=[], counter_mode=None)
+    info.update(clear_s=[], step_s=[], clip_s=[], counter_mode=None, host_per_step=[])
     for ci, (frames, _label) in enumerate(items):
         t1 = time.time()
         # fresh membranes per clip, as Christopher's DVS example clears the FPGA
@@ -666,6 +750,8 @@ def _real_simplesim(layers, in_shape, items, flush, target="simpleSim", core=0, 
         else:
             net.simpleSim.initialize_sim_vars(net.simpleSim.numNeurons)
         info["clear_s"].append(time.time() - t1)
+        if meter is not None:
+            meter.reset()                       # the steps only, not the clear
         counts = [0] * n_cls
         per_step, cycles, hbm = [], [], []
         t2 = time.time()
@@ -699,6 +785,10 @@ def _real_simplesim(layers, in_shape, items, flush, target="simpleSim", core=0, 
               f"{sum(steps) / max(len(steps), 1):.2f}s"
               + (f"; {cyc_step:.0f} clock cycles and {hbm_step:.0f} HBM accesses a step"
                  if cyc_step is not None else "") + ")", flush=True)
+        if meter is not None:
+            host = meter.per_step(len(steps), sum(steps) / max(len(steps), 1))
+            info["host_per_step"].append(host)
+            print(host_line(host), flush=True)
     return results, info
 
 
