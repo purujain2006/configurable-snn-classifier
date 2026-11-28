@@ -476,6 +476,38 @@ def card_files(card, dev="/dev"):
                   if re.fullmatch(rf"adxdma{int(card)}([a-z]\w*)?", n))
 
 
+def card_check(card, dev="/dev", sys_class="/sys/class/adxdma"):
+    """Whether an FPGA run may start on `card` (None = not given), before
+    anything loads: (error, warning), each None or a message. An error: a host
+    with several cards and no card named, a card with no /dev/adxdmaN, or no
+    read/write permission on the card's own device file (ADXDMA_ACCESS_DENIED
+    when it is opened). A warning: only a channel file is locked, which a run
+    may never open."""
+    cards = adxdma_cards(dev, sys_class)
+    listing = ", ".join(f"{n} = {a or 'unknown PCIe address'}" for n, a in cards.items())
+    if card is None and len(cards) > 1:
+        return (f"this host has {len(cards)} FPGA cards ({listing}). hs_bridge would "
+                f"use card 0, which may be someone else's; pass --card N for the "
+                f"card you flashed"), None
+    card = 0 if card is None else int(card)
+    if cards and card not in cards:
+        return f"--card {card}: there is no /dev/adxdma{card} (cards here: {listing})", None
+    locked = [p for p in card_files(card, dev) if not os.access(p, os.R_OK | os.W_OK)]
+    if not locked:
+        return None, None
+    try:
+        import grp
+        group = grp.getgrgid(os.getgid()).gr_name
+    except (ImportError, KeyError):
+        group = "<your group>"
+    files = " ".join(locked)
+    fix = (f"grant your group access to this card only:\n"
+           f"  sudo chgrp {group} {files}\n  sudo chmod g+rw {files}")
+    if os.path.join(dev, f"adxdma{card}") in locked:
+        return f"no read/write permission on card {card}'s device files; {fix}", None
+    return None, f"no read/write permission on {files}; if the run fails to open the card, {fix}"
+
+
 def use_card(dd, card):
     """Point every DMA read and write at ADXDMA card `card`. hs_bridge passes
     card 0 in every call (dma_dump_write's 4th argument, dma_dump_read's 2nd,
@@ -932,31 +964,11 @@ def main():
     if args.card is not None and args.hs_target != "CRI":
         ap.error("--card picks an FPGA card; add --hs-target CRI")
     if args.hs_target == "CRI" and args.real_simplesim:
-        cards = adxdma_cards()
-        listing = ", ".join(f"{n} = {a or 'unknown PCIe address'}" for n, a in cards.items())
-        if args.card is None and len(cards) > 1:
-            ap.error(f"this host has {len(cards)} FPGA cards ({listing}). hs_bridge would "
-                     f"use card 0, which may be someone else's; pass --card N for the "
-                     f"card you flashed")
-        card = 0 if args.card is None else args.card
-        if cards and card not in cards:
-            ap.error(f"--card {card}: there is no /dev/adxdma{card} (cards here: {listing})")
-        locked = [p for p in card_files(card) if not os.access(p, os.R_OK | os.W_OK)]
-        if locked:
-            try:
-                import grp
-                group = grp.getgrgid(os.getgid()).gr_name
-            except (ImportError, KeyError):
-                group = "<your group>"
-            files = " ".join(locked)
-            fix = (f"grant your group access to this card only:\n"
-                   f"  sudo chgrp {group} {files}\n  sudo chmod g+rw {files}")
-            # the card file itself is opened first (ADXDMA_ACCESS_DENIED); a
-            # locked channel file alone may never be opened, so only warn
-            if os.path.join("/dev", f"adxdma{card}") in locked:
-                ap.error(f"no read/write permission on card {card}'s device files; {fix}")
-            print(f"warning: no read/write permission on {files}; if the run fails "
-                  f"to open the card, {fix}", file=sys.stderr)
+        error, warning = card_check(args.card)
+        if error:
+            ap.error(error)
+        if warning:
+            print(f"warning: {warning}", file=sys.stderr)
     for p in args.hs_path:
         sys.path.insert(0, p)
     if args.selftest:

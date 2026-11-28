@@ -429,6 +429,25 @@ python tools/match_simplesim.py --ckpt results/RUN/best.pth --data-root /path/to
 Where hs_api is needed, run from its poetry environment (`poetry run python
 ...` inside hs_api's folder).
 
+### Measure a card's limits
+
+The limits the search designs to (see `limits` in the config reference) were
+measured on the L6m bitstream. To measure them on another bitstream, on the
+FPGA host after flashing it:
+
+```
+poetry run python ~/configurable-snn-classifier/tools/chip_limits.py --label v14 -o ~/fpga_run/v14_limits.html --hs-path ~/hs_api ~/hs_bridge ~/connectome_utils
+```
+
+For input axons, neurons per core, and axon and neuron fan-in and fan-out, it
+runs small networks at the current limit, just past it and well past it, on
+simpleSim and on the FPGA. It reports the largest size where the FPGA matched
+simpleSim exactly, and prints a `limits:` block to paste into a config. A size
+that passed is a floor: the real limit can be higher. If the card stops
+responding it says so and stops; reflash before running anything else. Add
+`--card N` on a host with several cards, and `--only input_axons` (or any
+other limit) to measure one.
+
 ## 11. Troubleshooting
 
 | message | cause | fix |
@@ -587,7 +606,8 @@ network are in `synops_layers`.
 ### limits
 
 For a chip build with other limits. Empty by default, which uses the values in
-`snnsearch/hardware.py`:
+`snnsearch/hardware.py` (measured on the L6m bitstream). `tools/chip_limits.py`
+measures them on a card and prints this block:
 
 | key | default | meaning |
 |---|---|---|
@@ -644,6 +664,7 @@ python tools/checks/check_static.py
 python tests/test_chip_rules.py
 python tests/test_search_space.py
 python tests/test_sim_match.py
+python tests/test_chip_limits.py
 python tests/test_training_options.py
 python tests/test_preflight.py
 python tests/test_study.py
