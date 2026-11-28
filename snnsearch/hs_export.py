@@ -653,6 +653,75 @@ def _synapses(L, prev_shape, out_shape):
             yield j, o, w[o, j]
 
 
+def _synapse_arrays(L, prev_shape, out_shape):
+    """_synapses as three numpy arrays (pre, post, weight), in the same order:
+    by pre index, then output row, output column and output channel. The
+    generator walks every input pixel against every output position and
+    keeps the few a kernel reaches, one Python step each, which took half an
+    hour on a DVS network; this builds each kernel offset's synapses at once."""
+    w = L.get("w")
+    if L["kind"] == "orpool":
+        c_in, h_in, w_in = prev_shape
+        p = L["pool"]
+        hp, wp = h_in // p, w_in // p
+        ci, y, x = np.meshgrid(np.arange(c_in), np.arange(hp * p), np.arange(wp * p),
+                               indexing="ij")
+        pre = ((ci * h_in + y) * w_in + x).ravel()
+        post = ((ci * hp + y // p) * wp + x // p).ravel()
+        return pre, post, np.ones(pre.size, dtype=np.int64)
+    W = np.asarray(w)
+    if L["kind"] == "conv":
+        c_in, h_in, w_in = prev_shape
+        p = L["pool"]
+        hp, wp = h_in // p, w_in // p
+        c_out, h_out, w_out = out_shape
+        kh, kw = W.shape[2:]
+        ph, pw = L["padding"]
+        sh, sw = L["stride"]
+        ci = np.arange(c_in)[:, None, None]
+        co = np.arange(c_out)[None, :, None]
+        parts = []
+        for ky in range(kh):
+            oy = np.arange(h_out)
+            py = oy * sh - ph + ky
+            oy, py = oy[(py >= 0) & (py < hp)], py[(py >= 0) & (py < hp)]
+            for kx in range(kw):
+                ox = np.arange(w_out)
+                px = ox * sw - pw + kx
+                ox, px = ox[(px >= 0) & (px < wp)], px[(px >= 0) & (px < wp)]
+                if not oy.size or not ox.size:
+                    continue
+                OY, OX = (a.ravel()[None, None, :] for a in np.meshgrid(oy, ox, indexing="ij"))
+                PY, PX = (a.ravel()[None, None, :] for a in np.meshgrid(py, px, indexing="ij"))
+                wk = W[:, :, ky, kx].T[:, :, None]                 # (c_in, c_out, 1)
+                post = (co * h_out + OY) * w_out + OX
+                for dy in range(p):                                # every pixel a pool folds
+                    for dx in range(p):
+                        pre = (ci * h_in + PY * p + dy) * w_in + PX * p + dx
+                        shape = np.broadcast_shapes(pre.shape, post.shape)
+                        parts.append(tuple(np.broadcast_to(a, shape).ravel() for a in
+                                           (pre, post, wk, OY, OX, co)))
+        if not parts:
+            return (np.zeros(0, np.int64),) * 2 + (np.zeros(0, W.dtype),)
+        pre, post, wt, oy, ox, cc = (np.concatenate(c) for c in zip(*parts))
+        order = np.lexsort((cc, ox, oy, pre))
+        return pre[order], post[order], wt[order]
+    if len(prev_shape) == 3 and L["pool"] > 1:
+        c_in, h_in, w_in = prev_shape
+        p = L["pool"]
+        hp, wp = h_in // p, w_in // p
+        ci, y, x = np.meshgrid(np.arange(c_in), np.arange(hp * p), np.arange(wp * p),
+                               indexing="ij")
+        pre = ((ci * h_in + y) * w_in + x).ravel()
+        flat = ((ci * hp + y // p) * wp + x // p).ravel()
+        n_out = W.shape[0]
+        return (np.repeat(pre, n_out), np.tile(np.arange(n_out), pre.size),
+                W[:, flat].T.ravel())
+    n_in, n_out = int(np.prod(prev_shape)), W.shape[0]
+    return (np.repeat(np.arange(n_in), n_out), np.tile(np.arange(n_out), n_in),
+            W[:, :n_in].T.ravel())
+
+
 def unroll_to_hs_api(layers, in_shape, neuron_model_factory=None):
     """Build (axons, connections, groups) in CRI_network's format.
 
@@ -724,15 +793,6 @@ def unroll_to_hs_api(layers, in_shape, neuron_model_factory=None):
                     connections[f"BiasN.L{li}{tag}.c{ch}.{j}"] = (
                         [(t, w) for t in targets[sl]], bias_model)
 
-    def add(src, pre_key, post_key, weight):
-        weight = int(weight)
-        if weight == 0:
-            return
-        if src == "axon":
-            axons[pre_key].append((post_key, weight))
-        else:
-            connections[pre_key][0].append((post_key, weight))
-
     prev_shape = (C, H, W)
     for li, L in enumerate(layers):
         # where this layer's input comes from: the axons (one group per bit,
@@ -742,16 +802,35 @@ def unroll_to_hs_api(layers, in_shape, neuron_model_factory=None):
                        for k in range(bits)]
         else:
             sources = [("neuron", keys, sign, 1) for keys, sign in groups[li - 1]]
-        for pre, post, weight in _synapses(L, prev_shape, shapes[li]):
-            for src, src_keys, src_sign, mult in sources:
-                for tgt_keys, tgt_sign in groups[li]:
-                    if L["kind"] == "orpool":
-                        # an OR neuron reads only the spikes of its own sign
-                        if src_sign == tgt_sign:
-                            add(src, src_keys[pre], tgt_keys[post], 1)
-                    else:
-                        add(src, src_keys[pre], tgt_keys[post],
-                            weight * src_sign * tgt_sign * mult)
+        pre, post, weight = _synapse_arrays(L, prev_shape, shapes[li])
+        targets = [(np.array(keys, dtype=object), sign) for keys, sign in groups[li]]
+        for src, src_keys, src_sign, mult in sources:
+            # Every entry this source sends, in the order a synapse-by-synapse
+            # walk appends them: by synapse, then the positive target group
+            # before the negative one. Zero weights are not stored.
+            ws, ks = [], []
+            for tgt_keys, tgt_sign in targets:
+                if L["kind"] == "orpool":
+                    # an OR neuron reads only the spikes of its own sign
+                    w = np.full(pre.size, 1 if src_sign == tgt_sign else 0, np.int64)
+                else:
+                    w = weight * src_sign * tgt_sign * mult
+                    if not np.issubdtype(w.dtype, np.integer):
+                        w = np.trunc(w)                  # as int() on a float
+                ws.append(w.astype(np.int64))
+                ks.append(tgt_keys[post])
+            w = np.stack(ws, axis=1).ravel()
+            k = np.stack(ks, axis=1).ravel()
+            p = np.repeat(pre, len(targets))
+            keep = w != 0
+            w, k, p = w[keep], k[keep], p[keep]
+            entries = list(zip(k.tolist(), w.tolist()))
+            # p only rises, so each source neuron's entries are one run
+            starts = np.flatnonzero(np.r_[True, p[1:] != p[:-1]]) if p.size else p
+            ends = np.r_[starts[1:], p.size]
+            for a, b in zip(starts.tolist(), ends.tolist()):
+                key = src_keys[int(p[a])]
+                (axons[key] if src == "axon" else connections[key][0]).extend(entries[a:b])
         prev_shape = shapes[li]
     return axons, connections, groups
 

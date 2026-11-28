@@ -119,6 +119,97 @@ class SimMatch(unittest.TestCase):
                 self.assertEqual(mismatches, 0, "exact_copy")
 
 
+class UnrollMatch(unittest.TestCase):
+    """unroll_to_hs_api builds each layer's synapses with numpy. It must
+    write exactly what the one-synapse-at-a-time walk over _synapses wrote:
+    the same keys, synapses, weights and order in every list."""
+
+    def test_synapse_arrays_are_the_generator_in_order(self):
+        from snnsearch.hs_export import _synapses, _synapse_arrays
+        rng = np.random.default_rng(0)
+
+        def check(L, prev, out):
+            ref = list(_synapses(L, prev, out))
+            pre, post, w = _synapse_arrays(L, prev, out)
+            self.assertEqual(list(zip(pre.tolist(), post.tolist(), w.tolist())),
+                             [(int(a), int(b), int(c)) for a, b, c in ref])
+            return len(ref)
+
+        for (c_in, h, w_, c_out, kh, kw, pad, stride, pool) in [
+                (3, 9, 7, 4, 3, 5, (1, 2), (2, 1), 2),        # padding, stride, odd sizes behind a pool
+                (2, 8, 8, 3, 3, 3, (0, 0), (1, 1), 1),
+                (1, 11, 6, 2, 5, 2, (2, 0), (3, 2), 1),
+                (2, 5, 5, 2, 7, 7, (0, 0), (1, 1), 1)]:          # a kernel larger than the map
+            hp, wp = h // pool, w_ // pool
+            out = (c_out, (hp + 2 * pad[0] - kh) // stride[0] + 1,
+                   (wp + 2 * pad[1] - kw) // stride[1] + 1)
+            W = rng.integers(-3, 4, (c_out, c_in, kh, kw))
+            L = {"kind": "conv", "w": W, "pool": pool, "padding": pad, "stride": stride}
+            if out[1] > 0 and out[2] > 0:
+                with self.subTest(conv=(c_in, h, w_, kh, kw, pad, stride, pool)):
+                    check(L, (c_in, h, w_), out)
+        with self.subTest(kind="orpool"):
+            self.assertEqual(check({"kind": "orpool", "pool": 2}, (3, 7, 9), (3, 3, 4)), 3 * 6 * 8)
+        with self.subTest(kind="fc behind a pool"):
+            check({"kind": "fc", "pool": 2, "w": rng.integers(-3, 4, (5, 3 * 3 * 4))},
+                  (3, 7, 9), (5,))
+        with self.subTest(kind="fc"):
+            check({"kind": "fc", "pool": 1, "w": rng.integers(-3, 4, (4, 30))}, (30,), (4,))
+
+    def test_unroll_writes_what_the_walk_wrote(self):
+        from collections import defaultdict
+        from unittest import mock
+        from snnsearch.hs_export import (unroll_to_hs_api, _synapses, _normalize,
+                                         _layer_shapes)
+
+        def walked(layers, in_shape, groups):
+            """Every synapse list as the old loop appended it."""
+            layers = [_normalize(L) for L in layers]
+            shapes = _layer_shapes(layers, in_shape)
+            bits = int(layers[0].get("input_bits", 1) or 1)
+            n_in = int(np.prod(in_shape))
+            lists, prev = defaultdict(list), tuple(in_shape)
+            for li, L in enumerate(layers):
+                if li == 0:
+                    sources = [([f"A{i * bits + k}" for i in range(n_in)], 1, 2 ** k)
+                               for k in range(bits)]
+                else:
+                    sources = [(keys, sign, 1) for keys, sign in groups[li - 1]]
+                for pre, post, weight in _synapses(L, prev, shapes[li]):
+                    for src_keys, src_sign, mult in sources:
+                        for tgt_keys, tgt_sign in groups[li]:
+                            if L["kind"] == "orpool":
+                                if src_sign == tgt_sign:
+                                    lists[src_keys[pre]].append((tgt_keys[post], 1))
+                            else:
+                                w = int(weight * src_sign * tgt_sign * mult)
+                                if w:
+                                    lists[src_keys[pre]].append((tgt_keys[post], w))
+                prev = shapes[li]
+            return lists
+
+        combos = list(itertools.product(("avg", "max"), ("flatten", "gap"),
+                                        ("threshold", "neuron"), (False, True)))
+        cases = [(p, h, b, s, False, 1) for p, h, b, s in combos] + [
+            ("avg", "flatten", "threshold", False, True, 3), ("max", "gap", "neuron", True, True, 2)]
+        for i, (pool, head, bias, signed, per_channel, bits) in enumerate(cases):
+            with self.subTest(pool=pool, head=head, bias=bias, signed=signed, bits=bits):
+                layers = integer_layers(build(pool, head, bias, signed, per_channel, bits, seed=i))
+                with mock.patch.dict(sys.modules, planted_bug_hs_api()):
+                    axons, conns, groups = unroll_to_hs_api(layers, (2, 16, 16))
+                ref = walked(layers, (2, 16, 16), groups)
+                n = 0
+                for k, syn in axons.items():
+                    self.assertEqual(syn, ref.get(k, []), k)
+                    n += len(syn)
+                for k, (syn, _model) in conns.items():
+                    if not k.startswith("BiasN"):
+                        self.assertEqual(syn, ref.get(k, []), k)
+                        n += len(syn)
+                self.assertEqual(n, sum(len(v) for v in ref.values()))
+                self.assertGreater(n, 0)
+
+
 class FpgaTarget(unittest.TestCase):
     """tools/match_simplesim.py --hs-target CRI runs clips on the FPGA through
     hs_api. Without hardware, stand-in hs_api and hs_bridge modules check the
