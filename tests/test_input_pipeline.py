@@ -78,6 +78,14 @@ class InputPipelineTests(unittest.TestCase):
                                       folds=0, fold=0)
         self.assertEqual((self.cfg, flat), before)
 
+    def test_mirror_map_reaches_the_training_spec(self):
+        """A dataset's mirror map rides into InputSpec on the path every trial
+        and replay takes, or a mirror variant would silently not mirror."""
+        self.bundle.hflip_labels = (0, 2, 1, 3, 4, 5, -1)
+        with redirect_stdout(io.StringIO()):
+            _b, _e, spec = pipeline.resolve_specs(self.cfg, trial_config(), quiet=True)
+        self.assertEqual(spec["input"].hflip_labels, "0,2,1,3,4,5,-1")
+
     def test_missing_or_null_input_knobs_inherit_config(self):
         for null in (False, True):
             for keys in (("T",), ("resize_to",), ("T", "resize_to")):

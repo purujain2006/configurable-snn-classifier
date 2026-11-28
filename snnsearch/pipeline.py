@@ -219,10 +219,12 @@ def resolve_specs(cfg, flat_config=None, quiet=False):
     # The dataset decides the channel count and the class count, because those
     # are facts about the data. T and resize_to are not: they are choices, and
     # they belong to whoever made them.
+    from .spaces import data_facts
     spec["input"] = InputSpec(C=bundle.C, H=bundle.H, W=bundle.W,
                               T=T, resize_to=resize or 0, N=batch,
                               input_bits=input_bits,
-                              hflip_ok=bool(getattr(bundle, "hflip_ok", False)))
+                              hflip_ok=bool(getattr(bundle, "hflip_ok", False)),
+                              hflip_labels=data_facts(bundle)["hflip_labels"])
     spec["output"] = OutputSpec(num_classes=bundle.num_classes)
     return bundle, encoder, spec
 
