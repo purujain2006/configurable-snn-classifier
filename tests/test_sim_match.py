@@ -447,6 +447,169 @@ class FpgaTarget(unittest.TestCase):
         meter.reset()
         self.assertEqual(meter.per_step(1, 0.0)["dma_reads"], 0)
 
+    def test_fast_synapse_writes_send_hs_bridge_bytes(self):
+        """use_fast_synapse_writes checks itself against the installed
+        create_synapses (hs_bridge v14's 32-bit path, copied below) and swaps
+        it; then every DMA write, length and printed spike address matches on
+        random tables, a table it cannot encode falls back to the original,
+        and an original that writes other bytes is kept."""
+        import contextlib
+        import importlib.util
+        import io
+        import types
+        spec = importlib.util.spec_from_file_location(
+            "match_simplesim", os.path.join(ROOT, "tools", "match_simplesim.py"))
+        ms = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(ms)
+        SYN_OP_BITS, SYN_ADDR_BITS, SYN_WEIGHT_BITS, SYN_BASE_ADDR = 3, 13, 16, 2 ** 15
+        writes = []
+        mod = types.ModuleType("fpga_compiler")
+        mod.SYN_BASE_ADDR = SYN_BASE_ADDR
+        mod.dmadump = types.SimpleNamespace(
+            DmaMethodNormal=0,
+            dma_dump_write=lambda data, n, *rest: writes.append(
+                (np.asarray(data).dtype.str, np.asarray(data).tolist(), n, rest)) or 0)
+
+        class fpga_compiler:                    # hs_bridge v14 312dc37, 32-bit path as written
+            def __init__(self, synapses, core):
+                self.synapses = synapses
+                coreBits = np.binary_repr(core, 5) + 3 * '0'
+                self.HBM_OP_RW = '02' + '{:0{width}x}'.format(int(coreBits, 2), width=2) + 27 * '00'
+                self.HBM_OP_RW_LIST = [2, int(coreBits, 2)] + [0] * 27
+
+            def txt2script(self, cmd_str):
+                cmd, script_txt = cmd_str, ''
+                while cmd:
+                    script_txt += '0x' + cmd[-2:] + ' '
+                    cmd = cmd[0:-2]
+                return script_txt
+
+            def create_synapses(self, simDump=False, syn_64bit=False):
+                weights = self.synapses
+                bigCmdList = []
+                for r, d in enumerate(weights):
+                    oldCmd = ''
+                    cmd = []
+                    for w in d:
+                        if w[0] == 0:
+                            binCmd = np.binary_repr(0, SYN_OP_BITS) + np.binary_repr(int(w[1]), SYN_ADDR_BITS) + np.binary_repr(int(w[2]), SYN_WEIGHT_BITS)
+                            oldCmd += '{:0{width}x}'.format(int(binCmd, 2), width=8)
+                            cmd = cmd + [int(binCmd[:8], 2), int(binCmd[8:16], 2), int(binCmd[16:24], 2), int(binCmd[24:], 2)]
+                        elif w[0] == 1:
+                            print(w[1])
+                            binSpike = np.binary_repr(4, SYN_OP_BITS) + 12 * '0' + np.binary_repr(w[1], 17)
+                            oldCmd += '{:0{width}x}'.format(int(binSpike, 2), width=8)
+                            cmd = cmd + [int(binSpike[:8], 2), int(binSpike[8:16], 2), int(binSpike[16:24], 2), int(binSpike[24:], 2)]
+                    oldCmd = self.HBM_OP_RW + '{:0{width}x}'.format(0x800000 + SYN_BASE_ADDR + r, width=6) + oldCmd
+                    rowAddress = '1' + np.binary_repr(r + SYN_BASE_ADDR, 23)
+                    cmd = self.HBM_OP_RW_LIST + [int(rowAddress[:8], 2), int(rowAddress[8:16], 2), int(rowAddress[16:], 2)] + cmd
+                    oldCmd = self.txt2script(oldCmd) + '\n'
+                    cmd = np.flip(np.array(cmd, dtype=np.uint64))
+                    bigCmdList.append(cmd)
+                split = np.concatenate(bigCmdList)
+                while True:
+                    element = split[:640]
+                    split = split[640:]
+                    if element.size == 0:
+                        break
+                    mod.dmadump.dma_dump_write(element, len(element), 1, 0, 0, 0, mod.dmadump.DmaMethodNormal)
+
+        mod.fpga_compiler = fpga_compiler
+        original = fpga_compiler.create_synapses
+        self.assertTrue(ms.use_fast_synapse_writes(mod))
+        self.assertIsNot(fpga_compiler.create_synapses, original)
+        self.assertTrue(ms.use_fast_synapse_writes(mod))                # twice is fine
+        rng = np.random.default_rng(4)
+
+        def table(n_rows, big=False):
+            rows = []
+            for _ in range(n_rows):
+                row = []
+                for _ in range(8):
+                    k = rng.integers(0, 4)
+                    if k == 0:
+                        row.append((0, 0, 0))
+                    elif k == 1:
+                        row.append((1, int(rng.integers(0, 2 ** 17))))
+                    else:
+                        row.append((0, int(rng.integers(0, 2 ** 13)),
+                                    int(rng.integers(-2 ** 15, 2 ** 16 + (5 if big else 0)))))
+                rows.append(row)
+            return rows
+
+        for n_rows, core, big in ((1, 0, False), (10, 3, False), (57, 15, False), (40, 2, True)):
+            with self.subTest(rows=n_rows, core=core, falls_back=big):
+                rows = table(n_rows, big)
+                comp = fpga_compiler(rows, core)
+                if big:
+                    # past 16 bits the original's np.binary_repr raises; the
+                    # fast version hands such a table back to it, so it raises too
+                    rows[0][0] = (0, 7, 2 ** 16 + 3)
+                    for run in (lambda: original(comp), comp.create_synapses):
+                        with contextlib.redirect_stdout(io.StringIO()), \
+                                self.assertRaises(ValueError):
+                            run()
+                    continue
+                writes.clear()
+                with contextlib.redirect_stdout(io.StringIO()) as said:
+                    original(comp)
+                want, want_said = list(writes), said.getvalue()
+                writes.clear()
+                with contextlib.redirect_stdout(io.StringIO()) as said:
+                    comp.create_synapses()
+                self.assertEqual(writes, want)
+                self.assertEqual(said.getvalue(), want_said)
+                self.assertEqual(len(want), -(-n_rows // 10))
+
+        # an installed create_synapses that writes something else is kept
+        class other(fpga_compiler):
+            def create_synapses(self, simDump=False, syn_64bit=False):
+                mod.dmadump.dma_dump_write(np.zeros(64, np.uint64), 64, 1, 0, 0, 0, 0)
+        mod.fpga_compiler = other
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertFalse(ms.use_fast_synapse_writes(mod))
+        self.assertFalse(getattr(other.create_synapses, "_fast", False))
+
+    def test_fast_network_copies_keep_what_deepcopy_keeps(self):
+        """hs_api's four copies of the network dictionaries: new dicts and
+        lists, the same immutable tuples, models deep-copied once per copy
+        with sharing kept, and anything else left to deepcopy."""
+        import copy
+        import importlib.util
+        import types
+        spec = importlib.util.spec_from_file_location(
+            "match_simplesim", os.path.join(ROOT, "tools", "match_simplesim.py"))
+        ms = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(ms)
+        api = types.SimpleNamespace(copy=copy)
+        self.assertTrue(ms.use_fast_network_copies(api))
+        self.assertTrue(ms.use_fast_network_copies(api))                 # twice is fine
+
+        class Model:
+            def __init__(self, theta):
+                self.theta = theta
+
+        shared = Model(5)
+        axons = {"A0": [("n0", 3), ("n1", -2)], "A1": []}
+        conns = {"n0": ([("n1", 7)], shared), "n1": ([], shared), "n2": ([], Model(9))}
+        for x in (axons, conns):
+            fast, slow = api.copy.deepcopy(x), copy.deepcopy(x)
+            self.assertEqual(list(fast), list(slow))
+            for k in x:
+                a, b = (fast[k], slow[k]) if x is axons else (fast[k][0], slow[k][0])
+                self.assertEqual(a, b)
+                self.assertIsNot(a, x[k] if x is axons else x[k][0])      # a new list
+                self.assertTrue(all(t is u for t, u in zip(a, x[k] if x is axons else x[k][0])))
+        fast = api.copy.deepcopy(conns)
+        self.assertIs(fast["n0"][1], fast["n1"][1])                        # still shared
+        self.assertIsNot(fast["n0"][1], shared)                            # but a copy
+        self.assertEqual(fast["n2"][1].theta, 9)
+        other = {"a": {"b": [1]}}
+        out = api.copy.deepcopy(other)
+        self.assertEqual(out, other)
+        self.assertIsNot(out["a"], other["a"])                             # real deepcopy
+        self.assertEqual(api.copy.copy([1, 2]), [1, 2])                    # the rest of copy
+
     def test_card_option_sends_every_dma_call_to_that_card(self):
         """--card N: hs_bridge passes card 0 to every dmadump call. After
         use_card, every write, read and full dump goes to card N, by position

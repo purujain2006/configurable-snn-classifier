@@ -440,6 +440,215 @@ def use_fast_input_packets(ctrl, network=None):
     return True
 
 
+def synapse_stream(rows, header, syn_base):
+    """The bytes hs_bridge's create_synapses sends for 32-bit synapses, built
+    with numpy: (one uint64 array, the spike-entry addresses it prints), or
+    None when a row is not the plain form below, so the original runs.
+
+    Each row is DATA_PER_ROW = 8 slots: (0, address, weight) a synapse,
+    (1, address) a spike entry, (0, 0, 0) empty. A synapse is the 32-bit word
+    address << 16 | weight (16-bit two's complement), a spike entry
+    4 << 29 | address. A row goes out as the 29-byte write header, the 3-byte
+    HBM row (1 << 23 | syn_base + row), then its 8 words big-endian, and the
+    whole 64 bytes reversed. The original builds every word through
+    np.binary_repr and string parsing, and a hex string it never uses, which
+    cost about 100 us a synapse: three quarters of a 16-core load."""
+    import numpy as np
+    n = len(rows)
+    if not n or len(header) != 29 or n - 1 + syn_base >= 1 << 23:
+        return None
+    flat = []
+    for d in rows:
+        if len(d) != 8:
+            return None
+        flat.extend(d)
+    try:
+        ops = np.fromiter((w[0] for w in flat), np.int64, len(flat))
+        addr = np.fromiter((w[1] for w in flat), np.int64, len(flat))
+        wt = np.fromiter((w[2] if w[0] == 0 else 0 for w in flat), np.int64, len(flat))
+    except (TypeError, ValueError, IndexError, OverflowError):
+        return None
+    syn, spk = ops == 0, ops == 1
+    if not (syn | spk).all():
+        return None
+    # past these the original's bit strings come out longer than their fields
+    if ((addr[syn] < 0) | (addr[syn] >= 1 << 13) | (wt[syn] < -(1 << 15))
+            | (wt[syn] >= 1 << 16)).any() or ((addr[spk] < 0) | (addr[spk] >= 1 << 17)).any():
+        return None
+    words = np.where(syn, (addr << 16) | (wt & 0xFFFF), (4 << 29) | addr).astype(np.uint64)
+    out = np.empty((n, 64), np.uint64)
+    out[:, :29] = np.asarray(header, np.uint64)
+    row = (1 << 23) | (np.arange(n, dtype=np.int64) + syn_base)
+    out[:, 29], out[:, 30], out[:, 31] = (row >> 16) & 255, (row >> 8) & 255, row & 255
+    words = words.reshape(n, 8)
+    for b, shift in enumerate((24, 16, 8, 0)):
+        out[:, 32 + b::4] = (words >> np.uint64(shift)) & np.uint64(255)
+    return out[:, ::-1].ravel(), [flat[i][1] for i in np.flatnonzero(spk).tolist()]
+
+
+def use_fast_synapse_writes(compiler_module):
+    """Swap hs_bridge's fpga_compiler.create_synapses (32-bit path, not
+    simDump) for one that sends synapse_stream's bytes in the same 640-byte
+    DMA writes. First runs both on a synthetic table (edge weights and
+    addresses, spike entries, empty slots, rows spanning several writes) with
+    a recorder in place of the module's dmadump, so the card is not touched,
+    and swaps only if every write, length, argument and printed line matches.
+    Returns True when swapped."""
+    import contextlib
+    import io
+    import numpy as np
+    cls = getattr(compiler_module, "fpga_compiler", None)
+    orig = getattr(cls, "create_synapses", None)
+    base = getattr(compiler_module, "SYN_BASE_ADDR", None)
+    if orig is None or base is None:
+        return False
+    if getattr(orig, "_fast", False):
+        return True
+
+    def fast(self, simDump=False, syn_64bit=False):
+        if simDump or syn_64bit:
+            return orig(self, simDump, syn_64bit)
+        got = synapse_stream(self.synapses, self.HBM_OP_RW_LIST, base)
+        if got is None:
+            return orig(self, simDump, syn_64bit)
+        stream, spikes = got
+        for a in spikes:
+            print(a)                            # as the original does
+        dd = compiler_module.dmadump
+        for i in range(0, stream.size, 640):
+            element = stream[i:i + 640]
+            dd.dma_dump_write(element, len(element), 1, 0, 0, 0, dd.DmaMethodNormal)
+
+    rng = np.random.default_rng(0)
+    rows = []
+    for r in range(23):                         # 23 rows: three writes, the last short
+        row = []
+        for s in range(8):
+            pick = (r + s) % 5
+            if pick == 0:
+                row.append((0, 0, 0))
+            elif pick == 1:
+                row.append((1, int(rng.integers(0, 1 << 17))))
+            else:
+                row.append((0, int(rng.integers(0, 1 << 13)),
+                            int(rng.integers(-(1 << 15), 1 << 16))))
+        rows.append(row)
+    rows[0] = [(0, 0, -(1 << 15)), (0, (1 << 13) - 1, (1 << 16) - 1), (1, (1 << 17) - 1),
+               (0, np.int64(5), np.int64(-1)), (0, 0, 0), (1, 0), (0, 1, 1), (0, 0, 0)]
+    inst = object.__new__(cls)
+    inst.synapses = rows
+    inst.HBM_OP_RW_LIST = [2, 5 << 3] + [0] * 27
+    inst.HBM_OP_RW = "02" + "28" + 27 * "00"
+    seen = []
+
+    class Recorder:
+        DmaMethodNormal = 0
+
+        @staticmethod
+        def dma_dump_write(data, n, *rest):
+            arr = np.asarray(data)
+            seen.append((arr.dtype.str, arr.tolist(), n, rest))
+            return 0
+
+    saved = compiler_module.dmadump
+    compiler_module.dmadump = Recorder
+    try:
+        with contextlib.redirect_stdout(io.StringIO()) as said:
+            orig(inst)
+        want, want_said = list(seen), said.getvalue()
+        seen.clear()
+        with contextlib.redirect_stdout(io.StringIO()) as said:
+            fast(inst)
+        same = seen == want and said.getvalue() == want_said and len(want) == 3
+    except Exception as exc:
+        print(f"  could not check hs_bridge's create_synapses ({exc}); keeping it", flush=True)
+        return False
+    finally:
+        compiler_module.dmadump = saved
+    if not same:
+        print("  hs_bridge's synapse writes differ from the fast copy; keeping "
+              "hs_bridge's create_synapses (slow)", flush=True)
+        return False
+    fast._fast = True
+    cls.create_synapses = fast
+    return True
+
+
+class _FastNetworkCopy:
+    """Stands in for the `copy` module inside hs_api.api. CRI_network deep-
+    copies the axons and connections dictionaries four times, walking every
+    synapse tuple each time. For those two shapes ({key: [(target, weight,
+    ...)]} and {key: ([...], model)}) this copies the dictionaries and lists
+    and keeps the tuples, which hold only immutable keys and numbers, so
+    deepcopy would return the same tuple objects anyway. Neuron models are
+    still deep-copied, sharing one memo, as deepcopy does, so neurons that
+    shared a model still share its copy. Anything else goes to deepcopy."""
+
+    def __init__(self, real):
+        self._real = real
+
+    def __getattr__(self, name):
+        return getattr(self._real, name)
+
+    def deepcopy(self, x, memo=None):
+        out = self._network_dict(x) if memo is None else None
+        return self._real.deepcopy(x, memo) if out is None else out
+
+    def _network_dict(self, x):
+        if type(x) is not dict:
+            return None
+        memo, out = {}, {}
+        for k, v in x.items():
+            if type(v) is list:
+                syn, model, is_conn = v, None, False
+            elif type(v) is tuple and len(v) == 2 and type(v[0]) is list:
+                (syn, model), is_conn = v, True
+            else:
+                return None
+            if syn and type(syn[0]) is not tuple:
+                return None
+            out[k] = (list(syn), self._real.deepcopy(model, memo)) if is_conn else list(syn)
+        return out
+
+
+def use_fast_network_copies(api_module):
+    """Give hs_api.api the copier above in place of the copy module. True
+    when it is in place."""
+    import copy
+    real = getattr(api_module, "copy", None)
+    if isinstance(real, _FastNetworkCopy):
+        return True
+    if real is not copy:
+        return False
+    api_module.copy = _FastNetworkCopy(copy)
+    return True
+
+
+def use_fast_load(quiet=False):
+    """Both load speedups, for a CRI_network build on the FPGA. Returns which
+    are in place."""
+    done = {}
+    try:
+        import hs_bridge.FPGA_Execution.fpga_compiler as compiler
+        done["synapse_writes"] = use_fast_synapse_writes(compiler)
+    except ImportError:
+        done["synapse_writes"] = False
+    try:
+        import hs_api.api as api
+        done["network_copies"] = use_fast_network_copies(api)
+    except ImportError:
+        done["network_copies"] = False
+    if not quiet and any(done.values()):
+        print("  loading faster: "
+              + ", ".join(n for n, ok in (("synapse writes built with numpy (byte-identical to "
+                                           "hs_bridge's, checked just now)",
+                                           done["synapse_writes"]),
+                                          ("hs_api's four network copies made without "
+                                           "walking every synapse", done["network_copies"]))
+                          if ok), flush=True)
+    return done
+
+
 PCI_ADDR = r"[0-9a-f]{4}:[0-9a-f]{2}:[0-9a-f]{2}\.[0-7]"
 
 
@@ -706,6 +915,7 @@ def _real_simplesim(layers, in_shape, items, flush, target="simpleSim", core=0, 
 
     meter = None
     if target == "CRI":
+        info["fast_load"] = use_fast_load()
         # from before the load, so the load's DMA traffic is measured too
         from hs_bridge.FPGA_Execution import fpga_controller
         try:

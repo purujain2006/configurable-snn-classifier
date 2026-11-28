@@ -474,6 +474,7 @@ def prepare_card(card):
     if ms.use_fast_input_packets(fpga_controller, hsb_network):
         print("input packets built with numpy (byte-identical to hs_bridge's input_user, "
               "checked just now)", flush=True)
+    ms.use_fast_load()
 
 
 def main(argv=None):
